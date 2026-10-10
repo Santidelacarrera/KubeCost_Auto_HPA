@@ -6,10 +6,10 @@ require (
 	github.com/alicebob/miniredis/v2 v2.40.0
 	github.com/prometheus/client_golang v1.24.1
 	github.com/redis/go-redis/v9 v9.7.3
-	k8s.io/api v0.31.4
-	k8s.io/apimachinery v0.31.4
-	k8s.io/client-go v0.31.4
-	sigs.k8s.io/controller-runtime v0.19.4
+	k8s.io/api v0.31.14
+	k8s.io/apimachinery v0.31.14
+	k8s.io/client-go v0.31.14
+	sigs.k8s.io/controller-runtime v0.19.7
 )
 
 require (
