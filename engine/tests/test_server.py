@@ -130,3 +130,26 @@ def test_tls_and_mtls(monkeypatch, tmp_path):
             urllib.request.urlopen(url, context=no_cert).read()
     finally:
         srv.shutdown()
+
+
+@pytest.mark.parametrize("patch", [
+    {"p99_ms": -1}, {"rps": -5}, {"cpu_millicores": 0}, {"slo_p99_ms": 0},
+    {"min_millicores": 9000}, {"p99_ms": "50"}, {"p99_ms": True}, {"cpu_usage_millicores": -3},
+])
+def test_invalid_input_rejected(patch):
+    with pytest.raises((ValueError, KeyError)):
+        evaluate({**BASE, **patch})
+
+
+def test_nan_and_infinity_rejected_over_http():
+    srv = make_server("127.0.0.1", 0)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    url = f"http://127.0.0.1:{srv.server_address[1]}/v1/evaluate"
+    try:
+        for raw in (b'{"cpu_millicores":1000,"p99_ms":NaN,"slo_p99_ms":200}',
+                    b'{"cpu_millicores":1000,"p99_ms":Infinity,"slo_p99_ms":200}', b'[1,2]'):
+            with pytest.raises(urllib.error.HTTPError) as e:
+                urllib.request.urlopen(urllib.request.Request(url, raw, {"Content-Type": "application/json"}))
+            assert e.value.code == 400
+    finally:
+        srv.shutdown()

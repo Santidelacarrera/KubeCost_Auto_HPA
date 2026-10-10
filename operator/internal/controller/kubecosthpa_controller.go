@@ -278,10 +278,11 @@ func (r *KubeCostHPAReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			parts = append(parts, fmt.Sprintf("replicas %d->%d (%s)", curReplicas, newReplicas, dec.Replicas.Reason))
 		}
 		summary := strings.Join(parts, "; ")
+		isGrow := (cpuChange && dec.Action == "grow") || (memChange && dec.Memory.Action == "grow") || newReplicas > curReplicas
 		switch {
 		case hpa.Spec.DryRun:
 			hpa.Status.LastReason = "dry-run: would " + summary
-		case r.inCooldown(ctx, key, &hpa):
+		case r.inCooldown(ctx, key, &hpa, isGrow):
 			hpa.Status.LastReason = "suppressed by cooldown: " + summary
 		default:
 			if cpuChange {
@@ -304,6 +305,10 @@ func (r *KubeCostHPAReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				}
 			}
 			hpa.Status.LastResizeTime = &now
+			hpa.Status.LastResizeAction = "shrink"
+			if isGrow {
+				hpa.Status.LastResizeAction = "grow"
+			}
 			if cpuChange || memChange {
 				r.converge(ctx, &hpa, pods, cname, actuator.Target{CPUMillis: desired, MemoryBytes: memBytes(hpa.Spec.Memory, desiredMem)})
 			}
@@ -367,15 +372,25 @@ func (r *KubeCostHPAReconciler) snapshot(ctx context.Context, key string, w metr
 	return s, nil
 }
 
-func (r *KubeCostHPAReconciler) inCooldown(ctx context.Context, key string, h *v1alpha1.KubeCostHPA) bool {
+// growCooldown is the minimum gap between two consecutive growth steps.
+const growCooldown = 30 * time.Second
+
+// inCooldown implements an asymmetric anti-flapping policy: reductions wait the
+// full cooldown after any resize, but growth (an SLO emergency) is only delayed
+// when the previous resize was itself a growth, and then by at most growCooldown.
+func (r *KubeCostHPAReconciler) inCooldown(ctx context.Context, key string, h *v1alpha1.KubeCostHPA, grow bool) bool {
+	last := h.Status.LastResizeTime
+	if grow {
+		if last == nil || h.Status.LastResizeAction != "grow" {
+			return false
+		}
+		return r.now().Sub(last.Time) < min(growCooldown, h.Spec.Cooldown.Duration)
+	}
 	var d storedDecision
 	if ok, err := r.Store.Get(ctx, key+":decision", &d); err == nil && ok {
 		return true
 	}
-	if t := h.Status.LastResizeTime; t != nil && r.now().Sub(t.Time) < h.Spec.Cooldown.Duration {
-		return true
-	}
-	return false
+	return last != nil && r.now().Sub(last.Time) < h.Spec.Cooldown.Duration
 }
 
 func (r *KubeCostHPAReconciler) converge(ctx context.Context, h *v1alpha1.KubeCostHPA, pods []corev1.Pod, container string, t actuator.Target) {

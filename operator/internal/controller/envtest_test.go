@@ -237,3 +237,38 @@ func TestRealAPIServer_MemoryGrowAndReplicaScale(t *testing.T) {
 		t.Fatalf("replicas=%d", *d.Spec.Replicas)
 	}
 }
+
+func TestRealAPIServer_CRDValidation(t *testing.T) {
+	c, _ := startEnv(t)
+	ctx := context.Background()
+	if err := c.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "shop"}}); err != nil {
+		t.Fatal(err)
+	}
+	mk := func(name string, spec map[string]any) error {
+		base := map[string]any{"targetRef": map[string]any{"name": "api"}, "slo": map[string]any{"p99LatencyMs": int64(200)}}
+		for k, v := range spec {
+			base[k] = v
+		}
+		return c.Create(ctx, &unstructured.Unstructured{Object: map[string]any{
+			"apiVersion": "autoscaling.kubecost.io/v1alpha1", "kind": "KubeCostHPA",
+			"metadata": map[string]any{"name": name, "namespace": "shop"}, "spec": base}})
+	}
+	if err := mk("ok", map[string]any{
+		"cpu": map[string]any{"min": "100m", "max": "2"}, "replicas": map[string]any{"min": int64(1), "max": int64(5)},
+		"memory": map[string]any{"min": "64Mi", "max": "1Gi"}, "budget": map[string]any{"monthlyLimitUSD": "5000.50"}}); err != nil {
+		t.Fatalf("valid CR rejected: %v", err)
+	}
+	for name, spec := range map[string]map[string]any{
+		"cpu-inverted":      {"cpu": map[string]any{"min": "2", "max": "100m"}},
+		"replicas-inverted": {"replicas": map[string]any{"min": int64(5), "max": int64(2)}},
+		"replicas-zero":     {"replicas": map[string]any{"min": int64(0), "max": int64(2)}},
+		"memory-inverted":   {"memory": map[string]any{"min": "2Gi", "max": "64Mi"}},
+		"budget-not-number": {"budget": map[string]any{"monthlyLimitUSD": "lots"}},
+		"price-negative":    {"unitEconomics": map[string]any{"cpuPricePerCoreHour": "-1"}},
+		"bad-policy":        {"budget": map[string]any{"monthlyLimitUSD": "10", "onSpendUnavailable": "Maybe"}},
+	} {
+		if err := mk(name, spec); err == nil {
+			t.Errorf("%s: invalid CR was accepted", name)
+		}
+	}
+}

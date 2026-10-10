@@ -4,6 +4,7 @@ stdlib only. Endpoints: GET /healthz, GET /metrics, POST /v1/evaluate.
 """
 import hmac
 import json
+import math
 import os
 import ssl
 import threading
@@ -23,25 +24,55 @@ def _count(action: str) -> None:
         _counters[action] = _counters.get(action, 0) + 1
 
 
+def _num(req: dict, key: str, default: float | None = None) -> float:
+    """A finite, non-negative number (NaN/Infinity/negatives are rejected)."""
+    if key not in req:
+        if default is None:
+            raise KeyError(key)
+        return default
+    v = req[key]
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        raise ValueError(f"{key} must be a number")
+    if not math.isfinite(v) or v < 0:
+        raise ValueError(f"{key} must be finite and non-negative")
+    return float(v)
+
+
+def _reject_constant(name: str):
+    raise ValueError(f"invalid JSON constant {name}")
+
+
 def evaluate(req: dict) -> dict:
     """Pure evaluation of one workload. Raises ValueError/KeyError on bad input."""
-    cpu = int(req["cpu_millicores"])
-    rps = float(req.get("rps", 0))
-    cpu_price = float(req.get("cpu_price_per_core_hour", 0))
-    mem_price = float(req.get("mem_price_per_gib_hour", 0))
-    mem_gib = float(req.get("memory_gib", 0))
-    max_cpr = float(req.get("max_cost_per_request", 0))
+    if not isinstance(req, dict):
+        raise ValueError("request must be a JSON object")
+    cpu = int(_num(req, "cpu_millicores"))
+    if cpu <= 0:
+        raise ValueError("cpu_millicores must be positive")
+    rps = _num(req, "rps", 0)
+    cpu_price = _num(req, "cpu_price_per_core_hour", 0)
+    mem_price = _num(req, "mem_price_per_gib_hour", 0)
+    mem_gib = _num(req, "memory_gib", 0)
+    max_cpr = _num(req, "max_cost_per_request", 0)
+    p99 = _num(req, "p99_ms")
+    slo = _num(req, "slo_p99_ms")
+    min_m, max_m = int(_num(req, "min_millicores", 50)), int(_num(req, "max_millicores", 8000))
+    if min_m > max_m:
+        raise ValueError("min_millicores must be <= max_millicores")
+    usage = req.get("cpu_usage_millicores")
+    if usage is not None:
+        usage = _num(req, "cpu_usage_millicores")
 
     cpr = cost_per_request_from_pod(cpu / 1000, mem_gib, rps, cpu_price, mem_price)
     over = max_cpr > 0 and cpr > max_cpr
 
     d = recommend_resize(
         cpu,
-        float(req["p99_ms"]),
-        float(req["slo_p99_ms"]),
-        min_millicores=int(req.get("min_millicores", 50)),
-        max_millicores=int(req.get("max_millicores", 8000)),
-        cpu_usage_millicores=req.get("cpu_usage_millicores"),
+        p99,
+        slo,
+        min_millicores=min_m,
+        max_millicores=max_m,
+        cpu_usage_millicores=usage,
         cost_over_target=over,
     )
 
@@ -145,7 +176,7 @@ class Handler(BaseHTTPRequestHandler):
             n = int(self.headers.get("Content-Length", 0))
             if n > 1 << 20:
                 return self._send(413, '{"error":"payload too large"}')
-            self._send(200, json.dumps(evaluate(json.loads(self.rfile.read(n)))))
+            self._send(200, json.dumps(evaluate(json.loads(self.rfile.read(n), parse_constant=_reject_constant))))
         except (ValueError, KeyError, TypeError) as e:
             self._send(400, json.dumps({"error": str(e)}))
 

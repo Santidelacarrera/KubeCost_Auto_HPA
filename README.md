@@ -61,6 +61,16 @@ Un segundo controlador (`--enable-spot-drain`) hace **cordon + drain** de nodos 
   `budget.onSpendUnavailable` decide: `Ignore` (por defecto, no se sacrifica el SLO) o `FreezeGrowth`.
 - El drain se niega si no queda otro nodo listo o hay pods sin controlador, y reintenta evicciones bloqueadas por PDB hasta `--drain-timeout`.
 
+### Anti-flapping asimétrico
+
+- Reducir espera el `cooldown` completo tras cualquier cambio.
+- Crecer (una brecha de SLO es una emergencia) **no espera** tras una reducción; solo se espacian dos crecimientos seguidos por `min(cooldown, 30 s)`.
+
+### Validación del CRD
+
+El apiserver rechaza (CEL + patrones): `cpu.min > cpu.max`, `memory.min > memory.max`, `replicas.max < replicas.min`, `replicas.min < 1`,
+importes no numéricos o negativos y `onSpendUnavailable` desconocido. El motor rechaza `NaN`/`Infinity`, negativos y tipos erróneos con HTTP 400.
+
 ### Memoria y réplicas (opt-in)
 
 - `spec.memory` activa el resize de memoria: **crece rápido** (+25 % si el uso supera el 85 %) y **reduce despacio**
@@ -143,8 +153,8 @@ cd operator && make manifests      # regenera deepcopy, CRD, RBAC y copia el CRD
 | Unitarias Python / Go | motor, clientes, resizer, drainer, reconciler | ✅ ejecutadas |
 | E2E con motor real | reconciler + motor Python + Redis (miniredis) + Prometheus/KubeCost simulados | ✅ ejecutado |
 | **envtest (kube-apiserver 1.33.4 + etcd reales)** | defaults del CRD, `pods/resize`, subrecurso `scale`, Eviction + PDB, y el **binario real del manager** | ✅ ejecutado |
-| kind 1.33 (`hack/e2e-kind.sh`) | kubelet real: resize sin reinicio, imágenes Docker | ⚠️ escrito y en CI, **no ejecutado** (el entorno de desarrollo no tiene daemon de Docker) |
-| Imágenes Docker / `release.yml` | build multi-arch y publicación en GHCR | ⚠️ no ejecutado |
+| kind 1.33 (`hack/e2e-kind.sh`) | kubelet real: resize sin reinicio, pods sin recrear, imágenes Docker de operador y motor | ✅ pasa en CI de GitHub (job `e2e-kind`) |
+| `release.yml` | build multi-arch y publicación en GHCR / chart OCI | ⚠️ aún no ejecutado (solo corre en `main` y tags) |
 | Helm / Kustomize / Compose | `lint`, `template`, `build`, `config` | ✅ ejecutados (sin instalar en un clúster) |
 
 Límites conocidos: sin kubelet en envtest no se observa el cambio efectivo de cgroups tras un resize; la caché del

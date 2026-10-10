@@ -64,6 +64,7 @@ spec:
                   monthlyLimitUSD:
                     description: MonthlyLimitUSD is the namespace monthly budget in
                       USD.
+                    pattern: ^[0-9]+(\.[0-9]+)?$
                     type: string
                   onSpendUnavailable:
                     default: Ignore
@@ -102,6 +103,10 @@ spec:
                     pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                     x-kubernetes-int-or-string: true
                 type: object
+                x-kubernetes-validations:
+                - message: cpu.min must be <= cpu.max
+                  rule: '!has(self.min) || !has(self.max) || quantity(self.min).compareTo(quantity(self.max))
+                    <= 0'
               dryRun:
                 default: false
                 description: DryRun computes and reports decisions without touching
@@ -129,6 +134,10 @@ spec:
                     pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                     x-kubernetes-int-or-string: true
                 type: object
+                x-kubernetes-validations:
+                - message: memory.min must be <= memory.max
+                  rule: '!has(self.min) || !has(self.max) || quantity(self.min).compareTo(quantity(self.max))
+                    <= 0'
               replicas:
                 description: Replicas enables horizontal scaling when set.
                 properties:
@@ -144,6 +153,9 @@ spec:
                 - max
                 - min
                 type: object
+                x-kubernetes-validations:
+                - message: replicas.max must be >= replicas.min
+                  rule: self.max >= self.min
               slo:
                 description: SLO is the latency objective used to decide whether resources
                   can shrink.
@@ -199,14 +211,17 @@ spec:
                   cpuPricePerCoreHour:
                     description: CPUPricePerCoreHour in USD. Falls back to the operator
                       default when zero.
+                    pattern: ^[0-9]+(\.[0-9]+)?$
                     type: string
                   maxCostPerRequest:
                     description: MaxCostPerRequest in USD. When exceeded and the SLO
                       has slack, the pod shrinks.
+                    pattern: ^[0-9]+(\.[0-9]+)?$
                     type: string
                   memPricePerGiBHour:
                     description: MemPricePerGiBHour in USD. Falls back to the operator
                       default when zero.
+                    pattern: ^[0-9]+(\.[0-9]+)?$
                     type: string
                 type: object
             required:
@@ -296,6 +311,10 @@ spec:
                 format: date-time
                 type: string
               lastReason:
+                type: string
+              lastResizeAction:
+                description: LastResizeAction is "grow" or "shrink" for the last applied
+                  change (drives the asymmetric cooldown).
                 type: string
               lastResizeTime:
                 format: date-time

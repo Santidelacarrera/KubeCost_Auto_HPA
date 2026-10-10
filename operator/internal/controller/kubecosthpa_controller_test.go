@@ -273,3 +273,45 @@ func counterValue(t *testing.T, name string) float64 {
 	}
 	return total
 }
+
+func TestGrowthBypassesCooldownAfterShrinkButNotBackToBack(t *testing.T) {
+	e := newEnv(newHPA(), newDeployment(), newPod("api-1"))
+	ctx := context.Background()
+	e.r.Reconcile(ctx, req) // shrink 1000 -> 800
+	if e.podCPU(t, "api-1") != 800 {
+		t.Fatal("setup: expected shrink")
+	}
+	// SLO breach right after the shrink: growth is allowed immediately.
+	e.e.dec = engine.Decision{Action: "grow", CPUMillicores: 1000, Reason: "slo"}
+	e.t = e.t.Add(35 * time.Second) // metrics cache (30s) expired
+	e.syncPods()
+	e.r.Reconcile(ctx, req)
+	if got := e.podCPU(t, "api-1"); got != 1000 {
+		t.Fatalf("growth should bypass the shrink cooldown, got %d", got)
+	}
+	if e.hpa(t).Status.LastResizeAction != "grow" {
+		t.Fatalf("status %+v", e.hpa(t).Status)
+	}
+	// A second growth 5s later is held back (anti-flap), 40s later it goes through.
+	e.e.dec = engine.Decision{Action: "grow", CPUMillicores: 1250, Reason: "slo"}
+	e.t = e.t.Add(5 * time.Second)
+	e.syncPods()
+	e.r.Reconcile(ctx, req)
+	if got := e.podCPU(t, "api-1"); got != 1000 {
+		t.Fatalf("back-to-back growth must wait, got %d", got)
+	}
+	e.t = e.t.Add(40 * time.Second)
+	e.syncPods()
+	e.r.Reconcile(ctx, req)
+	if got := e.podCPU(t, "api-1"); got != 1250 {
+		t.Fatalf("growth after growCooldown should apply, got %d", got)
+	}
+	// ...and a shrink right after growth still waits the full cooldown.
+	e.e.dec = engine.Decision{Action: "shrink", CPUMillicores: 1000, Reason: "slack"}
+	e.t = e.t.Add(40 * time.Second)
+	e.syncPods()
+	e.r.Reconcile(ctx, req)
+	if got := e.podCPU(t, "api-1"); got != 1250 {
+		t.Fatalf("shrink must respect the full cooldown, got %d", got)
+	}
+}

@@ -23,6 +23,8 @@ type SLO struct {
 	P99LatencyMs int32 `json:"p99LatencyMs"`
 }
 
+// +kubebuilder:validation:XValidation:rule="!has(self.min) || !has(self.max) || quantity(self.min).compareTo(quantity(self.max)) <= 0",message="cpu.min must be <= cpu.max"
+
 // CPUBounds limits how far the operator may resize CPU requests.
 type CPUBounds struct {
 	// +kubebuilder:default="100m"
@@ -34,16 +36,20 @@ type CPUBounds struct {
 // UnitEconomics configures cost-per-request evaluation.
 type UnitEconomics struct {
 	// CPUPricePerCoreHour in USD. Falls back to the operator default when zero.
+	// +kubebuilder:validation:Pattern=`^[0-9]+(\.[0-9]+)?$`
 	CPUPricePerCoreHour string `json:"cpuPricePerCoreHour,omitempty"`
 	// MemPricePerGiBHour in USD. Falls back to the operator default when zero.
+	// +kubebuilder:validation:Pattern=`^[0-9]+(\.[0-9]+)?$`
 	MemPricePerGiBHour string `json:"memPricePerGiBHour,omitempty"`
 	// MaxCostPerRequest in USD. When exceeded and the SLO has slack, the pod shrinks.
+	// +kubebuilder:validation:Pattern=`^[0-9]+(\.[0-9]+)?$`
 	MaxCostPerRequest string `json:"maxCostPerRequest,omitempty"`
 }
 
 // Budget freezes growth when the monthly spend of the namespace reaches the limit.
 type Budget struct {
 	// MonthlyLimitUSD is the namespace monthly budget in USD.
+	// +kubebuilder:validation:Pattern=`^[0-9]+(\.[0-9]+)?$`
 	MonthlyLimitUSD string `json:"monthlyLimitUSD"`
 	// OnSpendUnavailable decides what happens when KubeCost cannot be reached.
 	// Ignore keeps serving the SLO (budget not enforced that cycle); FreezeGrowth
@@ -53,6 +59,8 @@ type Budget struct {
 	OnSpendUnavailable string `json:"onSpendUnavailable,omitempty"`
 }
 
+// +kubebuilder:validation:XValidation:rule="!has(self.min) || !has(self.max) || quantity(self.min).compareTo(quantity(self.max)) <= 0",message="memory.min must be <= memory.max"
+
 // MemorySpec opts the workload in to memory resizing (grow fast, shrink slowly).
 type MemorySpec struct {
 	// +kubebuilder:default="64Mi"
@@ -60,6 +68,8 @@ type MemorySpec struct {
 	// +kubebuilder:default="16Gi"
 	Max resource.Quantity `json:"max,omitempty"`
 }
+
+// +kubebuilder:validation:XValidation:rule="self.max >= self.min",message="replicas.max must be >= replicas.min"
 
 // ReplicaSpec opts the workload in to horizontal scaling once vertical room is
 // exhausted. Do not combine with another HPA targeting the same Deployment.
@@ -119,12 +129,14 @@ type KubeCostHPAStatus struct {
 	DesiredMemoryMiB     int64  `json:"desiredMemoryMiB,omitempty"`
 	DesiredReplicas      int32  `json:"desiredReplicas,omitempty"`
 	LastAction           string `json:"lastAction,omitempty"`
-	LastReason           string `json:"lastReason,omitempty"`
-	RPS                  string `json:"rps,omitempty"`
-	P99LatencyMs         string `json:"p99LatencyMs,omitempty"`
-	CostPerRequest       string `json:"costPerRequest,omitempty"`
-	SpotEligible         bool   `json:"spotEligible,omitempty"`
-	BudgetFrozen         bool   `json:"budgetFrozen,omitempty"`
+	// LastResizeAction is "grow" or "shrink" for the last applied change (drives the asymmetric cooldown).
+	LastResizeAction string `json:"lastResizeAction,omitempty"`
+	LastReason       string `json:"lastReason,omitempty"`
+	RPS              string `json:"rps,omitempty"`
+	P99LatencyMs     string `json:"p99LatencyMs,omitempty"`
+	CostPerRequest   string `json:"costPerRequest,omitempty"`
+	SpotEligible     bool   `json:"spotEligible,omitempty"`
+	BudgetFrozen     bool   `json:"budgetFrozen,omitempty"`
 	// +optional
 	LastResizeTime *metav1.Time `json:"lastResizeTime,omitempty"`
 	// +optional

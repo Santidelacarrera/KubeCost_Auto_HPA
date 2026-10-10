@@ -1,0 +1,7 @@
+version: 2
+updates:
+  - {package-ecosystem: gomod, directory: /operator, schedule: {interval: weekly}}
+  - {package-ecosystem: pip, directory: /engine, schedule: {interval: weekly}}
+  - {package-ecosystem: docker, directory: /operator, schedule: {interval: weekly}}
+  - {package-ecosystem: docker, directory: /engine, schedule: {interval: weekly}}
+  - {package-ecosystem: github-actions, directory: /, schedule: {interval: weekly}}
