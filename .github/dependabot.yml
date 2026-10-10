@@ -4,10 +4,17 @@ updates:
     directory: /operator
     schedule: {interval: weekly}
     groups:
-      # k8s.io/api, apimachinery, client-go and controller-runtime must move in lockstep:
-      # bumping one alone breaks the build (e.g. client-go vs. an older k8s.io/api).
+      # k8s.io/api, apimachinery, client-go and controller-runtime must move in lockstep.
       kubernetes:
         patterns: ["k8s.io/*", "sigs.k8s.io/controller-runtime", "sigs.k8s.io/controller-tools"]
+    ignore:
+      # Kubernetes / controller-runtime minor and major upgrades are deliberate, coordinated
+      # changes (API removals, Go version, generated code): Dependabot cannot do them in
+      # one resolvable step (it failed bumping k8s.io/api alone). Patch updates still flow.
+      - dependency-name: "k8s.io/*"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
+      - dependency-name: "sigs.k8s.io/controller-runtime"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
   - {package-ecosystem: pip, directory: /engine, schedule: {interval: weekly}}
   - {package-ecosystem: docker, directory: /operator, schedule: {interval: weekly}}
   - {package-ecosystem: docker, directory: /engine, schedule: {interval: weekly}}
