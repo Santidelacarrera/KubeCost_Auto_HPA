@@ -62,3 +62,71 @@ def test_http_roundtrip():
         assert e.value.code == 400
     finally:
         srv.shutdown()
+
+
+def test_memory_and_replicas_in_response():
+    r = evaluate({**BASE, "memory": {"request_mib": 1000, "usage_mib": 900}})
+    assert r["memory"]["action"] == "grow" and r["memory"]["mib"] == 1250
+    r = evaluate({**BASE, "cpu_millicores": 8000, "max_millicores": 8000, "p99_ms": 195,
+                  "replicas": {"current": 3, "min": 1, "max": 10}})
+    assert r["replicas"]["target"] == 4
+    frozen = evaluate({**BASE, "cpu_millicores": 8000, "max_millicores": 8000, "p99_ms": 195,
+                       "replicas": {"current": 3, "min": 1, "max": 10},
+                       "budget": {"monthly_limit": 10, "spent": 10}})
+    assert frozen["replicas"]["target"] == 3
+    assert evaluate(BASE)["memory"] is None and evaluate(BASE)["replicas"] is None
+
+
+def _serve(monkeypatch=None):
+    srv = make_server("127.0.0.1", 0)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv, f"http://127.0.0.1:{srv.server_address[1]}"
+
+
+def test_bearer_token(monkeypatch):
+    monkeypatch.setenv("ENGINE_TOKEN", "s3cret")
+    srv, url = _serve()
+    try:
+        def post(h):
+            return urllib.request.Request(url + "/v1/evaluate", json.dumps(BASE).encode(),
+                                          {"Content-Type": "application/json", **h})
+        with pytest.raises(urllib.error.HTTPError) as e:
+            urllib.request.urlopen(post({}))
+        assert e.value.code == 401
+        with pytest.raises(urllib.error.HTTPError):
+            urllib.request.urlopen(post({"Authorization": "Bearer nope"}))
+        assert json.load(urllib.request.urlopen(post({"Authorization": "Bearer s3cret"})))["action"] == "shrink"
+        assert urllib.request.urlopen(url + "/healthz").status == 200  # probes stay open
+    finally:
+        srv.shutdown()
+
+
+def test_tls_and_mtls(monkeypatch, tmp_path):
+    import shutil, ssl, subprocess
+    if not shutil.which("openssl"):
+        pytest.skip("openssl not available")
+    def run(*a):
+        subprocess.run(a, check=True, cwd=tmp_path, capture_output=True)
+    run("openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", "ca.key", "-out", "ca.crt",
+        "-days", "1", "-subj", "/CN=test-ca",
+        "-addext", "basicConstraints=critical,CA:TRUE", "-addext", "keyUsage=critical,keyCertSign,cRLSign")
+    for name, ext in (("server", "subjectAltName=IP:127.0.0.1"), ("client", "extendedKeyUsage=clientAuth")):
+        run("openssl", "req", "-newkey", "rsa:2048", "-nodes", "-keyout", f"{name}.key", "-out", f"{name}.csr", "-subj", f"/CN={name}")
+        (tmp_path / f"{name}.ext").write_text(ext)
+        run("openssl", "x509", "-req", "-in", f"{name}.csr", "-CA", "ca.crt", "-CAkey", "ca.key", "-CAcreateserial",
+            "-out", f"{name}.crt", "-days", "1", "-extfile", f"{name}.ext")
+    monkeypatch.setenv("TLS_CERT", str(tmp_path / "server.crt"))
+    monkeypatch.setenv("TLS_KEY", str(tmp_path / "server.key"))
+    monkeypatch.setenv("TLS_CLIENT_CA", str(tmp_path / "ca.crt"))
+    srv = make_server("127.0.0.1", 0)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    url = f"https://127.0.0.1:{srv.server_address[1]}/healthz"
+    try:
+        good = ssl.create_default_context(cafile=str(tmp_path / "ca.crt"))
+        good.load_cert_chain(str(tmp_path / "client.crt"), str(tmp_path / "client.key"))
+        assert urllib.request.urlopen(url, context=good).status == 200
+        no_cert = ssl.create_default_context(cafile=str(tmp_path / "ca.crt"))
+        with pytest.raises(Exception):
+            urllib.request.urlopen(url, context=no_cert).read()
+    finally:
+        srv.shutdown()

@@ -26,32 +26,64 @@ type Spot struct {
 	MinReplicas   int  `json:"min_replicas"`
 }
 
+// MemoryReq asks for a memory recommendation (MiB).
+type MemoryReq struct {
+	RequestMiB int64   `json:"request_mib"`
+	UsageMiB   float64 `json:"usage_mib"`
+	MinMiB     int64   `json:"min_mib"`
+	MaxMiB     int64   `json:"max_mib"`
+}
+
+// ReplicasReq asks for a horizontal recommendation.
+type ReplicasReq struct {
+	Current int32 `json:"current"`
+	Min     int32 `json:"min"`
+	Max     int32 `json:"max"`
+}
+
+// MemoryDec is the memory recommendation.
+type MemoryDec struct {
+	Action string `json:"action"`
+	MiB    int64  `json:"mib"`
+	Reason string `json:"reason"`
+}
+
+// ReplicasDec is the horizontal recommendation.
+type ReplicasDec struct {
+	Target int32  `json:"target"`
+	Reason string `json:"reason"`
+}
+
 // Request mirrors POST /v1/evaluate.
 type Request struct {
-	CPUMillicores       int64    `json:"cpu_millicores"`
-	P99Ms               float64  `json:"p99_ms"`
-	SLOP99Ms            float64  `json:"slo_p99_ms"`
-	RPS                 float64  `json:"rps"`
-	CPUUsageMillicores  *float64 `json:"cpu_usage_millicores,omitempty"`
-	MinMillicores       int64    `json:"min_millicores"`
-	MaxMillicores       int64    `json:"max_millicores"`
-	MemoryGiB           float64  `json:"memory_gib"`
-	CPUPricePerCoreHour float64  `json:"cpu_price_per_core_hour"`
-	MemPricePerGiBHour  float64  `json:"mem_price_per_gib_hour"`
-	MaxCostPerRequest   float64  `json:"max_cost_per_request"`
-	Budget              *Budget  `json:"budget,omitempty"`
-	Spot                *Spot    `json:"spot,omitempty"`
+	CPUMillicores       int64        `json:"cpu_millicores"`
+	P99Ms               float64      `json:"p99_ms"`
+	SLOP99Ms            float64      `json:"slo_p99_ms"`
+	RPS                 float64      `json:"rps"`
+	CPUUsageMillicores  *float64     `json:"cpu_usage_millicores,omitempty"`
+	MinMillicores       int64        `json:"min_millicores"`
+	MaxMillicores       int64        `json:"max_millicores"`
+	MemoryGiB           float64      `json:"memory_gib"`
+	CPUPricePerCoreHour float64      `json:"cpu_price_per_core_hour"`
+	MemPricePerGiBHour  float64      `json:"mem_price_per_gib_hour"`
+	MaxCostPerRequest   float64      `json:"max_cost_per_request"`
+	Budget              *Budget      `json:"budget,omitempty"`
+	Spot                *Spot        `json:"spot,omitempty"`
+	Memory              *MemoryReq   `json:"memory,omitempty"`
+	Replicas            *ReplicasReq `json:"replicas,omitempty"`
 }
 
 // Decision is the engine's answer.
 type Decision struct {
-	Action              string   `json:"action"` // shrink | grow | hold
-	CPUMillicores       int64    `json:"cpu_millicores"`
-	Reason              string   `json:"reason"`
-	CostPerRequest      *float64 `json:"cost_per_request"`
-	CostPerRequestAfter *float64 `json:"cost_per_request_after"`
-	BudgetFrozen        bool     `json:"budget_frozen"`
-	SpotEligible        *bool    `json:"spot_eligible"`
+	Action              string       `json:"action"` // shrink | grow | hold
+	CPUMillicores       int64        `json:"cpu_millicores"`
+	Reason              string       `json:"reason"`
+	CostPerRequest      *float64     `json:"cost_per_request"`
+	CostPerRequestAfter *float64     `json:"cost_per_request_after"`
+	BudgetFrozen        bool         `json:"budget_frozen"`
+	SpotEligible        *bool        `json:"spot_eligible"`
+	Memory              *MemoryDec   `json:"memory"`
+	Replicas            *ReplicasDec `json:"replicas"`
 }
 
 // Evaluator evaluates one workload.

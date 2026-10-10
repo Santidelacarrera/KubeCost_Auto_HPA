@@ -45,6 +45,29 @@ type UnitEconomics struct {
 type Budget struct {
 	// MonthlyLimitUSD is the namespace monthly budget in USD.
 	MonthlyLimitUSD string `json:"monthlyLimitUSD"`
+	// OnSpendUnavailable decides what happens when KubeCost cannot be reached.
+	// Ignore keeps serving the SLO (budget not enforced that cycle); FreezeGrowth
+	// treats the budget as exhausted, blocking growth until spend is known again.
+	// +kubebuilder:validation:Enum=Ignore;FreezeGrowth
+	// +kubebuilder:default=Ignore
+	OnSpendUnavailable string `json:"onSpendUnavailable,omitempty"`
+}
+
+// MemorySpec opts the workload in to memory resizing (grow fast, shrink slowly).
+type MemorySpec struct {
+	// +kubebuilder:default="64Mi"
+	Min resource.Quantity `json:"min,omitempty"`
+	// +kubebuilder:default="16Gi"
+	Max resource.Quantity `json:"max,omitempty"`
+}
+
+// ReplicaSpec opts the workload in to horizontal scaling once vertical room is
+// exhausted. Do not combine with another HPA targeting the same Deployment.
+type ReplicaSpec struct {
+	// +kubebuilder:validation:Minimum=1
+	Min int32 `json:"min"`
+	// +kubebuilder:validation:Minimum=1
+	Max int32 `json:"max"`
 }
 
 // SpotSpec controls Spot awareness for the workload.
@@ -72,6 +95,12 @@ type KubeCostHPASpec struct {
 	// +optional
 	// +kubebuilder:default={}
 	Spot SpotSpec `json:"spot,omitempty"`
+	// Memory enables memory resizing when set.
+	// +optional
+	Memory *MemorySpec `json:"memory,omitempty"`
+	// Replicas enables horizontal scaling when set.
+	// +optional
+	Replicas *ReplicaSpec `json:"replicas,omitempty"`
 	// Cooldown is the minimum time between two resize actions.
 	// +kubebuilder:default="5m"
 	Cooldown metav1.Duration `json:"cooldown,omitempty"`
@@ -87,6 +116,8 @@ type KubeCostHPASpec struct {
 type KubeCostHPAStatus struct {
 	// DesiredCPUMillicores is the CPU request the operator converges pods to.
 	DesiredCPUMillicores int64  `json:"desiredCPUMillicores,omitempty"`
+	DesiredMemoryMiB     int64  `json:"desiredMemoryMiB,omitempty"`
+	DesiredReplicas      int32  `json:"desiredReplicas,omitempty"`
 	LastAction           string `json:"lastAction,omitempty"`
 	LastReason           string `json:"lastReason,omitempty"`
 	RPS                  string `json:"rps,omitempty"`

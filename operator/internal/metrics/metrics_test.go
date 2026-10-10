@@ -31,13 +31,13 @@ func vec(v string) string {
 const empty = `{"status":"success","data":{"resultType":"vector","result":[]}}`
 
 func TestSnapshot(t *testing.T) {
-	s := promServer(t, map[string]string{"http_requests_total": vec("120.5"), "histogram_quantile": vec("85"), "container_cpu_usage": vec("300")})
+	s := promServer(t, map[string]string{"http_requests_total": vec("120.5"), "histogram_quantile": vec("85"), "container_cpu_usage": vec("300"), "container_memory_working_set": vec("256")})
 	defer s.Close()
 	snap, err := NewPrometheus(s.URL, DefaultQueries()).Snapshot(context.Background(), Workload{"shop", "api"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if snap.RPS != 120.5 || snap.P99Ms != 85 || snap.CPUUsageMillicores != 300 {
+	if snap.RPS != 120.5 || snap.P99Ms != 85 || snap.CPUUsageMillicores != 300 || snap.MemUsageMiB != 256 {
 		t.Fatalf("unexpected snapshot %+v", snap)
 	}
 }
@@ -67,7 +67,7 @@ func TestNaNAndEmptyAreNoData(t *testing.T) {
 }
 
 func TestCPUUsageOptional(t *testing.T) {
-	s := promServer(t, map[string]string{"http_requests_total": vec("10"), "histogram_quantile": vec("50"), "container_cpu_usage": empty})
+	s := promServer(t, map[string]string{"http_requests_total": vec("10"), "histogram_quantile": vec("50"), "container_cpu_usage": empty, "container_memory_working_set": empty})
 	defer s.Close()
 	snap, err := NewPrometheus(s.URL, DefaultQueries()).Snapshot(context.Background(), Workload{"a", "b"})
 	if err != nil || snap.CPUUsageMillicores != 0 {

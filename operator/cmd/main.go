@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"net/http"
 	"os"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/config"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/controller"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/engine"
+	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/httpx"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/metrics"
 )
 
@@ -51,6 +53,17 @@ func main() {
 	flag.Float64Var(&memPrice, "mem-price-per-gib-hour", 0.004, "Default memory price (USD/GiB-hour).")
 	flag.BoolVar(&spotDrain, "enable-spot-drain", true, "Cordon/drain Spot nodes with interruption signals.")
 	flag.DurationVar(&drainTimeout, "drain-timeout", 2*time.Minute, "Maximum time to drain a node.")
+	var promHTTP, kcHTTP, engHTTP httpx.Options
+	bindHTTP := func(prefix string, o *httpx.Options, tokenEnv string) {
+		flag.StringVar(&o.CAFile, prefix+"-ca-file", "", "PEM CA bundle to verify the "+prefix+" server.")
+		flag.StringVar(&o.CertFile, prefix+"-client-cert", "", "Client certificate for mTLS to "+prefix+".")
+		flag.StringVar(&o.KeyFile, prefix+"-client-key", "", "Client key for mTLS to "+prefix+".")
+		flag.StringVar(&o.BearerTokenFile, prefix+"-bearer-token-file", "", "File with a bearer token for "+prefix+" (re-read on every request).")
+		o.BearerToken = os.Getenv(tokenEnv)
+	}
+	bindHTTP("prometheus", &promHTTP, "PROMETHEUS_TOKEN")
+	bindHTTP("kubecost", &kcHTTP, "KUBECOST_TOKEN")
+	bindHTTP("engine", &engHTTP, "ENGINE_TOKEN")
 	opts := zap.Options{}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
@@ -81,17 +94,31 @@ func main() {
 	} else {
 		log.Info("redis not configured, using in-memory store")
 	}
+	mustClient := func(name string, o httpx.Options, d time.Duration) *http.Client {
+		c, err := httpx.NewClient(o, d)
+		if err != nil {
+			log.Error(err, "invalid TLS/auth configuration", "backend", name)
+			os.Exit(1)
+		}
+		return c
+	}
+	prom := metrics.NewPrometheus(promURL, metrics.DefaultQueries())
+	prom.HTTP = mustClient("prometheus", promHTTP, 10*time.Second)
+	eng := engine.NewHTTP(engineURL)
+	eng.Client = mustClient("engine", engHTTP, 10*time.Second)
 	var spend metrics.SpendSource
 	if kubecostURL != "" {
-		spend = metrics.NewKubeCost(kubecostURL)
+		kc := metrics.NewKubeCost(kubecostURL)
+		kc.HTTP = mustClient("kubecost", kcHTTP, 15*time.Second)
+		spend = kc
 	}
 
 	if err := (&controller.KubeCostHPAReconciler{
 		Client:   mgr.GetClient(),
 		Resizer:  &actuator.Resizer{Client: cs},
-		Metrics:  metrics.NewPrometheus(promURL, metrics.DefaultQueries()),
+		Metrics:  prom,
 		Spend:    spend,
-		Engine:   engine.NewHTTP(engineURL),
+		Engine:   eng,
 		Store:    store,
 		Recorder: mgr.GetEventRecorderFor("kubecost-auto-hpa"),
 		Defaults: config.Defaults{CPUPricePerCoreHour: cpuPrice, MemPricePerGiBHour: memPrice},

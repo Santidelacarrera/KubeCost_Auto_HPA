@@ -5,12 +5,15 @@ import (
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
+	autoscalingv1 "k8s.io/api/autoscaling/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/kubernetes/fake"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	clienttesting "k8s.io/client-go/testing"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	crfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -103,6 +106,7 @@ func newEnv(hpa *v1alpha1.KubeCostHPA, objs ...runtime.Object) *env {
 		kobjs = append(kobjs, o.DeepCopyObject())
 	}
 	cs := fake.NewSimpleClientset(kobjs...)
+	fakeScale(cs)
 	e := &env{cs: cs, c: c, t: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 		m: &fakeMetrics{snap: metrics.Snapshot{RPS: 200, P99Ms: 50}},
 		e: &fakeEngine{dec: engine.Decision{Action: "shrink", CPUMillicores: 800, Reason: "slack"}}}
@@ -128,4 +132,37 @@ func (e *env) syncPods() {
 		cur.Spec.Containers = p.Spec.Containers
 		_ = e.c.Update(ctx, &cur)
 	}
+}
+
+// The client-go fake does not model the scale subresource; emulate it on the Deployment object.
+func fakeScale(cs *fake.Clientset) {
+	cs.PrependReactor("get", "deployments", func(a clienttesting.Action) (bool, runtime.Object, error) {
+		if a.GetSubresource() != "scale" {
+			return false, nil, nil
+		}
+		o, err := cs.Tracker().Get(schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}, a.GetNamespace(), a.(clienttesting.GetAction).GetName())
+		if err != nil {
+			return true, nil, err
+		}
+		d := o.(*appsv1.Deployment)
+		n := int32(1)
+		if d.Spec.Replicas != nil {
+			n = *d.Spec.Replicas
+		}
+		return true, &autoscalingv1.Scale{ObjectMeta: metav1.ObjectMeta{Name: d.Name, Namespace: d.Namespace}, Spec: autoscalingv1.ScaleSpec{Replicas: n}}, nil
+	})
+	cs.PrependReactor("update", "deployments", func(a clienttesting.Action) (bool, runtime.Object, error) {
+		if a.GetSubresource() != "scale" {
+			return false, nil, nil
+		}
+		sc := a.(clienttesting.UpdateAction).GetObject().(*autoscalingv1.Scale)
+		gvr := schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}
+		o, err := cs.Tracker().Get(gvr, sc.Namespace, sc.Name)
+		if err != nil {
+			return true, nil, err
+		}
+		d := o.(*appsv1.Deployment).DeepCopy()
+		d.Spec.Replicas = &sc.Spec.Replicas
+		return true, sc, cs.Tracker().Update(gvr, d, sc.Namespace)
+	})
 }

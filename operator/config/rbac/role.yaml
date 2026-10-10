@@ -50,6 +50,14 @@ rules:
   - list
   - watch
 - apiGroups:
+  - apps
+  resources:
+  - deployments/scale
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
   - autoscaling.kubecost.io
   resources:
   - kubecosthpas

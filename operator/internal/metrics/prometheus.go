@@ -37,8 +37,10 @@ type Snapshot struct {
 	// P99Ms is the p99 latency in milliseconds.
 	P99Ms float64 `json:"p99Ms"`
 	// CPUUsageMillicores is the average CPU usage per pod in millicores.
-	CPUUsageMillicores float64   `json:"cpuUsageMillicores"`
-	At                 time.Time `json:"at"`
+	CPUUsageMillicores float64 `json:"cpuUsageMillicores"`
+	// MemUsageMiB is the average working-set memory per pod in MiB (0 = unknown).
+	MemUsageMiB float64   `json:"memUsageMiB"`
+	At          time.Time `json:"at"`
 }
 
 // Source yields snapshots for a workload.
@@ -51,6 +53,7 @@ type Queries struct {
 	RPS      string
 	P99Ms    string
 	CPUUsage string
+	MemUsage string
 }
 
 // DefaultQueries assume the conventional http_requests_total /
@@ -59,6 +62,7 @@ func DefaultQueries() Queries {
 	return Queries{
 		RPS:      `sum(rate(http_requests_total{namespace="{{.Namespace}}",pod=~"{{.PodRegex}}"}[2m]))`,
 		P99Ms:    `histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket{namespace="{{.Namespace}}",pod=~"{{.PodRegex}}"}[2m]))) * 1000`,
+		MemUsage: `avg(sum by (pod) (container_memory_working_set_bytes{namespace="{{.Namespace}}",pod=~"{{.PodRegex}}",container!="",container!="POD"})) / 1048576`,
 		CPUUsage: `avg(sum by (pod) (rate(container_cpu_usage_seconds_total{namespace="{{.Namespace}}",pod=~"{{.PodRegex}}",container!="",container!="POD"}[2m]))) * 1000`,
 	}
 }
@@ -90,7 +94,14 @@ func (p *Prometheus) Snapshot(ctx context.Context, w Workload) (Snapshot, error)
 	if err != nil && !errors.Is(err, ErrNoData) {
 		return Snapshot{}, fmt.Errorf("cpu usage: %w", err)
 	}
-	return Snapshot{RPS: rps, P99Ms: p99, CPUUsageMillicores: cpu, At: time.Now()}, nil
+	var mem float64
+	if p.Queries.MemUsage != "" {
+		mem, err = p.query(ctx, p.Queries.MemUsage, w)
+		if err != nil && !errors.Is(err, ErrNoData) {
+			return Snapshot{}, fmt.Errorf("memory usage: %w", err)
+		}
+	}
+	return Snapshot{RPS: rps, P99Ms: p99, CPUUsageMillicores: cpu, MemUsageMiB: mem, At: time.Now()}, nil
 }
 
 type promResponse struct {

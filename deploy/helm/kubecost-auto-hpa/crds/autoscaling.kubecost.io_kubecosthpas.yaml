@@ -65,6 +65,16 @@ spec:
                     description: MonthlyLimitUSD is the namespace monthly budget in
                       USD.
                     type: string
+                  onSpendUnavailable:
+                    default: Ignore
+                    description: |-
+                      OnSpendUnavailable decides what happens when KubeCost cannot be reached.
+                      Ignore keeps serving the SLO (budget not enforced that cycle); FreezeGrowth
+                      treats the budget as exhausted, blocking growth until spend is known again.
+                    enum:
+                    - Ignore
+                    - FreezeGrowth
+                    type: string
                 required:
                 - monthlyLimitUSD
                 type: object
@@ -101,6 +111,39 @@ spec:
                 default: 1m
                 description: Interval is how often the workload is re-evaluated.
                 type: string
+              memory:
+                description: Memory enables memory resizing when set.
+                properties:
+                  max:
+                    anyOf:
+                    - type: integer
+                    - type: string
+                    default: 16Gi
+                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                    x-kubernetes-int-or-string: true
+                  min:
+                    anyOf:
+                    - type: integer
+                    - type: string
+                    default: 64Mi
+                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                    x-kubernetes-int-or-string: true
+                type: object
+              replicas:
+                description: Replicas enables horizontal scaling when set.
+                properties:
+                  max:
+                    format: int32
+                    minimum: 1
+                    type: integer
+                  min:
+                    format: int32
+                    minimum: 1
+                    type: integer
+                required:
+                - max
+                - min
+                type: object
               slo:
                 description: SLO is the latency objective used to decide whether resources
                   can shrink.
@@ -240,6 +283,12 @@ spec:
                 description: DesiredCPUMillicores is the CPU request the operator
                   converges pods to.
                 format: int64
+                type: integer
+              desiredMemoryMiB:
+                format: int64
+                type: integer
+              desiredReplicas:
+                format: int32
                 type: integer
               lastAction:
                 type: string

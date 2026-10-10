@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	appsv1 "k8s.io/api/apps/v1"
+	autoscalingv1 "k8s.io/api/autoscaling/v1"
 	corev1 "k8s.io/api/core/v1"
 	policyv1 "k8s.io/api/policy/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -170,4 +172,74 @@ func TestUncordon(t *testing.T) {
 	if got.Spec.Unschedulable {
 		t.Fatal("still cordoned")
 	}
+}
+
+func TestResizeMemoryPreservesLimitRatioAndRefusesRestart(t *testing.T) {
+	p := pod("p1", "n1", "1", "2", "ReplicaSet")
+	p.Spec.Containers[0].Resources.Requests[corev1.ResourceMemory] = resource.MustParse("100Mi")
+	p.Spec.Containers[0].Resources.Limits[corev1.ResourceMemory] = resource.MustParse("200Mi")
+	cs := fake.NewSimpleClientset(p)
+	r := &Resizer{cs}
+	if ch, err := r.Resize(context.Background(), p, "app", Target{MemoryBytes: 150 << 20}); err != nil || !ch {
+		t.Fatalf("ch=%v err=%v", ch, err)
+	}
+	got, _ := cs.CoreV1().Pods("shop").Get(context.Background(), "p1", metav1.GetOptions{})
+	rs := got.Spec.Containers[0].Resources
+	if rs.Requests.Memory().Value() != 150<<20 || rs.Limits.Memory().Value() != 300<<20 {
+		t.Fatalf("mem requests=%v limits=%v", rs.Requests.Memory(), rs.Limits.Memory())
+	}
+	if rs.Requests.Cpu().MilliValue() != 1000 {
+		t.Fatal("cpu must be untouched when CPUMillis is zero")
+	}
+	p.Spec.Containers[0].ResizePolicy = []corev1.ContainerResizePolicy{{ResourceName: corev1.ResourceMemory, RestartPolicy: corev1.RestartContainer}}
+	if _, err := r.Resize(context.Background(), p, "app", Target{MemoryBytes: 1 << 30}); !errors.Is(err, ErrWouldRestart) {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestSetReplicas(t *testing.T) {
+	d := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: "shop"}}
+	cs := fake.NewSimpleClientset(d)
+	fakeScale(cs)
+	r := &Resizer{cs}
+	if err := r.SetReplicas(context.Background(), "shop", "api", 4); err != nil {
+		t.Fatal(err)
+	}
+	sc, _ := cs.AppsV1().Deployments("shop").GetScale(context.Background(), "api", metav1.GetOptions{})
+	if sc.Spec.Replicas != 4 {
+		t.Fatalf("replicas=%d", sc.Spec.Replicas)
+	}
+}
+
+// The client-go fake does not model the scale subresource; emulate it on the Deployment object.
+func fakeScale(cs *fake.Clientset) {
+	cs.PrependReactor("get", "deployments", func(a clienttesting.Action) (bool, runtime.Object, error) {
+		if a.GetSubresource() != "scale" {
+			return false, nil, nil
+		}
+		o, err := cs.Tracker().Get(schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}, a.GetNamespace(), a.(clienttesting.GetAction).GetName())
+		if err != nil {
+			return true, nil, err
+		}
+		d := o.(*appsv1.Deployment)
+		n := int32(1)
+		if d.Spec.Replicas != nil {
+			n = *d.Spec.Replicas
+		}
+		return true, &autoscalingv1.Scale{ObjectMeta: metav1.ObjectMeta{Name: d.Name, Namespace: d.Namespace}, Spec: autoscalingv1.ScaleSpec{Replicas: n}}, nil
+	})
+	cs.PrependReactor("update", "deployments", func(a clienttesting.Action) (bool, runtime.Object, error) {
+		if a.GetSubresource() != "scale" {
+			return false, nil, nil
+		}
+		sc := a.(clienttesting.UpdateAction).GetObject().(*autoscalingv1.Scale)
+		gvr := schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}
+		o, err := cs.Tracker().Get(gvr, sc.Namespace, sc.Name)
+		if err != nil {
+			return true, nil, err
+		}
+		d := o.(*appsv1.Deployment).DeepCopy()
+		d.Spec.Replicas = &sc.Spec.Replicas
+		return true, sc, cs.Tracker().Update(gvr, d, sc.Namespace)
+	})
 }

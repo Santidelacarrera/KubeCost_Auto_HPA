@@ -20,6 +20,8 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1alpha1 "github.com/santidelacarrera/kubecost_auto_hpa/operator/api/v1alpha1"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/cache"
@@ -163,5 +165,55 @@ func TestEndToEnd(t *testing.T) {
 	}
 	if got := e.podCPU(t, "api-1"); got != 1000 {
 		t.Fatalf("usage floor violated: %d", got)
+	}
+}
+
+// With the CPU already at its maximum and p99 near the SLO, the real engine
+// asks for a scale-out; a frozen budget blocks it.
+func TestEndToEndScaleOutAndFrozenBudget(t *testing.T) {
+	engURL := startEngine(t)
+	prom := &promState{}
+	prom.set("400", "195", "700")
+	ps := httptest.NewServer(http.HandlerFunc(prom.handler))
+	defer ps.Close()
+	var spent float64 = 10
+	var mu sync.Mutex
+	ks := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		fmt.Fprintf(w, `{"code":200,"data":[{"shop":{"totalCost":%f}}]}`, spent)
+	}))
+	defer ks.Close()
+
+	h := newHPA()
+	h.Spec.Budget = &v1alpha1.Budget{MonthlyLimitUSD: "100"}
+	h.Spec.Replicas = &v1alpha1.ReplicaSpec{Min: 1, Max: 6}
+	h.Spec.CPU.Max = *resource.NewMilliQuantity(1000, resource.DecimalSI) // already at max
+	dep := newDeployment()
+	three := int32(3)
+	dep.Spec.Replicas = &three
+	e := newEnv(h, dep, newPod("api-1"), newPod("api-2"), newPod("api-3"))
+	e.r.Metrics = metrics.NewPrometheus(ps.URL, metrics.DefaultQueries())
+	e.r.Spend = metrics.NewKubeCost(ks.URL)
+	e.r.Engine = engine.NewHTTP(engURL)
+
+	replicas := func() int32 {
+		sc, _ := e.cs.AppsV1().Deployments("shop").GetScale(context.Background(), "api", metav1.GetOptions{})
+		return sc.Spec.Replicas
+	}
+	mu.Lock()
+	spent = 100 // budget exhausted
+	mu.Unlock()
+	e.r.Reconcile(context.Background(), req)
+	if replicas() != 3 {
+		t.Fatalf("frozen budget must block scale-out, replicas=%d", replicas())
+	}
+	mu.Lock()
+	spent = 10
+	mu.Unlock()
+	e.t = e.t.Add(2 * time.Minute) // metrics cache TTL
+	e.r.Reconcile(context.Background(), req)
+	if replicas() != 4 {
+		t.Fatalf("expected scale-out to 4, got %d; status %+v", replicas(), e.hpa(t).Status)
 	}
 }

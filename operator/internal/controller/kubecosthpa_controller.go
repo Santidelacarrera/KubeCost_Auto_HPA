@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -62,6 +63,7 @@ type storedDecision struct {
 // +kubebuilder:rbac:groups=autoscaling.kubecost.io,resources=kubecosthpas/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=autoscaling.kubecost.io,resources=kubecosthpas/finalizers,verbs=update
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch
+// +kubebuilder:rbac:groups=apps,resources=deployments/scale,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=pods/resize,verbs=patch;update
 // +kubebuilder:rbac:groups=policy,resources=poddisruptionbudgets,verbs=get;list;watch
@@ -118,6 +120,16 @@ func (r *KubeCostHPAReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return fail("InvalidSpec", err.Error())
 	}
 	minCPU, maxCPU := hpa.Spec.CPU.Min.MilliValue(), hpa.Spec.CPU.Max.MilliValue()
+	// Typed clients serialize zero-valued structs, which bypasses CRD defaulting: apply the same defaults here.
+	if minCPU == 0 {
+		minCPU = 100
+	}
+	if maxCPU == 0 {
+		maxCPU = 4000
+	}
+	if hpa.Spec.Cooldown.Duration == 0 {
+		hpa.Spec.Cooldown.Duration = 5 * time.Minute
+	}
 	if minCPU <= 0 || maxCPU < minCPU {
 		return fail("InvalidSpec", "cpu.min must be > 0 and <= cpu.max")
 	}
@@ -137,10 +149,25 @@ func (r *KubeCostHPAReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if desired == 0 {
 		desired = baseCPU
 	}
+	baseMemMiB := tmpl.Resources.Requests.Memory().Value() >> 20
+	desiredMem := hpa.Status.DesiredMemoryMiB
+	if desiredMem == 0 {
+		desiredMem = baseMemMiB
+	}
+	curReplicas := int32(1)
+	if dep.Spec.Replicas != nil {
+		curReplicas = *dep.Spec.Replicas
+	}
+	if hpa.Spec.Memory != nil && baseMemMiB == 0 {
+		return fail("NoMemoryRequest", "memory resizing requires a memory request on the target container")
+	}
+	if rs := hpa.Spec.Replicas; rs != nil && (rs.Min < 1 || rs.Max < rs.Min) {
+		return fail("InvalidSpec", "replicas: require 1 <= min <= max")
+	}
 
-	// --- converge existing/new pods to the desired value ---
-	if !hpa.Spec.DryRun && hpa.Status.DesiredCPUMillicores != 0 {
-		r.converge(ctx, &hpa, pods, cname, desired)
+	// --- converge existing/new pods to the desired values ---
+	if !hpa.Spec.DryRun && (hpa.Status.DesiredCPUMillicores != 0 || hpa.Status.DesiredMemoryMiB != 0) {
+		r.converge(ctx, &hpa, pods, cname, actuator.Target{CPUMillis: desired, MemoryBytes: memBytes(hpa.Spec.Memory, desiredMem)})
 	}
 
 	// --- metrics (cache first, stale fallback) ---
@@ -173,12 +200,29 @@ func (r *KubeCostHPAReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if perr != nil {
 			return fail("InvalidSpec", "budget.monthlyLimitUSD: "+perr.Error())
 		}
-		// Fail-open: if spend is unknown we keep serving the SLO instead of freezing.
 		if spent, serr := r.Spend.MonthlySpend(ctx, hpa.Namespace); serr != nil {
-			lg.Info("spend unavailable, budget not enforced this cycle", "error", serr.Error())
+			if hpa.Spec.Budget.OnSpendUnavailable == "FreezeGrowth" {
+				lg.Info("spend unavailable, freezing growth (onSpendUnavailable=FreezeGrowth)", "error", serr.Error())
+				ereq.Budget = &engine.Budget{MonthlyLimit: limit, Spent: limit}
+			} else {
+				lg.Info("spend unavailable, budget not enforced this cycle", "error", serr.Error())
+			}
 		} else {
 			ereq.Budget = &engine.Budget{MonthlyLimit: limit, Spent: spent}
 		}
+	}
+	if m := hpa.Spec.Memory; m != nil && snap.MemUsageMiB > 0 {
+		minMiB, maxMiB := m.Min.Value()>>20, m.Max.Value()>>20
+		if minMiB == 0 {
+			minMiB = 64
+		}
+		if maxMiB == 0 {
+			maxMiB = 16384
+		}
+		ereq.Memory = &engine.MemoryReq{RequestMiB: desiredMem, UsageMiB: snap.MemUsageMiB, MinMiB: minMiB, MaxMiB: maxMiB}
+	}
+	if rs := hpa.Spec.Replicas; rs != nil {
+		ereq.Replicas = &engine.ReplicasReq{Current: curReplicas, Min: rs.Min, Max: rs.Max}
 	}
 	if hpa.Spec.Spot.Enabled {
 		ereq.Spot = &engine.Spot{
@@ -194,6 +238,11 @@ func (r *KubeCostHPAReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	// --- status bookkeeping ---
 	now := metav1.NewTime(r.now())
+	var prevEval *metav1.Time
+	if hpa.Status.LastEvaluationTime != nil {
+		t := *hpa.Status.LastEvaluationTime
+		prevEval = &t
+	}
 	hpa.Status.LastEvaluationTime = &now
 	hpa.Status.RPS = strconv.FormatFloat(snap.RPS, 'f', 2, 64)
 	hpa.Status.P99LatencyMs = strconv.FormatFloat(snap.P99Ms, 'f', 1, 64)
@@ -204,26 +253,69 @@ func (r *KubeCostHPAReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	hpa.Status.SpotEligible = dec.SpotEligible != nil && *dec.SpotEligible
 	hpa.Status.LastAction, hpa.Status.LastReason = dec.Action, dec.Reason
 	hpa.Status.ObservedGeneration = hpa.Generation
-	exportMetrics(&hpa, nPods, baseCPU, desired, dec, prices.cpu)
 
 	// --- act ---
-	if dec.Action != "hold" && dec.CPUMillicores != desired && !r.inCooldown(ctx, key, &hpa) {
-		if hpa.Spec.DryRun {
-			hpa.Status.LastReason = "dry-run: would " + dec.Action + " to " + strconv.FormatInt(dec.CPUMillicores, 10) + "m (" + dec.Reason + ")"
-		} else {
-			hpa.Status.DesiredCPUMillicores = dec.CPUMillicores
+	newMem := desiredMem
+	if dec.Memory != nil && dec.Memory.Action != "hold" {
+		newMem = dec.Memory.MiB
+	}
+	newReplicas := curReplicas
+	if dec.Replicas != nil {
+		newReplicas = dec.Replicas.Target
+	}
+	cpuChange := dec.Action != "hold" && dec.CPUMillicores != desired
+	memChange := newMem != desiredMem
+	repChange := newReplicas != curReplicas
+	if cpuChange || memChange || repChange {
+		var parts []string
+		if cpuChange {
+			parts = append(parts, fmt.Sprintf("cpu %dm->%dm (%s)", desired, dec.CPUMillicores, dec.Reason))
+		}
+		if memChange {
+			parts = append(parts, fmt.Sprintf("memory %dMi->%dMi (%s)", desiredMem, newMem, dec.Memory.Reason))
+		}
+		if repChange {
+			parts = append(parts, fmt.Sprintf("replicas %d->%d (%s)", curReplicas, newReplicas, dec.Replicas.Reason))
+		}
+		summary := strings.Join(parts, "; ")
+		switch {
+		case hpa.Spec.DryRun:
+			hpa.Status.LastReason = "dry-run: would " + summary
+		case r.inCooldown(ctx, key, &hpa):
+			hpa.Status.LastReason = "suppressed by cooldown: " + summary
+		default:
+			if cpuChange {
+				desired = dec.CPUMillicores
+				hpa.Status.DesiredCPUMillicores = desired
+				cResizes.WithLabelValues(hpa.Namespace, hpa.Name, dec.Action).Inc()
+			}
+			if memChange {
+				desiredMem = newMem
+				hpa.Status.DesiredMemoryMiB = desiredMem
+				cResizes.WithLabelValues(hpa.Namespace, hpa.Name, "memory-"+dec.Memory.Action).Inc()
+			}
+			if repChange {
+				if err := r.Resizer.SetReplicas(ctx, hpa.Namespace, dep.Name, newReplicas); err != nil {
+					r.event(&hpa, corev1.EventTypeWarning, "ScaleFailed", err.Error())
+					lg.Info("replica scale failed", "error", err.Error())
+				} else {
+					hpa.Status.DesiredReplicas = newReplicas
+					cResizes.WithLabelValues(hpa.Namespace, hpa.Name, "replicas").Inc()
+				}
+			}
 			hpa.Status.LastResizeTime = &now
-			exportMetrics(&hpa, nPods, baseCPU, dec.CPUMillicores, dec, prices.cpu)
-			r.converge(ctx, &hpa, pods, cname, dec.CPUMillicores)
-			cResizes.WithLabelValues(hpa.Namespace, hpa.Name, dec.Action).Inc()
-			if serr := r.Store.Set(ctx, key+":decision", storedDecision{dec.Action, dec.CPUMillicores, r.now()}, hpa.Spec.Cooldown.Duration); serr != nil {
+			if cpuChange || memChange {
+				r.converge(ctx, &hpa, pods, cname, actuator.Target{CPUMillis: desired, MemoryBytes: memBytes(hpa.Spec.Memory, desiredMem)})
+			}
+			if serr := r.Store.Set(ctx, key+":decision", storedDecision{dec.Action, desired, r.now()}, hpa.Spec.Cooldown.Duration); serr != nil {
 				lg.Info("cache write failed", "error", serr.Error())
 			}
-			r.event(&hpa, corev1.EventTypeNormal, "Resized", fmt.Sprintf("%s %dm -> %dm: %s", dec.Action, desired, dec.CPUMillicores, dec.Reason))
+			hpa.Status.LastReason = summary
+			r.event(&hpa, corev1.EventTypeNormal, "Scaled", summary)
 		}
-	} else if dec.Action != "hold" {
-		hpa.Status.LastReason = dec.Reason + " (suppressed: cooldown or no change)"
 	}
+	exportMetrics(&hpa, nPods, baseCPU, desired, dec, prices.cpu)
+	r.accrueSavings(&hpa, prevEval, nPods, baseCPU, desired, prices.cpu)
 
 	meta.SetStatusCondition(&hpa.Status.Conditions, metav1.Condition{Type: condReady, Status: metav1.ConditionTrue, Reason: "Reconciled", Message: hpa.Status.LastReason, ObservedGeneration: hpa.Generation})
 	if err := r.Status().Update(ctx, &hpa); err != nil {
@@ -286,16 +378,37 @@ func (r *KubeCostHPAReconciler) inCooldown(ctx context.Context, key string, h *v
 	return false
 }
 
-func (r *KubeCostHPAReconciler) converge(ctx context.Context, h *v1alpha1.KubeCostHPA, pods []corev1.Pod, container string, cpu int64) {
+func (r *KubeCostHPAReconciler) converge(ctx context.Context, h *v1alpha1.KubeCostHPA, pods []corev1.Pod, container string, t actuator.Target) {
 	lg := log.FromContext(ctx)
 	for i := range pods {
-		if _, err := r.Resizer.ResizeCPU(ctx, &pods[i], container, cpu); err != nil {
+		if _, err := r.Resizer.Resize(ctx, &pods[i], container, t); err != nil {
 			lg.Info("pod resize skipped", "pod", pods[i].Name, "reason", err.Error())
 			if err == actuator.ErrWouldRestart {
 				r.event(h, corev1.EventTypeWarning, "ResizeRefused", pods[i].Name+": "+err.Error())
 			}
 		}
 	}
+}
+
+func memBytes(m *v1alpha1.MemorySpec, mib int64) int64 {
+	if m == nil {
+		return 0 // memory resizing not enabled: leave memory alone
+	}
+	return mib << 20
+}
+
+// accrueSavings adds the estimated CPU savings since the previous evaluation
+// (vs. the Deployment template) to the cumulative counter.
+func (r *KubeCostHPAReconciler) accrueSavings(h *v1alpha1.KubeCostHPA, prev *metav1.Time, pods, baseCPU, desired int64, cpuPrice float64) {
+	if prev == nil {
+		return
+	}
+	rate := float64(baseCPU-desired) / 1000 * float64(pods) * cpuPrice // USD/hour, negative when above template
+	hours := r.now().Sub(prev.Time).Hours()
+	if hours <= 0 || hours > 1 || rate <= 0 { // ignore gaps (restarts) and negative "savings"
+		return
+	}
+	cSavings.WithLabelValues(h.Namespace, h.Name).Add(rate * hours)
 }
 
 func (r *KubeCostHPAReconciler) hasPDB(ctx context.Context, dep *appsv1.Deployment) bool {

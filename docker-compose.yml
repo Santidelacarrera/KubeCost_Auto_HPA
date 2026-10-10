@@ -11,6 +11,8 @@ services:
 
   engine:
     build: ./engine
+    environment:
+      ENGINE_TOKEN: ${ENGINE_TOKEN:-}   # when set, /v1/* requires "Authorization: Bearer <token>"
     ports: ["8000:8000"]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/healthz')"]
@@ -46,6 +48,7 @@ services:
       - --metrics-bind-address=:8080
     environment:
       KUBECONFIG: /kube/config
+      ENGINE_TOKEN: ${ENGINE_TOKEN:-}
     volumes: ["${KUBECONFIG:-~/.kube/config}:/kube/config:ro"]
     ports: ["8080:8080"]
     extra_hosts: ["host.docker.internal:host-gateway"]

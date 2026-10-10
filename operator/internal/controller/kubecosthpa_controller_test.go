@@ -7,11 +7,14 @@ import (
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 
 	v1alpha1 "github.com/santidelacarrera/kubecost_auto_hpa/operator/api/v1alpha1"
+	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/engine"
 )
 
 var req = ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "shop", Name: "api"}}
@@ -167,4 +170,106 @@ func TestBudgetAndSpotInputsAreForwarded(t *testing.T) {
 	if !st.BudgetFrozen || !st.SpotEligible {
 		t.Fatalf("status %+v", st)
 	}
+}
+
+func TestMemoryAndReplicasApplied(t *testing.T) {
+	h := newHPA()
+	h.Spec.Memory = &v1alpha1.MemorySpec{Min: resource.MustParse("64Mi"), Max: resource.MustParse("2Gi")}
+	h.Spec.Replicas = &v1alpha1.ReplicaSpec{Min: 1, Max: 5}
+	dep := newDeployment()
+	two := int32(2)
+	dep.Spec.Replicas = &two
+	e := newEnv(h, dep, newPod("api-1"), newPod("api-2"))
+	e.m.snap.MemUsageMiB = 900
+	e.e.dec = engine.Decision{Action: "hold", CPUMillicores: 1000, Reason: "x",
+		Memory:   &engine.MemoryDec{Action: "grow", MiB: 1280, Reason: "mem hot"},
+		Replicas: &engine.ReplicasDec{Target: 3, Reason: "scale out"}}
+	if _, err := e.r.Reconcile(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	if e.e.last.Memory == nil || e.e.last.Memory.RequestMiB != 1024 || e.e.last.Memory.MaxMiB != 2048 {
+		t.Fatalf("memory request %+v", e.e.last.Memory)
+	}
+	if e.e.last.Replicas == nil || e.e.last.Replicas.Current != 2 || e.e.last.Replicas.Max != 5 {
+		t.Fatalf("replicas request %+v", e.e.last.Replicas)
+	}
+	p, _ := e.cs.CoreV1().Pods("shop").Get(context.Background(), "api-1", metav1.GetOptions{})
+	if p.Spec.Containers[0].Resources.Requests.Memory().Value() != 1280<<20 {
+		t.Fatalf("memory not resized: %v", p.Spec.Containers[0].Resources.Requests.Memory())
+	}
+	sc, _ := e.cs.AppsV1().Deployments("shop").GetScale(context.Background(), "api", metav1.GetOptions{})
+	if sc.Spec.Replicas != 3 {
+		t.Fatalf("replicas=%d", sc.Spec.Replicas)
+	}
+	st := e.hpa(t).Status
+	if st.DesiredMemoryMiB != 1280 || st.DesiredReplicas != 3 {
+		t.Fatalf("status %+v", st)
+	}
+}
+
+func TestMemoryUntouchedWhenNotEnabled(t *testing.T) {
+	e := newEnv(newHPA(), newDeployment(), newPod("api-1"))
+	e.m.snap.MemUsageMiB = 900
+	e.r.Reconcile(context.Background(), req)
+	if e.e.last.Memory != nil || e.e.last.Replicas != nil {
+		t.Fatal("memory/replicas must be opt-in")
+	}
+	p, _ := e.cs.CoreV1().Pods("shop").Get(context.Background(), "api-1", metav1.GetOptions{})
+	if p.Spec.Containers[0].Resources.Requests.Memory().Value() != 1<<30 {
+		t.Fatal("memory changed without opt-in")
+	}
+}
+
+type failingSpend struct{}
+
+func (failingSpend) MonthlySpend(context.Context, string) (float64, error) {
+	return 0, errors.New("kubecost down")
+}
+
+func TestSpendUnavailablePolicy(t *testing.T) {
+	for policy, wantBudget := range map[string]bool{"Ignore": false, "FreezeGrowth": true} {
+		h := newHPA()
+		h.Spec.Budget = &v1alpha1.Budget{MonthlyLimitUSD: "100", OnSpendUnavailable: policy}
+		e := newEnv(h, newDeployment(), newPod("api-1"))
+		e.r.Spend = failingSpend{}
+		e.r.Reconcile(context.Background(), req)
+		if got := e.e.last.Budget != nil; got != wantBudget {
+			t.Fatalf("%s: budget forwarded=%v want %v", policy, got, wantBudget)
+		}
+		if wantBudget && e.e.last.Budget.Spent < e.e.last.Budget.MonthlyLimit {
+			t.Fatal("FreezeGrowth must report the budget as exhausted")
+		}
+	}
+}
+
+func TestSavingsCounterAccrues(t *testing.T) {
+	e := newEnv(newHPA(), newDeployment(), newPod("api-1"), newPod("api-2"))
+	e.r.Reconcile(context.Background(), req) // shrink 1000m -> 800m, 2 pods
+	name := "kubecost_hpa_savings_usd_total"
+	before := counterValue(t, name)
+	e.t = e.t.Add(30 * time.Minute)
+	e.m.snap.At = e.t
+	e.r.Reconcile(context.Background(), req)
+	got := counterValue(t, name) - before
+	want := 0.2 * 2 * 0.03 * 0.5 // 200m saved x 2 pods x $0.03/core-h x 0.5h
+	if diff := got - want; diff > 1e-9 || diff < -1e-9 {
+		t.Fatalf("accrued %v want %v", got, want)
+	}
+}
+
+func counterValue(t *testing.T, name string) float64 {
+	t.Helper()
+	mfs, err := ctrlmetrics.Registry.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	total := 0.0
+	for _, mf := range mfs {
+		if mf.GetName() == name {
+			for _, m := range mf.GetMetric() {
+				total += m.GetCounter().GetValue()
+			}
+		}
+	}
+	return total
 }

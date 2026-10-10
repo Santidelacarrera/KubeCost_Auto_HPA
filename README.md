@@ -54,12 +54,35 @@ Un segundo controlador (`--enable-spot-drain`) hace **cordon + drain** de nodos 
 
 ### Reglas de seguridad
 
-- Nunca reduce por debajo de `uso_real / 0.7` ni fuera de `cpu.min`/`cpu.max`.
-- Solo cambia CPU; memoria no se toca (reducirla in-place es inseguro).
-- Rechaza el resize si `resizePolicy` de CPU es `RestartContainer`; espera si hay un resize en curso.
-- Sin métricas o con el motor caído no se hace nada. Si KubeCost no responde, el presupuesto no se aplica en ese ciclo (fail-open, para no sacrificar el SLO).
-- El drain se niega si no queda otro nodo listo, si hay pods sin controlador, y reintenta evicciones bloqueadas por PDB hasta `--drain-timeout`.
-- El presupuesto congelado solo bloquea crecer; reducir siempre se permite.
+- Nunca reduce la CPU por debajo de `uso_real / 0.7` ni fuera de `cpu.min`/`cpu.max`.
+- Rechaza el resize si `resizePolicy` es `RestartContainer`; espera si hay un resize en curso.
+- Sin métricas o con el motor caído no se hace nada (usa la última lectura si tiene < 15 min).
+- Presupuesto: congelado solo bloquea **crecer** (CPU y réplicas); reducir siempre se permite. Si KubeCost no responde,
+  `budget.onSpendUnavailable` decide: `Ignore` (por defecto, no se sacrifica el SLO) o `FreezeGrowth`.
+- El drain se niega si no queda otro nodo listo o hay pods sin controlador, y reintenta evicciones bloqueadas por PDB hasta `--drain-timeout`.
+
+### Memoria y réplicas (opt-in)
+
+- `spec.memory` activa el resize de memoria: **crece rápido** (+25 % si el uso supera el 85 %) y **reduce despacio**
+  (máx. −10 % por decisión, nunca por debajo de `uso × 1.3`). La memoria sigue creciendo aunque el presupuesto esté congelado: un OOM es peor que el gasto.
+- `spec.replicas` activa el escalado horizontal, solo cuando se agotó el margen vertical: +1 réplica si la CPU está en
+  `cpu.max` y la p99 ≥ 90 % del SLO; −1 si la CPU está en `cpu.min`, hay holgura de latencia y las demás réplicas absorben la carga
+  por debajo del 70 %. **No combinar con otro HPA sobre el mismo Deployment.**
+
+### Seguridad
+
+- Motor: `ENGINE_TOKEN` exige `Authorization: Bearer` en `/v1/*` (`/healthz` y `/metrics` quedan abiertos para probes).
+  TLS con `TLS_CERT`/`TLS_KEY`; con `TLS_CLIENT_CA` exige certificado de cliente (mTLS).
+- Operador → Prometheus / KubeCost / motor: flags `--<backend>-ca-file`, `--<backend>-client-cert/-key`,
+  `--<backend>-bearer-token-file` (se relee en cada petición, soporta rotación) o env `PROMETHEUS_TOKEN`/`KUBECOST_TOKEN`/`ENGINE_TOKEN`.
+- Helm: `auth.*` (tokens desde Secrets), `tls.engine.*`, `networkPolicy.enabled`, PDBs, `prometheusRule.enabled`.
+- Redis: contraseña soportada (`REDIS_PASSWORD`); **sin TLS a Redis todavía**, restringirlo con `networkPolicy`.
+
+### Métricas del operador
+
+`kubecost_hpa_cost_per_request_usd`, `kubecost_hpa_desired_cpu_millicores`, `kubecost_hpa_estimated_savings_usd_per_hour`,
+`kubecost_hpa_savings_usd_total` (ahorro acumulado), `kubecost_hpa_budget_frozen`, `kubecost_hpa_resizes_total`, `kubecost_spot_drains_total`.
+Dashboard de Grafana en `deploy/compose/grafana/dashboards/`.
 
 ## Uso
 
@@ -74,10 +97,12 @@ spec:
   unitEconomics: {maxCostPerRequest: "0.000002"}
   budget: {monthlyLimitUSD: "5000"}
   spot: {enabled: true, faultTolerant: true}
+  memory: {min: 64Mi, max: 2Gi}      # opt-in
+  replicas: {min: 2, max: 10}        # opt-in
   dryRun: true      # empezar en dry-run
 ```
 
-Requisitos del clúster: Kubernetes ≥ 1.33 (`InPlacePodVerticalScaling` GA/beta con subrecurso `pods/resize`),
+Requisitos del clúster: Kubernetes ≥ 1.33 (`InPlacePodVerticalScaling` beta, subrecurso `pods/resize`),
 Prometheus con métricas `http_requests_total` / `http_request_duration_seconds`, y KubeCost (opcional).
 
 El resize in-place cambia el Pod, no el template del Deployment: el operador lo reaplica a pods nuevos,
@@ -106,16 +131,22 @@ helm install kch deploy/helm/kubecost-auto-hpa -n kubecost-auto-hpa-system --cre
 cd engine && pip install -e '.[dev]' && pytest
 cd operator && make test           # unitarias (clientes fake, miniredis, httptest)
 cd operator && make integration    # E2E con el motor Python real + Redis + Prometheus/KubeCost simulados
+cd operator && make envtest        # contra un kube-apiserver 1.33 + etcd REALES (KUBEBUILDER_ASSETS)
+make -C operator e2e-kind          # clúster kind 1.33 real, imágenes reales (necesita docker + kind)
 cd operator && make manifests      # regenera deepcopy, CRD, RBAC y copia el CRD al chart (requiere controller-gen)
 ```
 
-## Estado y límites conocidos
+## Estado de verificación
 
-- Verificado en este repo: tests Python y Go (unitarios + E2E con motor real), `go vet`, `helm lint/template`,
-  `kustomize build`, `docker compose config`.
-- **No verificado contra un clúster real**: la API `pods/resize`, Eviction y el contenedor de las imágenes se probaron con
-  clientes fake; falta una ejecución en kind/minikube ≥ 1.33.
-- El E2E usa el `client` fake de controller-runtime, no `envtest` (necesita binarios de kube-apiserver/etcd).
-- Las imágenes no se publican aún (CI solo prueba/valida); el stack de Compose las construye localmente.
-- Las consultas PromQL por defecto asumen nombres de métrica convencionales; sobreescribir en `metrics.Queries` si difieren.
-- Pendiente: HPA horizontal (réplicas), memoria, autenticación a Prometheus/KubeCost, TLS entre componentes.
+| Nivel | Qué cubre | Estado |
+|---|---|---|
+| Unitarias Python / Go | motor, clientes, resizer, drainer, reconciler | ✅ ejecutadas |
+| E2E con motor real | reconciler + motor Python + Redis (miniredis) + Prometheus/KubeCost simulados | ✅ ejecutado |
+| **envtest (kube-apiserver 1.33.4 + etcd reales)** | defaults del CRD, `pods/resize`, subrecurso `scale`, Eviction + PDB, y el **binario real del manager** | ✅ ejecutado |
+| kind 1.33 (`hack/e2e-kind.sh`) | kubelet real: resize sin reinicio, imágenes Docker | ⚠️ escrito y en CI, **no ejecutado** (el entorno de desarrollo no tiene daemon de Docker) |
+| Imágenes Docker / `release.yml` | build multi-arch y publicación en GHCR | ⚠️ no ejecutado |
+| Helm / Kustomize / Compose | `lint`, `template`, `build`, `config` | ✅ ejecutados (sin instalar en un clúster) |
+
+Límites conocidos: sin kubelet en envtest no se observa el cambio efectivo de cgroups tras un resize; la caché del
+reconciler puede ver un pod con retraso (el patch es idempotente); Redis sin TLS; las consultas PromQL por defecto
+asumen `http_requests_total` / `http_request_duration_seconds` (configurables en `internal/metrics`).

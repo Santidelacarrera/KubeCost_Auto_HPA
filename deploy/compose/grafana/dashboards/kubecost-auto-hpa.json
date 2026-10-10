@@ -176,6 +176,33 @@
      "refId": "A"
     }
    ]
+  },
+  {
+   "id": 7,
+   "type": "stat",
+   "title": "Accumulated savings (USD)",
+   "gridPos": {
+    "x": 0,
+    "y": 24,
+    "w": 12,
+    "h": 6
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "currencyUSD"
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "expr": "sum(kubecost_hpa_savings_usd_total)",
+     "refId": "A"
+    }
+   ]
   }
  ]
 }

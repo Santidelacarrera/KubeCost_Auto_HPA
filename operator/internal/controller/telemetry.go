@@ -16,11 +16,12 @@ var (
 	gSavings        = prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "kubecost_hpa_estimated_savings_usd_per_hour", Help: "Estimated hourly CPU savings vs the Deployment template."}, metricLabels)
 	gFrozen         = prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "kubecost_hpa_budget_frozen", Help: "1 when the budget guardrail blocks growth."}, metricLabels)
 	cResizes        = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "kubecost_hpa_resizes_total", Help: "Resize decisions applied."}, []string{"namespace", "name", "action"})
+	cSavings        = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "kubecost_hpa_savings_usd_total", Help: "Accumulated estimated CPU savings vs the Deployment template (USD)."}, metricLabels)
 	cDrains         = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "kubecost_spot_drains_total", Help: "Spot node drains by result."}, []string{"result"})
 )
 
 func init() {
-	ctrlmetrics.Registry.MustRegister(gCostPerRequest, gDesiredCPU, gSavings, gFrozen, cResizes, cDrains)
+	ctrlmetrics.Registry.MustRegister(gCostPerRequest, gDesiredCPU, gSavings, gFrozen, cSavings, cResizes, cDrains)
 }
 
 func exportMetrics(h *v1alpha1.KubeCostHPA, pods, baseCPU, desired int64, d engine.Decision, cpuPrice float64) {

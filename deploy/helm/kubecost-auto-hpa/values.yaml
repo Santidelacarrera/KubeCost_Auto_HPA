@@ -1,4 +1,9 @@
 operator:
+  extraArgs: []          # e.g. ["--prometheus-ca-file=/ca/ca.crt"]
+  extraEnv: []
+  extraVolumes: []
+  extraVolumeMounts: []
+  podDisruptionBudget: {enabled: true, minAvailable: 1}
   image: {repository: ghcr.io/santidelacarrera/kubecost-auto-hpa-operator, tag: "", pullPolicy: IfNotPresent}
   replicas: 2
   leaderElect: true
@@ -11,6 +16,7 @@ operator:
     limits: {memory: 256Mi}
 
 engine:
+  podDisruptionBudget: {enabled: true, minAvailable: 1}
   image: {repository: ghcr.io/santidelacarrera/kubecost-auto-hpa-engine, tag: "", pullPolicy: IfNotPresent}
   replicas: 2
   resources:
@@ -34,3 +40,21 @@ redis:
 
 serviceMonitor:
   enabled: false
+
+# Authentication: bearer tokens kept in Secrets (never in values).
+auth:
+  engine:     {secretName: "", key: token}   # engine requires it, operator sends it
+  prometheus: {secretName: "", key: token}
+  kubecost:   {secretName: "", key: token}
+
+# TLS for the operator -> engine hop. Secrets are standard kubernetes.io/tls (+ ca.crt).
+tls:
+  engine:
+    secretName: ""         # server cert/key for the engine; enables https
+    clientSecretName: ""   # operator client cert/key + ca.crt; enables mTLS when the server secret has ca.crt
+
+networkPolicy:
+  enabled: false           # restrict engine/redis ingress to the operator
+
+prometheusRule:
+  enabled: false           # alerts (needs the Prometheus Operator CRDs)
