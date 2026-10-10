@@ -1,0 +1,36 @@
+operator:
+  image: {repository: ghcr.io/santidelacarrera/kubecost-auto-hpa-operator, tag: "", pullPolicy: IfNotPresent}
+  replicas: 2
+  leaderElect: true
+  enableSpotDrain: true
+  drainTimeout: 2m
+  cpuPricePerCoreHour: "0.031"
+  memPricePerGiBHour: "0.004"
+  resources:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {memory: 256Mi}
+
+engine:
+  image: {repository: ghcr.io/santidelacarrera/kubecost-auto-hpa-engine, tag: "", pullPolicy: IfNotPresent}
+  replicas: 2
+  resources:
+    requests: {cpu: 25m, memory: 48Mi}
+    limits: {memory: 128Mi}
+
+# Data sources
+prometheus:
+  url: http://prometheus-server.monitoring:80
+kubecost:
+  url: http://kubecost-cost-analyzer.kubecost:9090   # empty disables budget guardrails
+
+# Redis: bundled cache, or point at your own.
+redis:
+  enabled: true
+  external:
+    addr: ""          # used when enabled=false, e.g. my-redis:6379
+    passwordSecret: {name: "", key: password}
+  image: redis:7.4-alpine
+  maxmemory: 64mb
+
+serviceMonitor:
+  enabled: false

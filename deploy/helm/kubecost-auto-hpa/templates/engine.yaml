@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kch.name" . }}-engine
+  labels: {{- include "kch.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.engine.replicas }}
+  selector:
+    matchLabels: {{- include "kch.selector" (dict "ctx" . "component" "engine") | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "kch.selector" (dict "ctx" . "component" "engine") | nindent 8 }}
+    spec:
+      securityContext: {runAsNonRoot: true, runAsUser: 65532, seccompProfile: {type: RuntimeDefault}}
+      containers:
+      - name: engine
+        image: "{{ .Values.engine.image.repository }}:{{ .Values.engine.image.tag | default .Chart.AppVersion }}"
+        imagePullPolicy: {{ .Values.engine.image.pullPolicy }}
+        ports: [{name: http, containerPort: 8000}]
+        livenessProbe: {httpGet: {path: /healthz, port: http}}
+        readinessProbe: {httpGet: {path: /healthz, port: http}}
+        resources: {{- toYaml .Values.engine.resources | nindent 10 }}
+        securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kch.name" . }}-engine
+  labels: {{- include "kch.labels" . | nindent 4 }}
+spec:
+  selector: {{- include "kch.selector" (dict "ctx" . "component" "engine") | nindent 4 }}
+  ports: [{name: http, port: 8000, targetPort: http}]

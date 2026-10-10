@@ -1,0 +1,24 @@
+apiVersion: autoscaling.kubecost.io/v1alpha1
+kind: KubeCostHPA
+metadata:
+  name: checkout
+  namespace: shop
+spec:
+  targetRef:
+    name: checkout
+  slo:
+    p99LatencyMs: 250
+  cpu:
+    min: 100m
+    max: "2"
+  unitEconomics:
+    maxCostPerRequest: "0.000002"
+  budget:
+    monthlyLimitUSD: "5000"
+  spot:
+    enabled: true
+    faultTolerant: true
+    minReplicas: 2
+  cooldown: 5m
+  interval: 1m
+  dryRun: true   # start in dry-run, flip to false once decisions look right

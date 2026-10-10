@@ -1,0 +1,5 @@
+apiVersion: 1
+providers:
+  - name: kubecost-auto-hpa
+    type: file
+    options: {path: /var/lib/grafana/dashboards}

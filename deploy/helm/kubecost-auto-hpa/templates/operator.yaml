@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kch.name" . }}-operator
+  labels: {{- include "kch.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.operator.replicas }}
+  selector:
+    matchLabels: {{- include "kch.selector" (dict "ctx" . "component" "operator") | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "kch.selector" (dict "ctx" . "component" "operator") | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "kch.name" . }}
+      securityContext: {runAsNonRoot: true, seccompProfile: {type: RuntimeDefault}}
+      containers:
+      - name: manager
+        image: "{{ .Values.operator.image.repository }}:{{ .Values.operator.image.tag | default .Chart.AppVersion }}"
+        imagePullPolicy: {{ .Values.operator.image.pullPolicy }}
+        args:
+        {{- if .Values.operator.leaderElect }}
+        - --leader-elect
+        {{- end }}
+        - --enable-spot-drain={{ .Values.operator.enableSpotDrain }}
+        - --drain-timeout={{ .Values.operator.drainTimeout }}
+        - --cpu-price-per-core-hour={{ .Values.operator.cpuPricePerCoreHour }}
+        - --mem-price-per-gib-hour={{ .Values.operator.memPricePerGiBHour }}
+        env:
+        - {name: PROMETHEUS_URL, value: {{ .Values.prometheus.url | quote }}}
+        - {name: KUBECOST_URL, value: {{ .Values.kubecost.url | quote }}}
+        - {name: ENGINE_URL, value: "http://{{ include "kch.name" . }}-engine:8000"}
+        - {name: REDIS_ADDR, value: {{ include "kch.redisAddr" . | quote }}}
+        {{- if and (not .Values.redis.enabled) .Values.redis.external.passwordSecret.name }}
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.redis.external.passwordSecret.name }}
+              key: {{ .Values.redis.external.passwordSecret.key }}
+        {{- end }}
+        ports:
+        - {name: metrics, containerPort: 8080}
+        - {name: probes, containerPort: 8081}
+        livenessProbe: {httpGet: {path: /healthz, port: probes}, initialDelaySeconds: 15}
+        readinessProbe: {httpGet: {path: /readyz, port: probes}, initialDelaySeconds: 5}
+        resources: {{- toYaml .Values.operator.resources | nindent 10 }}
+        securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kch.name" . }}-operator-metrics
+  labels: {{- include "kch.labels" . | nindent 4 }}
+    app.kubernetes.io/component: operator
+spec:
+  selector: {{- include "kch.selector" (dict "ctx" . "component" "operator") | nindent 4 }}
+  ports: [{name: metrics, port: 8080, targetPort: metrics}]
+{{- if .Values.serviceMonitor.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "kch.name" . }}
+  labels: {{- include "kch.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: operator
+  endpoints: [{port: metrics}]
+{{- end }}

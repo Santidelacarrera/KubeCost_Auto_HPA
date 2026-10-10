@@ -1,0 +1,43 @@
+name: ci
+on:
+  push:
+  pull_request:
+jobs:
+  engine:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: pip install pytest && PYTHONPATH=engine python -m pytest engine -q
+  operator:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: {go-version-file: operator/go.mod}
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - name: Unit + integration (real Python engine)
+        working-directory: operator
+        run: |
+          test -z "$(gofmt -l .)"
+          go vet ./...
+          go test ./...
+          go test -tags integration -count=1 ./...
+  manifests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: {go-version-file: operator/go.mod}
+      - uses: azure/setup-helm@v4
+      - name: Generated files are up to date
+        working-directory: operator
+        run: |
+          go install sigs.k8s.io/controller-tools/cmd/controller-gen@v0.16.5
+          go install sigs.k8s.io/kustomize/kustomize/v5@v5.5.0
+          make manifests
+          git diff --exit-code
+      - run: helm lint deploy/helm/kubecost-auto-hpa && helm template r deploy/helm/kubecost-auto-hpa >/dev/null
+      - run: kustomize build operator/config/overlays/local >/dev/null
