@@ -1,0 +1,23 @@
+# Used by hack/e2e-kind.sh. Operator talks to a fake Prometheus; KubeCost is disabled.
+resources:
+- ../../default
+- fake-prometheus.yaml
+- workload.yaml
+patches:
+- target: {kind: Deployment, name: kubecost-auto-hpa-operator}
+  patch: |-
+    - {op: replace, path: /spec/replicas, value: 1}
+    - {op: replace, path: /spec/template/spec/containers/0/imagePullPolicy, value: IfNotPresent}
+    - {op: replace, path: /spec/template/spec/containers/0/args, value: []}
+    - {op: replace, path: /spec/template/spec/containers/0/env/0/value, value: "http://fake-prometheus:9090"}
+    - {op: replace, path: /spec/template/spec/containers/0/env/1/value, value: ""}
+- target: {kind: Deployment, name: kubecost-auto-hpa-engine}
+  patch: |-
+    - {op: replace, path: /spec/replicas, value: 1}
+images:
+- name: ghcr.io/santidelacarrera/kubecost-auto-hpa-operator
+  newName: kubecost-auto-hpa-operator
+  newTag: dev
+- name: ghcr.io/santidelacarrera/kubecost-auto-hpa-engine
+  newName: kubecost-auto-hpa-engine
+  newTag: dev

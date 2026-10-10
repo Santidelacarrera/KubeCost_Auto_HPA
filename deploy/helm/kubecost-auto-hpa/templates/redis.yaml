@@ -1,0 +1,30 @@
+{{- if .Values.redis.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kch.name" . }}-redis
+  labels: {{- include "kch.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {{- include "kch.selector" (dict "ctx" . "component" "redis") | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "kch.selector" (dict "ctx" . "component" "redis") | nindent 8 }}
+    spec:
+      containers:
+      - name: redis
+        image: {{ .Values.redis.image }}
+        args: ["--save", "", "--appendonly", "no", "--maxmemory", {{ .Values.redis.maxmemory | quote }}, "--maxmemory-policy", "allkeys-lru"]
+        ports: [{name: redis, containerPort: 6379}]
+        readinessProbe: {exec: {command: [redis-cli, ping]}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kch.name" . }}-redis
+  labels: {{- include "kch.labels" . | nindent 4 }}
+spec:
+  selector: {{- include "kch.selector" (dict "ctx" . "component" "redis") | nindent 4 }}
+  ports: [{name: redis, port: 6379, targetPort: redis}]
+{{- end }}

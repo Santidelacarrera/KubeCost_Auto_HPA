@@ -1,0 +1,20 @@
+# Local test cluster (kind/minikube): single replicas, locally built images.
+resources:
+- ../../default
+- ../../samples
+patches:
+- target: {kind: Deployment, name: kubecost-auto-hpa-operator}
+  patch: |-
+    - {op: replace, path: /spec/replicas, value: 1}
+    - {op: replace, path: /spec/template/spec/containers/0/imagePullPolicy, value: IfNotPresent}
+    - {op: replace, path: /spec/template/spec/containers/0/args, value: []}
+- target: {kind: Deployment, name: kubecost-auto-hpa-engine}
+  patch: |-
+    - {op: replace, path: /spec/replicas, value: 1}
+images:
+- name: ghcr.io/santidelacarrera/kubecost-auto-hpa-operator
+  newName: kubecost-auto-hpa-operator
+  newTag: dev
+- name: ghcr.io/santidelacarrera/kubecost-auto-hpa-engine
+  newName: kubecost-auto-hpa-engine
+  newTag: dev

@@ -1,0 +1,57 @@
+# Local test stack. Core services (redis, engine, prometheus, grafana) start by default;
+# the operator needs a cluster and is behind the "operator" profile:
+#   docker compose up -d                      # engine + redis + observability
+#   docker compose --profile operator up -d   # + operator against $KUBECONFIG (kind/minikube)
+services:
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "64mb", "--maxmemory-policy", "allkeys-lru"]
+    ports: ["6379:6379"]
+    healthcheck: {test: ["CMD", "redis-cli", "ping"], interval: 5s, timeout: 3s, retries: 10}
+
+  engine:
+    build: ./engine
+    environment:
+      ENGINE_TOKEN: ${ENGINE_TOKEN:-}   # when set, /v1/* requires "Authorization: Bearer <token>"
+    ports: ["8000:8000"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/healthz')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    volumes: ["./deploy/compose/prometheus.yml:/etc/prometheus/prometheus.yml:ro"]
+    ports: ["9090:9090"]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+
+  grafana:
+    image: grafana/grafana:11.3.1
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - ./deploy/compose/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/compose/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports: ["3000:3000"]
+    depends_on: [prometheus]
+
+  operator:
+    profiles: ["operator"]
+    build: ./operator
+    command:
+      - --prometheus-url=http://prometheus:9090
+      - --engine-url=http://engine:8000
+      - --redis-addr=redis:6379
+      - --metrics-bind-address=:8080
+    environment:
+      KUBECONFIG: /kube/config
+      ENGINE_TOKEN: ${ENGINE_TOKEN:-}
+    volumes: ["${KUBECONFIG:-~/.kube/config}:/kube/config:ro"]
+    ports: ["8080:8080"]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    depends_on:
+      redis: {condition: service_healthy}
+      engine: {condition: service_healthy}

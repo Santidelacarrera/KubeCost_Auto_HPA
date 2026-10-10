@@ -1,0 +1,7 @@
+global:
+  scrape_interval: 15s
+scrape_configs:
+  - job_name: engine
+    static_configs: [{targets: ["engine:8000"]}]
+  - job_name: operator
+    static_configs: [{targets: ["operator:8080", "host.docker.internal:8080"]}]

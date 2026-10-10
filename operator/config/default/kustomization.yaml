@@ -1,0 +1,8 @@
+namespace: kubecost-auto-hpa-system
+resources:
+- namespace.yaml
+- ../crd
+- ../rbac
+- ../manager
+- ../engine
+- ../redis

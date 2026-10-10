@@ -1,0 +1,85 @@
+{{- if .Values.operator.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "kch.name" . }}-operator
+  labels: {{- include "kch.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.operator.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels: {{- include "kch.selector" (dict "ctx" . "component" "operator") | nindent 6 }}
+---
+{{- end }}
+{{- if .Values.engine.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "kch.name" . }}-engine
+  labels: {{- include "kch.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.engine.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels: {{- include "kch.selector" (dict "ctx" . "component" "engine") | nindent 6 }}
+---
+{{- end }}
+{{- if .Values.networkPolicy.enabled }}
+# Engine and Redis only accept traffic from the operator.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "kch.name" . }}-engine
+  labels: {{- include "kch.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels: {{- include "kch.selector" (dict "ctx" . "component" "engine") | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels: {{- include "kch.selector" (dict "ctx" . "component" "operator") | nindent 10 }}
+    ports: [{port: 8000}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "kch.name" . }}-redis
+  labels: {{- include "kch.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels: {{- include "kch.selector" (dict "ctx" . "component" "redis") | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels: {{- include "kch.selector" (dict "ctx" . "component" "operator") | nindent 10 }}
+    ports: [{port: 6379}]
+---
+{{- end }}
+{{- if .Values.prometheusRule.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "kch.name" . }}
+  labels: {{- include "kch.labels" . | nindent 4 }}
+spec:
+  groups:
+  - name: kubecost-auto-hpa
+    rules:
+    - alert: KubeCostHPABudgetFrozen
+      expr: kubecost_hpa_budget_frozen == 1
+      for: 10m
+      labels: {severity: warning}
+      annotations:
+        summary: "Autoscaling frozen by budget for {{ "{{ $labels.namespace }}/{{ $labels.name }}" }}"
+    - alert: KubeCostHPASpotDrainFailing
+      expr: increase(kubecost_spot_drains_total{result="failed"}[15m]) > 0
+      labels: {severity: critical}
+      annotations:
+        summary: "Spot node drain failed: workloads may be interrupted ungracefully"
+    - alert: KubeCostHPAOperatorDown
+      expr: absent(up{job=~".*kubecost-auto-hpa.*operator.*"} == 1)
+      for: 10m
+      labels: {severity: warning}
+      annotations:
+        summary: "KubeCost Auto-HPA operator metrics are missing"
+{{- end }}

@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kch.name" . }}-engine
+  labels: {{- include "kch.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.engine.replicas }}
+  selector:
+    matchLabels: {{- include "kch.selector" (dict "ctx" . "component" "engine") | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "kch.selector" (dict "ctx" . "component" "engine") | nindent 8 }}
+    spec:
+      securityContext: {runAsNonRoot: true, runAsUser: 65532, seccompProfile: {type: RuntimeDefault}}
+      containers:
+      - name: engine
+        image: "{{ .Values.engine.image.repository }}:{{ .Values.engine.image.tag | default .Chart.AppVersion }}"
+        imagePullPolicy: {{ .Values.engine.image.pullPolicy }}
+        {{- if or .Values.auth.engine.secretName .Values.tls.engine.secretName }}
+        env:
+        {{- if .Values.auth.engine.secretName }}
+        - name: ENGINE_TOKEN
+          valueFrom: {secretKeyRef: {name: {{ .Values.auth.engine.secretName }}, key: {{ .Values.auth.engine.key }}}}
+        {{- end }}
+        {{- if .Values.tls.engine.secretName }}
+        - {name: TLS_CERT, value: /tls/tls.crt}
+        - {name: TLS_KEY, value: /tls/tls.key}
+        {{- if .Values.tls.engine.clientSecretName }}
+        - {name: TLS_CLIENT_CA, value: /tls/ca.crt}   # mTLS: only clients signed by this CA are accepted
+        {{- end }}
+        {{- end }}
+        {{- end }}
+        ports: [{name: http, containerPort: 8000}]
+        {{- if .Values.tls.engine.clientSecretName }}
+        # kubelet has no client certificate, so under mTLS probe the TCP port only
+        livenessProbe: {tcpSocket: {port: http}}
+        readinessProbe: {tcpSocket: {port: http}}
+        {{- else }}
+        {{- $scheme := ternary "HTTPS" "HTTP" (ne .Values.tls.engine.secretName "") }}
+        livenessProbe: {httpGet: {path: /healthz, port: http, scheme: {{ $scheme }}}}
+        readinessProbe: {httpGet: {path: /healthz, port: http, scheme: {{ $scheme }}}}
+        {{- end }}
+        resources: {{- toYaml .Values.engine.resources | nindent 10 }}
+        securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+        {{- if .Values.tls.engine.secretName }}
+        volumeMounts: [{name: tls, mountPath: /tls, readOnly: true}]
+      volumes: [{name: tls, secret: {secretName: {{ .Values.tls.engine.secretName }}}}]
+        {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kch.name" . }}-engine
+  labels: {{- include "kch.labels" . | nindent 4 }}
+spec:
+  selector: {{- include "kch.selector" (dict "ctx" . "component" "engine") | nindent 4 }}
+  ports: [{name: http, port: 8000, targetPort: http}]
