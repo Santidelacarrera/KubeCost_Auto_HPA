@@ -1,6 +1,13 @@
 version: 2
 updates:
-  - {package-ecosystem: gomod, directory: /operator, schedule: {interval: weekly}}
+  - package-ecosystem: gomod
+    directory: /operator
+    schedule: {interval: weekly}
+    groups:
+      # k8s.io/api, apimachinery, client-go and controller-runtime must move in lockstep:
+      # bumping one alone breaks the build (e.g. client-go vs. an older k8s.io/api).
+      kubernetes:
+        patterns: ["k8s.io/*", "sigs.k8s.io/controller-runtime", "sigs.k8s.io/controller-tools"]
   - {package-ecosystem: pip, directory: /engine, schedule: {interval: weekly}}
   - {package-ecosystem: docker, directory: /operator, schedule: {interval: weekly}}
   - {package-ecosystem: docker, directory: /engine, schedule: {interval: weekly}}
