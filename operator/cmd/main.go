@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"flag"
 	"net/http"
 	"os"
@@ -53,7 +54,8 @@ func main() {
 	flag.Float64Var(&memPrice, "mem-price-per-gib-hour", 0.004, "Default memory price (USD/GiB-hour).")
 	flag.BoolVar(&spotDrain, "enable-spot-drain", true, "Cordon/drain Spot nodes with interruption signals.")
 	flag.DurationVar(&drainTimeout, "drain-timeout", 2*time.Minute, "Maximum time to drain a node.")
-	var promHTTP, kcHTTP, engHTTP httpx.Options
+	var promHTTP, kcHTTP, engHTTP, redisTLS httpx.Options
+	var redisUseTLS bool
 	bindHTTP := func(prefix string, o *httpx.Options, tokenEnv string) {
 		flag.StringVar(&o.CAFile, prefix+"-ca-file", "", "PEM CA bundle to verify the "+prefix+" server.")
 		flag.StringVar(&o.CertFile, prefix+"-client-cert", "", "Client certificate for mTLS to "+prefix+".")
@@ -61,6 +63,10 @@ func main() {
 		flag.StringVar(&o.BearerTokenFile, prefix+"-bearer-token-file", "", "File with a bearer token for "+prefix+" (re-read on every request).")
 		o.BearerToken = os.Getenv(tokenEnv)
 	}
+	flag.BoolVar(&redisUseTLS, "redis-tls", false, "Connect to Redis over TLS.")
+	flag.StringVar(&redisTLS.CAFile, "redis-ca-file", "", "PEM CA bundle to verify the Redis server.")
+	flag.StringVar(&redisTLS.CertFile, "redis-client-cert", "", "Client certificate for mTLS to Redis.")
+	flag.StringVar(&redisTLS.KeyFile, "redis-client-key", "", "Client key for mTLS to Redis.")
 	bindHTTP("prometheus", &promHTTP, "PROMETHEUS_TOKEN")
 	bindHTTP("kubecost", &kcHTTP, "KUBECOST_TOKEN")
 	bindHTTP("engine", &engHTTP, "ENGINE_TOKEN")
@@ -89,8 +95,16 @@ func main() {
 
 	var store cache.Store = cache.NewMemory()
 	if redisAddr != "" {
-		store = cache.NewRedis(redisAddr, redisPass, redisDB)
-		log.Info("using redis store", "addr", redisAddr)
+		var tlsCfg *tls.Config
+		if redisUseTLS {
+			var err error
+			if tlsCfg, err = httpx.TLSConfig(redisTLS); err != nil {
+				log.Error(err, "invalid Redis TLS configuration")
+				os.Exit(1)
+			}
+		}
+		store = cache.NewRedisTLS(redisAddr, redisPass, redisDB, tlsCfg)
+		log.Info("using redis store", "addr", redisAddr, "tls", redisUseTLS)
 	} else {
 		log.Info("redis not configured, using in-memory store")
 	}

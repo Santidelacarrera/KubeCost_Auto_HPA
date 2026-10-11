@@ -138,6 +138,22 @@ spec:
                 - message: memory.min must be <= memory.max
                   rule: '!has(self.min) || !has(self.max) || quantity(self.min).compareTo(quantity(self.max))
                     <= 0'
+              metrics:
+                description: Metrics overrides the default PromQL queries.
+                properties:
+                  cpuUsageQuery:
+                    maxLength: 2048
+                    type: string
+                  memUsageQuery:
+                    maxLength: 2048
+                    type: string
+                  p99Query:
+                    maxLength: 2048
+                    type: string
+                  rpsQuery:
+                    maxLength: 2048
+                    type: string
+                type: object
               replicas:
                 description: Replicas enables horizontal scaling when set.
                 properties:

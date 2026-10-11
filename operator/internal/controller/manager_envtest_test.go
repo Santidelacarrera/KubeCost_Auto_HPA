@@ -19,6 +19,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -113,9 +114,39 @@ func TestManagerBinaryAgainstRealAPIServer(t *testing.T) {
 			if got := p.Spec.Containers[0].Resources.Requests.Cpu().MilliValue(); got < 143 {
 				t.Fatalf("shrunk below the usage floor: %dm", got)
 			}
+			deleteAndExpectRestore(t, c, &logs)
 			return
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
 	t.Fatalf("pods were never resized\nmanager logs:\n%s", logs.String())
+}
+
+// Deleting the KubeCostHPA must hand the pods back at their template resources
+// (the finalizer) and then let the resource go.
+func deleteAndExpectRestore(t *testing.T, c client.Client, logs *bytes.Buffer) {
+	t.Helper()
+	ctx := context.Background()
+	var h v1alpha1.KubeCostHPA
+	if err := c.Get(ctx, client.ObjectKey{Namespace: "shop", Name: "api"}, &h); err != nil {
+		t.Fatal(err)
+	}
+	if len(h.Finalizers) == 0 {
+		t.Fatal("finalizer was not added by the manager")
+	}
+	if err := c.Delete(ctx, &h); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		var p corev1.Pod
+		cpuOK := c.Get(ctx, client.ObjectKey{Namespace: "shop", Name: "api-2"}, &p) == nil &&
+			p.Spec.Containers[0].Resources.Requests.Cpu().MilliValue() == 1000
+		gone := apierrors.IsNotFound(c.Get(ctx, client.ObjectKey{Namespace: "shop", Name: "api"}, &v1alpha1.KubeCostHPA{}))
+		if cpuOK && gone {
+			return
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+	t.Fatalf("pods were not restored / resource not released after delete\nmanager logs:\n%s", logs.String())
 }

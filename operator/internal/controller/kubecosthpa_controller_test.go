@@ -6,15 +6,20 @@ import (
 	"testing"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 
 	v1alpha1 "github.com/santidelacarrera/kubecost_auto_hpa/operator/api/v1alpha1"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/engine"
+	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/metrics"
 )
 
 var req = ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "shop", Name: "api"}}
@@ -313,5 +318,122 @@ func TestGrowthBypassesCooldownAfterShrinkButNotBackToBack(t *testing.T) {
 	e.r.Reconcile(ctx, req)
 	if got := e.podCPU(t, "api-1"); got != 1250 {
 		t.Fatalf("shrink must respect the full cooldown, got %d", got)
+	}
+}
+
+func TestFinalizerRestoresTemplateResourcesOnDelete(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(newHPA(), newDeployment(), newPod("api-1"), newPod("api-2"))
+	e.r.Reconcile(ctx, req) // adds finalizer, shrinks to 800m
+	if !controllerutil.ContainsFinalizer(ptr(e.hpa(t)), Finalizer) {
+		t.Fatal("finalizer not added")
+	}
+	if e.podCPU(t, "api-1") != 800 {
+		t.Fatal("setup: expected shrink")
+	}
+	h := e.hpa(t)
+	if err := e.c.Delete(ctx, &h); err != nil {
+		t.Fatal(err)
+	}
+	e.syncPods()
+	if _, err := e.r.Reconcile(ctx, req); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{"api-1", "api-2"} {
+		if got := e.podCPU(t, p); got != 1000 {
+			t.Fatalf("%s not restored: %dm", p, got)
+		}
+	}
+	var gone v1alpha1.KubeCostHPA
+	if err := e.c.Get(ctx, req.NamespacedName, &gone); !apierrors.IsNotFound(err) {
+		t.Fatalf("resource should be released after restoring, err=%v", err)
+	}
+}
+
+func TestFinalizerNeverBlocksDeletion(t *testing.T) {
+	ctx := context.Background()
+	// 1) nothing was ever resized: release without touching pods
+	e := newEnv(newHPA(), newDeployment(), newPod("api-1"))
+	e.e.dec = engine.Decision{Action: "hold", CPUMillicores: 1000}
+	e.r.Reconcile(ctx, req)
+	h := e.hpa(t)
+	_ = e.c.Delete(ctx, &h)
+	e.r.Reconcile(ctx, req)
+	if err := e.c.Get(ctx, req.NamespacedName, &v1alpha1.KubeCostHPA{}); !apierrors.IsNotFound(err) {
+		t.Fatalf("untouched resource must be released, err=%v", err)
+	}
+	// 2) target Deployment already deleted
+	e = newEnv(newHPA(), newDeployment(), newPod("api-1"))
+	e.r.Reconcile(ctx, req)
+	_ = e.c.Delete(ctx, newDeployment())
+	h = e.hpa(t)
+	_ = e.c.Delete(ctx, &h)
+	e.r.Reconcile(ctx, req)
+	if err := e.c.Get(ctx, req.NamespacedName, &v1alpha1.KubeCostHPA{}); !apierrors.IsNotFound(err) {
+		t.Fatalf("missing target must not block deletion, err=%v", err)
+	}
+	// 3) restore keeps failing: released after the deadline
+	e = newEnv(newHPA(), newDeployment(), newPod("api-1"))
+	e.r.Reconcile(ctx, req)
+	e.syncPods()
+	var p corev1.Pod
+	_ = e.c.Get(ctx, client.ObjectKey{Namespace: "shop", Name: "api-1"}, &p)
+	p.Status.Conditions = []corev1.PodCondition{{Type: "PodResizeInProgress", Status: corev1.ConditionTrue}}
+	if err := e.c.Status().Update(ctx, &p); err != nil {
+		t.Fatal(err)
+	}
+	h = e.hpa(t)
+	_ = e.c.Delete(ctx, &h)
+	e.syncPods()
+	e.t = time.Now() // deletion timestamp is "now": still within the deadline
+	res, rerr := e.r.Reconcile(ctx, req)
+	if res.RequeueAfter == 0 {
+		t.Fatalf("a resize in flight should requeue the restore (err=%v, cpu=%d, hpa=%+v)", rerr, e.podCPU(t, "api-1"), e.hpa(t).Status.DesiredCPUMillicores)
+	}
+	e.t = time.Now().Add(restoreDeadline + time.Minute)
+	e.r.Reconcile(ctx, req)
+	if err := e.c.Get(ctx, req.NamespacedName, &v1alpha1.KubeCostHPA{}); !apierrors.IsNotFound(err) {
+		t.Fatalf("deadline must release the resource, err=%v", err)
+	}
+}
+
+func TestMetricQueryOverridesReachTheSource(t *testing.T) {
+	h := newHPA()
+	h.Spec.Metrics = &v1alpha1.MetricsSpec{RPSQuery: "my_rps", P99Query: "my_p99"}
+	e := newEnv(h, newDeployment(), newPod("api-1"))
+	var got metrics.Workload
+	e.r.Metrics = metricsFunc(func(w metrics.Workload) { got = w })
+	e.r.Reconcile(context.Background(), req)
+	if got.Overrides == nil || got.Overrides.RPS != "my_rps" || got.Overrides.P99Ms != "my_p99" {
+		t.Fatalf("overrides not forwarded: %+v", got.Overrides)
+	}
+}
+
+// brokenStore simulates Redis being unreachable.
+type brokenStore struct{}
+
+func (brokenStore) Get(context.Context, string, any) (bool, error) {
+	return false, errors.New("redis down")
+}
+func (brokenStore) Set(context.Context, string, any, time.Duration) error {
+	return errors.New("redis down")
+}
+func (brokenStore) Delete(context.Context, string) error { return errors.New("redis down") }
+
+func TestRedisDownDegradesGracefully(t *testing.T) {
+	e := newEnv(newHPA(), newDeployment(), newPod("api-1"))
+	e.r.Store = brokenStore{}
+	if _, err := e.r.Reconcile(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	if got := e.podCPU(t, "api-1"); got != 800 {
+		t.Fatalf("scaling must keep working without the cache, got %dm", got)
+	}
+	// the cooldown falls back to status.LastResizeTime
+	e.e.dec.CPUMillicores = 640
+	e.t = e.t.Add(time.Minute)
+	e.r.Reconcile(context.Background(), req)
+	if got := e.podCPU(t, "api-1"); got != 800 {
+		t.Fatalf("cooldown must hold without Redis, got %dm", got)
 	}
 }
