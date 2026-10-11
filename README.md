@@ -61,6 +61,11 @@ Un segundo controlador (`--enable-spot-drain`) hace **cordon + drain** de nodos 
   `budget.onSpendUnavailable` decide: `Ignore` (por defecto, no se sacrifica el SLO) o `FreezeGrowth`.
 - El drain se niega si no queda otro nodo listo o hay pods sin controlador, y reintenta evicciones bloqueadas por PDB hasta `--drain-timeout`.
 
+### Ciclo de vida
+
+Borrar un `KubeCostHPA` **devuelve los pods a los recursos del template** (finalizer, con un límite de 2 min para no bloquear nunca el borrado).
+Las queries PromQL se pueden sobrescribir por recurso con `spec.metrics`. Guía completa de operación, alertas y fallos: [`docs/OPERATIONS.md`](docs/OPERATIONS.md).
+
 ### Anti-flapping asimétrico
 
 - Reducir espera el `cooldown` completo tras cualquier cambio.
@@ -86,7 +91,7 @@ importes no numéricos o negativos y `onSpendUnavailable` desconocido. El motor 
 - Operador → Prometheus / KubeCost / motor: flags `--<backend>-ca-file`, `--<backend>-client-cert/-key`,
   `--<backend>-bearer-token-file` (se relee en cada petición, soporta rotación) o env `PROMETHEUS_TOKEN`/`KUBECOST_TOKEN`/`ENGINE_TOKEN`.
 - Helm: `auth.*` (tokens desde Secrets), `tls.engine.*`, `networkPolicy.enabled`, PDBs, `prometheusRule.enabled`.
-- Redis: contraseña soportada (`REDIS_PASSWORD`); **sin TLS a Redis todavía**, restringirlo con `networkPolicy`.
+- Redis: contraseña (`REDIS_PASSWORD`) y TLS/mTLS (`--redis-tls`, `--redis-ca-file`, `--redis-client-cert/-key`); además `networkPolicy.enabled`.
 
 ### Métricas del operador
 
@@ -154,9 +159,9 @@ cd operator && make manifests      # regenera deepcopy, CRD, RBAC y copia el CRD
 | E2E con motor real | reconciler + motor Python + Redis (miniredis) + Prometheus/KubeCost simulados | ✅ ejecutado |
 | **envtest (kube-apiserver 1.33.4 + etcd reales)** | defaults del CRD, `pods/resize`, subrecurso `scale`, Eviction + PDB, y el **binario real del manager** | ✅ ejecutado |
 | kind 1.33 (`hack/e2e-kind.sh`) | kubelet real: resize sin reinicio, pods sin recrear, imágenes Docker de operador y motor | ✅ pasa en CI de GitHub (job `e2e-kind`) |
-| `release.yml` | build multi-arch y publicación en GHCR / chart OCI | ⚠️ aún no ejecutado (solo corre en `main` y tags) |
+| `release.yml` | build multi-arch y publicación en GHCR (chart OCI en tags `v*`) | ✅ imágenes publicadas tras el merge a `main`; la publicación del chart (tag) aún no se ha ejecutado |
 | Helm / Kustomize / Compose | `lint`, `template`, `build`, `config` | ✅ ejecutados (sin instalar en un clúster) |
 
 Límites conocidos: sin kubelet en envtest no se observa el cambio efectivo de cgroups tras un resize; la caché del
-reconciler puede ver un pod con retraso (el patch es idempotente); Redis sin TLS; las consultas PromQL por defecto
+reconciler puede ver un pod con retraso (el patch es idempotente);  las consultas PromQL por defecto
 asumen `http_requests_total` / `http_request_duration_seconds` (configurables en `internal/metrics`).

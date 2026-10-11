@@ -80,6 +80,22 @@ type ReplicaSpec struct {
 	Max int32 `json:"max"`
 }
 
+// MetricsSpec overrides the PromQL used to read the workload's signals, for
+// clusters whose metrics are not named http_requests_total /
+// http_request_duration_seconds. Templates may use {{.Namespace}} and {{.PodRegex}}.
+// Each query must return a single-value vector: RPS = total requests/s of all pods,
+// p99 in milliseconds, CPU in millicores per pod, memory in MiB per pod.
+type MetricsSpec struct {
+	// +kubebuilder:validation:MaxLength=2048
+	RPSQuery string `json:"rpsQuery,omitempty"`
+	// +kubebuilder:validation:MaxLength=2048
+	P99Query string `json:"p99Query,omitempty"`
+	// +kubebuilder:validation:MaxLength=2048
+	CPUUsageQuery string `json:"cpuUsageQuery,omitempty"`
+	// +kubebuilder:validation:MaxLength=2048
+	MemUsageQuery string `json:"memUsageQuery,omitempty"`
+}
+
 // SpotSpec controls Spot awareness for the workload.
 type SpotSpec struct {
 	// +kubebuilder:default=false
@@ -105,6 +121,9 @@ type KubeCostHPASpec struct {
 	// +optional
 	// +kubebuilder:default={}
 	Spot SpotSpec `json:"spot,omitempty"`
+	// Metrics overrides the default PromQL queries.
+	// +optional
+	Metrics *MetricsSpec `json:"metrics,omitempty"`
 	// Memory enables memory resizing when set.
 	// +optional
 	Memory *MemorySpec `json:"memory,omitempty"`

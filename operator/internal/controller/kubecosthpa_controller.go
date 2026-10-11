@@ -9,10 +9,11 @@ import (
 	"strings"
 	"time"
 
+	"errors"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	policyv1 "k8s.io/api/policy/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -20,6 +21,7 @@ import (
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	v1alpha1 "github.com/santidelacarrera/kubecost_auto_hpa/operator/api/v1alpha1"
@@ -29,6 +31,14 @@ import (
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/engine"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/metrics"
 )
+
+// Finalizer makes the operator restore the original pod resources before a
+// KubeCostHPA disappears.
+const Finalizer = "autoscaling.kubecost.io/restore-resources"
+
+// restoreDeadline bounds how long a deletion may be held by the finalizer: the
+// restore is best effort and must never block deleting the resource.
+const restoreDeadline = 2 * time.Minute
 
 const (
 	condReady   = "Ready"
@@ -83,6 +93,14 @@ func (r *KubeCostHPAReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if err := r.Get(ctx, req.NamespacedName, &hpa); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
+	if !hpa.DeletionTimestamp.IsZero() {
+		return r.finalize(ctx, &hpa)
+	}
+	if controllerutil.AddFinalizer(&hpa, Finalizer) {
+		if err := r.Update(ctx, &hpa); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
 	interval := hpa.Spec.Interval.Duration
 	if interval <= 0 {
 		interval = time.Minute
@@ -102,7 +120,7 @@ func (r *KubeCostHPAReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// --- target workload ---
 	var dep appsv1.Deployment
 	if err := r.Get(ctx, types.NamespacedName{Namespace: hpa.Namespace, Name: hpa.Spec.TargetRef.Name}, &dep); err != nil {
-		if errors.IsNotFound(err) {
+		if apierrors.IsNotFound(err) {
 			return fail("TargetNotFound", fmt.Sprintf("deployment %q not found", hpa.Spec.TargetRef.Name))
 		}
 		return ctrl.Result{}, err
@@ -171,7 +189,11 @@ func (r *KubeCostHPAReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	// --- metrics (cache first, stale fallback) ---
-	snap, err := r.snapshot(ctx, key, metrics.Workload{Namespace: hpa.Namespace, Name: dep.Name})
+	wl := metrics.Workload{Namespace: hpa.Namespace, Name: dep.Name}
+	if m := hpa.Spec.Metrics; m != nil {
+		wl.Overrides = &metrics.Queries{RPS: m.RPSQuery, P99Ms: m.P99Query, CPUUsage: m.CPUUsageQuery, MemUsage: m.MemUsageQuery}
+	}
+	snap, err := r.snapshot(ctx, key, wl)
 	if err != nil {
 		meta.SetStatusCondition(&hpa.Status.Conditions, metav1.Condition{Type: condMetrics, Status: metav1.ConditionFalse, Reason: "Unavailable", Message: err.Error(), ObservedGeneration: hpa.Generation})
 		return fail("NoMetrics", err.Error())
@@ -473,4 +495,62 @@ func runningPods(in []corev1.Pod) []corev1.Pod {
 // SetupWithManager registers the controller.
 func (r *KubeCostHPAReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).For(&v1alpha1.KubeCostHPA{}).Named("kubecosthpa").Complete(r)
+}
+
+// finalize returns the pods to the resources declared in the Deployment
+// template (the state before the operator touched them) and releases the CR.
+// Replicas are left as they are: scaling in/out is not reverted.
+func (r *KubeCostHPAReconciler) finalize(ctx context.Context, hpa *v1alpha1.KubeCostHPA) (ctrl.Result, error) {
+	if !controllerutil.ContainsFinalizer(hpa, Finalizer) {
+		return ctrl.Result{}, nil
+	}
+	release := func() (ctrl.Result, error) {
+		controllerutil.RemoveFinalizer(hpa, Finalizer)
+		return ctrl.Result{}, client.IgnoreNotFound(r.Update(ctx, hpa))
+	}
+	touched := hpa.Status.DesiredCPUMillicores != 0 || hpa.Status.DesiredMemoryMiB != 0
+	if !touched || hpa.Spec.DryRun {
+		return release()
+	}
+	lg := log.FromContext(ctx)
+	if r.now().Sub(hpa.DeletionTimestamp.Time) > restoreDeadline {
+		lg.Info("giving up restoring resources, releasing the resource anyway")
+		return release()
+	}
+	var dep appsv1.Deployment
+	if err := r.Get(ctx, types.NamespacedName{Namespace: hpa.Namespace, Name: hpa.Spec.TargetRef.Name}, &dep); err != nil {
+		if apierrors.IsNotFound(err) {
+			return release()
+		}
+		return ctrl.Result{}, err
+	}
+	cname, tmpl := pickContainer(&dep, hpa.Spec.TargetRef.ContainerName)
+	if tmpl == nil {
+		return release()
+	}
+	sel, err := metav1.LabelSelectorAsSelector(dep.Spec.Selector)
+	if err != nil {
+		return release()
+	}
+	var podList corev1.PodList
+	if err := r.List(ctx, &podList, client.InNamespace(hpa.Namespace), client.MatchingLabelsSelector{Selector: sel}); err != nil {
+		return ctrl.Result{}, err
+	}
+	target := actuator.Target{CPUMillis: tmpl.Resources.Requests.Cpu().MilliValue()}
+	if hpa.Spec.Memory != nil {
+		target.MemoryBytes = tmpl.Resources.Requests.Memory().Value()
+	}
+	pending := false
+	pods := runningPods(podList.Items)
+	for i := range pods {
+		if _, err := r.Resizer.Resize(ctx, &pods[i], cname, target); err != nil {
+			lg.Info("restore skipped", "pod", pods[i].Name, "reason", err.Error())
+			pending = pending || errors.Is(err, actuator.ErrResizeInFlight)
+		}
+	}
+	if pending {
+		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+	}
+	r.event(hpa, corev1.EventTypeNormal, "Restored", "pod resources restored to the Deployment template")
+	return release()
 }

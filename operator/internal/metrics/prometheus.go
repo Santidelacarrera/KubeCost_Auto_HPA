@@ -24,6 +24,8 @@ var ErrNoData = errors.New("no data")
 type Workload struct {
 	Namespace string
 	Name      string
+	// Overrides replaces the default query for each non-empty field.
+	Overrides *Queries
 }
 
 // PodRegex matches pods of a Deployment (name-<hash>-<suffix>).
@@ -82,21 +84,29 @@ func NewPrometheus(baseURL string, q Queries) *Prometheus {
 // Snapshot queries all three signals. RPS and p99 are required; CPU usage is
 // optional (zero means unknown and disables the usage-based shrink floor).
 func (p *Prometheus) Snapshot(ctx context.Context, w Workload) (Snapshot, error) {
-	rps, err := p.query(ctx, p.Queries.RPS, w)
+	q := p.Queries
+	if o := w.Overrides; o != nil {
+		for dst, src := range map[*string]string{&q.RPS: o.RPS, &q.P99Ms: o.P99Ms, &q.CPUUsage: o.CPUUsage, &q.MemUsage: o.MemUsage} {
+			if src != "" {
+				*dst = src
+			}
+		}
+	}
+	rps, err := p.query(ctx, q.RPS, w)
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("rps: %w", err)
 	}
-	p99, err := p.query(ctx, p.Queries.P99Ms, w)
+	p99, err := p.query(ctx, q.P99Ms, w)
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("p99: %w", err)
 	}
-	cpu, err := p.query(ctx, p.Queries.CPUUsage, w)
+	cpu, err := p.query(ctx, q.CPUUsage, w)
 	if err != nil && !errors.Is(err, ErrNoData) {
 		return Snapshot{}, fmt.Errorf("cpu usage: %w", err)
 	}
 	var mem float64
-	if p.Queries.MemUsage != "" {
-		mem, err = p.query(ctx, p.Queries.MemUsage, w)
+	if q.MemUsage != "" {
+		mem, err = p.query(ctx, q.MemUsage, w)
 		if err != nil && !errors.Is(err, ErrNoData) {
 			return Snapshot{}, fmt.Errorf("memory usage: %w", err)
 		}
