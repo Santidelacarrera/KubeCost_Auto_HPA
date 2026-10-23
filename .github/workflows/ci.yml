@@ -24,6 +24,7 @@ jobs:
           test -z "$(gofmt -l .)"
           go vet ./...
           go test ./...
+          go test -race -p 2 ./...
           go test -tags integration -count=1 ./...
       - name: Known vulnerabilities in dependencies
         working-directory: operator
@@ -58,6 +59,16 @@ jobs:
       - uses: helm/kind-action@v1
         with: {install_only: true, version: v0.27.0}
       - run: hack/e2e-kind.sh
+  e2e-kca:
+    # Real cluster (kind + metrics-server): KubeCostAutoscaler scales a CPU-bound workload out
+    # through the /scale subresource, with KubeCost replaced by a deterministic stub.
+    runs-on: ubuntu-latest
+    needs: [engine, operator]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: helm/kind-action@v1
+        with: {install_only: true, version: v0.27.0}
+      - run: hack/e2e-kca.sh
   manifests:
     runs-on: ubuntu-latest
     steps:
@@ -74,3 +85,4 @@ jobs:
           git diff --exit-code
       - run: helm lint deploy/helm/kubecost-auto-hpa && helm template r deploy/helm/kubecost-auto-hpa >/dev/null
       - run: kustomize build operator/config/overlays/local >/dev/null
+      - run: kustomize build operator/config/overlays/e2e-kca >/dev/null
