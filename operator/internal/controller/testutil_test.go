@@ -103,6 +103,10 @@ func newEnv(hpa *v1alpha1.KubeCostHPA, objs ...runtime.Object) *env {
 	c := crfake.NewClientBuilder().WithScheme(s).WithObjects(cobjs...).WithStatusSubresource(&v1alpha1.KubeCostHPA{}).Build()
 	var kobjs []runtime.Object
 	for _, o := range objs {
+		switch o.(type) {
+		case *v1alpha1.KubeCostAutoscaler, *v1alpha1.KubeCostHPA: // CRs are not known to the typed clientset
+			continue
+		}
 		kobjs = append(kobjs, o.DeepCopyObject())
 	}
 	cs := fake.NewSimpleClientset(kobjs...)

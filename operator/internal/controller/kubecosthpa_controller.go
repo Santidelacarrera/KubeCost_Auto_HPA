@@ -30,6 +30,7 @@ import (
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/config"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/engine"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/metrics"
+	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/ownership"
 )
 
 // Finalizer makes the operator restore the original pod resources before a
@@ -74,6 +75,8 @@ type storedDecision struct {
 // +kubebuilder:rbac:groups=autoscaling.kubecost.io,resources=kubecosthpas/finalizers,verbs=update
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch
 // +kubebuilder:rbac:groups=apps,resources=deployments/scale,verbs=get;update;patch
+// +kubebuilder:rbac:groups=autoscaling,resources=horizontalpodautoscalers,verbs=get;list;watch
+// +kubebuilder:rbac:groups=autoscaling.kubecost.io,resources=kubecostautoscalers,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=pods/resize,verbs=patch;update
 // +kubebuilder:rbac:groups=policy,resources=poddisruptionbudgets,verbs=get;list;watch
@@ -244,7 +247,20 @@ func (r *KubeCostHPAReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		ereq.Memory = &engine.MemoryReq{RequestMiB: desiredMem, UsageMiB: snap.MemUsageMiB, MinMiB: minMiB, MaxMiB: maxMiB}
 	}
 	if rs := hpa.Spec.Replicas; rs != nil {
-		ereq.Replicas = &engine.ReplicasReq{Current: curReplicas, Min: rs.Min, Max: rs.Max}
+		// Single-writer rule: never scale replicas while a native HPA or a
+		// KubeCostAutoscaler already owns them. If ownership cannot be verified,
+		// horizontal scaling stays off (fail closed). Vertical resizing is unaffected.
+		conflicts, cerr := ownership.ForLegacyHPA(ctx, r.Client, hpa.Namespace, dep.Name)
+		switch {
+		case cerr != nil:
+			lg.Info("replica ownership could not be verified; horizontal scaling disabled this cycle", "error", cerr.Error())
+			setOwnership(&hpa, false, "OwnershipUnverified", "could not verify that no other controller scales the Deployment")
+		case len(conflicts) > 0:
+			setOwnership(&hpa, false, "Conflict", "horizontal scaling disabled: "+conflicts[0].String())
+		default:
+			ereq.Replicas = &engine.ReplicasReq{Current: curReplicas, Min: rs.Min, Max: rs.Max}
+			setOwnership(&hpa, true, "Owner", "this resource is the only replica writer")
+		}
 	}
 	if hpa.Spec.Spot.Enabled {
 		ereq.Spot = &engine.Spot{
@@ -278,11 +294,11 @@ func (r *KubeCostHPAReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	// --- act ---
 	newMem := desiredMem
-	if dec.Memory != nil && dec.Memory.Action != "hold" {
+	if ereq.Memory != nil && dec.Memory != nil && dec.Memory.Action != "hold" { // only act on what was asked for
 		newMem = dec.Memory.MiB
 	}
 	newReplicas := curReplicas
-	if dec.Replicas != nil {
+	if ereq.Replicas != nil && dec.Replicas != nil { // never act on a recommendation that was not requested
 		newReplicas = dec.Replicas.Target
 	}
 	cpuChange := dec.Action != "hold" && dec.CPUMillicores != desired
@@ -349,6 +365,14 @@ func (r *KubeCostHPAReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, err
 	}
 	return requeue, nil
+}
+
+func setOwnership(h *v1alpha1.KubeCostHPA, ok bool, reason, msg string) {
+	st := metav1.ConditionFalse
+	if ok {
+		st = metav1.ConditionTrue
+	}
+	meta.SetStatusCondition(&h.Status.Conditions, metav1.Condition{Type: "ReplicaOwnership", Status: st, Reason: reason, Message: msg, ObservedGeneration: h.Generation})
 }
 
 type priceSet struct{ cpu, mem, maxCPR float64 }

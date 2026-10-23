@@ -8,6 +8,8 @@ operator:
   replicas: 2
   leaderElect: true
   enableSpotDrain: true
+  enableCostAutoscaler: true   # KubeCostAutoscaler controller (needs kubecost.url)
+  kubecostMaxAttempts: 3
   drainTimeout: 2m
   cpuPricePerCoreHour: "0.031"
   memPricePerGiBHour: "0.004"
@@ -55,6 +57,12 @@ tls:
 
 networkPolicy:
   enabled: false           # restrict engine/redis ingress to the operator
+  # Egress policy for the operator itself. The operator needs: DNS, the Kubernetes API
+  # server, Prometheus, KubeCost, the engine and Redis. The API server cannot be selected by
+  # labels, so list your cluster's rules explicitly (see docs/KUBECOST_AUTOSCALER.md).
+  operatorEgress:
+    enabled: false
+    rules: []              # raw NetworkPolicyEgressRule list
 
 prometheusRule:
   enabled: false           # alerts (needs the Prometheus Operator CRDs)
