@@ -22,6 +22,9 @@ spec:
         - {name: KUBECOST_URL, value: "http://kubecost-cost-analyzer.kubecost:9090"}
         - {name: ENGINE_URL, value: "http://kubecost-auto-hpa-engine:8000"}
         - {name: REDIS_ADDR, value: "kubecost-auto-hpa-redis:6379"}
+        # Optional bearer token for KubeCost (never logged, never stored in status).
+        - name: KUBECOST_TOKEN
+          valueFrom: {secretKeyRef: {name: kubecost-auto-hpa-kubecost, key: token, optional: true}}
         ports:
         - {name: metrics, containerPort: 8080}
         - {name: probes, containerPort: 8081}

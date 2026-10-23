@@ -22,6 +22,8 @@ spec:
         - --leader-elect
         {{- end }}
         - --enable-spot-drain={{ .Values.operator.enableSpotDrain }}
+        - --enable-cost-autoscaler={{ .Values.operator.enableCostAutoscaler }}
+        - --kubecost-max-attempts={{ .Values.operator.kubecostMaxAttempts }}
         - --drain-timeout={{ .Values.operator.drainTimeout }}
         - --cpu-price-per-core-hour={{ .Values.operator.cpuPricePerCoreHour }}
         - --mem-price-per-gib-hour={{ .Values.operator.memPricePerGiBHour }}

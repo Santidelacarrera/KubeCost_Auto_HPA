@@ -1,14 +1,14 @@
 CONTROLLER_GEN ?= controller-gen
 CHART_DIR := ../deploy/helm/kubecost-auto-hpa
 
-.PHONY: generate manifests test integration envtest e2e-kind fmt vet build
+.PHONY: generate manifests test race integration envtest e2e-kind fmt vet build check
 generate:
 	$(CONTROLLER_GEN) object paths=./api/...
 
 manifests: generate
 	$(CONTROLLER_GEN) crd rbac:roleName=kubecost-auto-hpa-manager paths=./... \
 		output:crd:artifacts:config=config/crd/bases output:rbac:artifacts:config=config/rbac
-	cp config/crd/bases/autoscaling.kubecost.io_kubecosthpas.yaml $(CHART_DIR)/crds/
+	cp config/crd/bases/*.yaml $(CHART_DIR)/crds/
 
 fmt:
 	gofmt -w .
@@ -18,6 +18,13 @@ build:
 	go build -o bin/manager ./cmd
 test:
 	go test ./...
+
+# Data-race detector (memory hungry: limit package parallelism).
+race:
+	go test -race -p 2 ./...
+
+# Everything that needs no cluster: format, vet, tests, race, integration (real Python engine).
+check: fmt vet test race integration
 # End-to-end flow against the real Python engine (needs python3).
 integration:
 	go test -tags integration -count=1 ./...
