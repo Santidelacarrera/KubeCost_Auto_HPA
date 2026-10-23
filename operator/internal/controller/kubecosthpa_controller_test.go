@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -435,5 +436,56 @@ func TestRedisDownDegradesGracefully(t *testing.T) {
 	e.r.Reconcile(context.Background(), req)
 	if got := e.podCPU(t, "api-1"); got != 800 {
 		t.Fatalf("cooldown must hold without Redis, got %dm", got)
+	}
+}
+
+func replicasHPA() *v1alpha1.KubeCostHPA {
+	h := newHPA()
+	h.Spec.Replicas = &v1alpha1.ReplicaSpec{Min: 1, Max: 5}
+	return h
+}
+
+func TestLegacyHorizontalScalingYieldsToANativeHPA(t *testing.T) {
+	min := int32(1)
+	native := &autoscalingv2.HorizontalPodAutoscaler{
+		ObjectMeta: metav1.ObjectMeta{Name: "team-hpa", Namespace: "shop"},
+		Spec: autoscalingv2.HorizontalPodAutoscalerSpec{MinReplicas: &min, MaxReplicas: 9,
+			ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{APIVersion: "apps/v1", Kind: "Deployment", Name: "api"}},
+	}
+	dep := newDeployment()
+	two := int32(2)
+	dep.Spec.Replicas = &two
+	e := newEnv(replicasHPA(), dep, newPod("api-1"), newPod("api-2"), native)
+	e.e.dec = engine.Decision{Action: "hold", CPUMillicores: 1000, Replicas: &engine.ReplicasDec{Target: 4, Reason: "scale out"}}
+	e.r.Reconcile(context.Background(), req)
+	if e.e.last.Replicas != nil {
+		t.Fatal("the engine must not even be asked for a replica recommendation while an HPA owns the Deployment")
+	}
+	sc, _ := e.cs.AppsV1().Deployments("shop").GetScale(context.Background(), "api", metav1.GetOptions{})
+	if sc.Spec.Replicas != 2 {
+		t.Fatalf("replicas must not be written: %d", sc.Spec.Replicas)
+	}
+	c := meta.FindStatusCondition(e.hpa(t).Status.Conditions, "ReplicaOwnership")
+	if c == nil || c.Status != metav1.ConditionFalse || c.Reason != "Conflict" {
+		t.Fatalf("%+v", c)
+	}
+}
+
+func TestLegacyHorizontalScalingYieldsToAKubeCostAutoscaler(t *testing.T) {
+	kca := &v1alpha1.KubeCostAutoscaler{ObjectMeta: metav1.ObjectMeta{Name: "new", Namespace: "shop"},
+		Spec: v1alpha1.KubeCostAutoscalerSpec{TargetRef: v1alpha1.WorkloadRef{Name: "api"}, MinReplicas: 1, MaxReplicas: 3}}
+	e := newEnv(replicasHPA(), newDeployment(), newPod("api-1"), kca)
+	e.r.Reconcile(context.Background(), req)
+	if e.e.last.Replicas != nil {
+		t.Fatal("KubeCostAutoscaler owns replicas now")
+	}
+	// without a competing writer the legacy resource keeps its behaviour
+	e2 := newEnv(replicasHPA(), newDeployment(), newPod("api-1"))
+	e2.r.Reconcile(context.Background(), req)
+	if e2.e.last.Replicas == nil {
+		t.Fatal("legacy horizontal scaling must still work when it is the only writer")
+	}
+	if c := meta.FindStatusCondition(e2.hpa(t).Status.Conditions, "ReplicaOwnership"); c == nil || c.Status != metav1.ConditionTrue {
+		t.Fatalf("%+v", c)
 	}
 }

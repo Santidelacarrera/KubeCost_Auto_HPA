@@ -1,0 +1,49 @@
+# Applied by hand (not part of the default kustomization): it needs a real Deployment,
+# metrics-server and the KubeCost integration of the operator.
+apiVersion: autoscaling.kubecost.io/v1alpha1
+kind: KubeCostAutoscaler
+metadata:
+  name: payments-autoscaler
+  namespace: production
+spec:
+  targetRef:                       # same namespace as this resource; immutable
+    apiVersion: apps/v1
+    kind: Deployment
+    name: payments-api
+
+  minReplicas: 3
+  maxReplicas: 20
+  dryRun: true                     # start here: read status.lastDecision, then set to false
+
+  demand:                          # utilisation = usage / request, averaged over ready pods
+    resources: [cpu]
+    targetUtilizationPercent: 70   # comfortable level
+    costPressureUtilizationPercent: 80   # allowed while cost > target
+    ceilingUtilizationPercent: 90  # replicas needed to stay below this are never withheld for cost
+    tolerancePercent: 10
+
+  costPolicy:                      # optional; without it the controller is purely demand-driven
+    maxHourlyCostUSD: "5.00"       # budget: caps discretionary headroom (never the ceiling's replicas)
+    targetHourlyCostUSD: "4.00"    # above it the workload may run hotter (up to costPressure)
+    scaleUpCostGuardrail: true
+    window: 15m                    # KubeCost window averaged into an hourly run-rate
+
+  stabilization:
+    downscaleWindow: 10m           # scale-down only to the highest recommendation of this window
+    scaleUpWindow: 30s             # scale-up only to the lowest recommendation of this window
+    minimumScaleActionInterval: 60s  # spacing between actions (safety scale-ups are exempt)
+
+  failurePolicy:
+    mode: Freeze                   # or ResourceMetricsFallback (operator-managed native CPU HPA)
+    maxMetricAge: 5m               # freshness limit for KubeCost samples
+    allowSafetyScaleUp: true       # may add replicas above the ceiling even while degraded
+    fallbackActivationDelay: 2m
+    recoveryDelay: 2m
+
+  infrastructurePolicy:            # relative price weights, never capacity guarantees
+    spotMultiplier: "0.35"
+    onDemandMultiplier: "1.0"
+    spotInterruptionBufferPercent: 20   # a Spot replica counts as 80% of a replica
+    # spotNodeLabels:              # override the built-in provider label rules
+    #   - key: lifecycle
+    #     values: [spot]
