@@ -1,0 +1,23 @@
+# Used by hack/e2e-kca.sh. The operator talks to a fake KubeCost; resource metrics come from a
+# real metrics-server (installed by the script). The legacy KubeCostHPA path is not exercised.
+resources:
+- ../../default
+- fake-kubecost.yaml
+- workload.yaml
+patches:
+- target: {kind: Deployment, name: kubecost-auto-hpa-operator}
+  patch: |-
+    - {op: replace, path: /spec/replicas, value: 1}
+    - {op: replace, path: /spec/template/spec/containers/0/imagePullPolicy, value: IfNotPresent}
+    - {op: replace, path: /spec/template/spec/containers/0/args, value: []}
+    - {op: replace, path: /spec/template/spec/containers/0/env/1/value, value: "http://fake-kubecost:9090"}
+- target: {kind: Deployment, name: kubecost-auto-hpa-engine}
+  patch: |-
+    - {op: replace, path: /spec/replicas, value: 1}
+images:
+- name: ghcr.io/santidelacarrera/kubecost-auto-hpa-operator
+  newName: kubecost-auto-hpa-operator
+  newTag: dev
+- name: ghcr.io/santidelacarrera/kubecost-auto-hpa-engine
+  newName: kubecost-auto-hpa-engine
+  newTag: dev

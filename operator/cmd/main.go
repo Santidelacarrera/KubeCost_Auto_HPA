@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"flag"
 	"net/http"
 	"os"
@@ -10,6 +11,7 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	metricsclient "k8s.io/metrics/pkg/client/clientset/versioned"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -22,7 +24,10 @@ import (
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/controller"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/engine"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/httpx"
+	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/kubecost"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/metrics"
+	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/ownership"
+	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/resmetrics"
 )
 
 var scheme = runtime.NewScheme()
@@ -53,7 +58,10 @@ func main() {
 	flag.Float64Var(&memPrice, "mem-price-per-gib-hour", 0.004, "Default memory price (USD/GiB-hour).")
 	flag.BoolVar(&spotDrain, "enable-spot-drain", true, "Cordon/drain Spot nodes with interruption signals.")
 	flag.DurationVar(&drainTimeout, "drain-timeout", 2*time.Minute, "Maximum time to drain a node.")
-	var promHTTP, kcHTTP, engHTTP httpx.Options
+	var promHTTP, kcHTTP, engHTTP, redisTLS httpx.Options
+	var enableCostAutoscaler bool
+	var kcAttempts int
+	var redisUseTLS bool
 	bindHTTP := func(prefix string, o *httpx.Options, tokenEnv string) {
 		flag.StringVar(&o.CAFile, prefix+"-ca-file", "", "PEM CA bundle to verify the "+prefix+" server.")
 		flag.StringVar(&o.CertFile, prefix+"-client-cert", "", "Client certificate for mTLS to "+prefix+".")
@@ -61,6 +69,12 @@ func main() {
 		flag.StringVar(&o.BearerTokenFile, prefix+"-bearer-token-file", "", "File with a bearer token for "+prefix+" (re-read on every request).")
 		o.BearerToken = os.Getenv(tokenEnv)
 	}
+	flag.BoolVar(&enableCostAutoscaler, "enable-cost-autoscaler", true, "Run the KubeCostAutoscaler controller (needs --kubecost-url).")
+	flag.IntVar(&kcAttempts, "kubecost-max-attempts", 3, "Bounded attempts per KubeCost request (exponential backoff with jitter).")
+	flag.BoolVar(&redisUseTLS, "redis-tls", false, "Connect to Redis over TLS.")
+	flag.StringVar(&redisTLS.CAFile, "redis-ca-file", "", "PEM CA bundle to verify the Redis server.")
+	flag.StringVar(&redisTLS.CertFile, "redis-client-cert", "", "Client certificate for mTLS to Redis.")
+	flag.StringVar(&redisTLS.KeyFile, "redis-client-key", "", "Client key for mTLS to Redis.")
 	bindHTTP("prometheus", &promHTTP, "PROMETHEUS_TOKEN")
 	bindHTTP("kubecost", &kcHTTP, "KUBECOST_TOKEN")
 	bindHTTP("engine", &engHTTP, "ENGINE_TOKEN")
@@ -89,8 +103,16 @@ func main() {
 
 	var store cache.Store = cache.NewMemory()
 	if redisAddr != "" {
-		store = cache.NewRedis(redisAddr, redisPass, redisDB)
-		log.Info("using redis store", "addr", redisAddr)
+		var tlsCfg *tls.Config
+		if redisUseTLS {
+			var err error
+			if tlsCfg, err = httpx.TLSConfig(redisTLS); err != nil {
+				log.Error(err, "invalid Redis TLS configuration")
+				os.Exit(1)
+			}
+		}
+		store = cache.NewRedisTLS(redisAddr, redisPass, redisDB, tlsCfg)
+		log.Info("using redis store", "addr", redisAddr, "tls", redisUseTLS)
 	} else {
 		log.Info("redis not configured, using in-memory store")
 	}
@@ -134,6 +156,35 @@ func main() {
 		}).SetupWithManager(mgr); err != nil {
 			log.Error(err, "unable to create spot node controller")
 			os.Exit(1)
+		}
+	}
+	if enableCostAutoscaler {
+		if kubecostURL == "" {
+			log.Info("KubeCostAutoscaler controller disabled: --kubecost-url is not set")
+		} else {
+			kcClient, err := kubecost.New(kubecostURL, mustClient("kubecost", kcHTTP, 15*time.Second))
+			if err != nil {
+				log.Error(err, "invalid KubeCost configuration")
+				os.Exit(1)
+			}
+			kcClient.MaxAttempts = kcAttempts
+			metricsCS, err := metricsclient.NewForConfig(mgr.GetConfig())
+			if err != nil {
+				log.Error(err, "unable to create the metrics.k8s.io client")
+				os.Exit(1)
+			}
+			if err := (&controller.KubeCostAutoscalerReconciler{
+				Client:    mgr.GetClient(),
+				Scheme:    mgr.GetScheme(),
+				Cost:      kcClient,
+				Resources: &resmetrics.Client{Metrics: metricsCS, Discovery: cs.Discovery()},
+				Scaler:    &actuator.DeploymentScaler{Client: cs},
+				Fallback:  &ownership.Fallback{Client: mgr.GetClient(), Scheme: mgr.GetScheme()},
+				Recorder:  mgr.GetEventRecorderFor("kubecost-autoscaler"),
+			}).SetupWithManager(mgr); err != nil {
+				log.Error(err, "unable to create KubeCostAutoscaler controller")
+				os.Exit(1)
+			}
 		}
 	}
 	_ = mgr.AddHealthzCheck("healthz", healthz.Ping)

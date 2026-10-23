@@ -55,6 +55,19 @@ spec:
     ports: [{port: 6379}]
 ---
 {{- end }}
+{{- if and .Values.networkPolicy.operatorEgress.enabled .Values.networkPolicy.operatorEgress.rules }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "kch.name" . }}-operator-egress
+  labels: {{- include "kch.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels: {{- include "kch.selector" (dict "ctx" . "component" "operator") | nindent 6 }}
+  policyTypes: [Egress]
+  egress: {{- toYaml .Values.networkPolicy.operatorEgress.rules | nindent 4 }}
+---
+{{- end }}
 {{- if .Values.prometheusRule.enabled }}
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
@@ -76,6 +89,41 @@ spec:
       labels: {severity: critical}
       annotations:
         summary: "Spot node drain failed: workloads may be interrupted ungracefully"
+    # --- KubeCostAutoscaler ---
+    - alert: KubeCostAutoscalerStaleCostData
+      expr: kubecost_autoscaler_metric_age_seconds > 600
+      for: 10m
+      labels: {severity: warning}
+      annotations:
+        summary: "KubeCost data for {{ "{{ $labels.namespace }}/{{ $labels.name }}" }} is older than 10 minutes: scale-down is frozen"
+    - alert: KubeCostAutoscalerKubeCostAPIErrors
+      expr: sum by (class) (increase(kubecost_autoscaler_kubecost_api_errors_total[15m])) > 5
+      for: 15m
+      labels: {severity: warning}
+      annotations:
+        summary: "Persistent KubeCost API failures (class {{ "{{ $labels.class }}" }})"
+    - alert: KubeCostAutoscalerAuthFailure
+      expr: increase(kubecost_autoscaler_kubecost_api_errors_total{class="auth"}[10m]) > 0
+      labels: {severity: critical}
+      annotations:
+        summary: "KubeCost rejects the operator credentials; the cost policy cannot be evaluated"
+    - alert: KubeCostAutoscalerFallbackActive
+      expr: kubecost_autoscaler_fallback_active == 1
+      for: 5m
+      labels: {severity: warning}
+      annotations:
+        summary: "{{ "{{ $labels.namespace }}/{{ $labels.name }}" }} is scaled by the native CPU HPA fallback"
+    - alert: KubeCostAutoscalerScaleFailures
+      expr: sum by (namespace, name) (increase(kubecost_autoscaler_scaling_action_total{result="error"}[15m])) > 3
+      labels: {severity: critical}
+      annotations:
+        summary: "Repeated replica write failures for {{ "{{ $labels.namespace }}/{{ $labels.name }}" }}"
+    - alert: KubeCostAutoscalerOverBudget
+      expr: kubecost_autoscaler_hourly_cost_usd > kubecost_autoscaler_budget_usd and kubecost_autoscaler_budget_usd > 0
+      for: 30m
+      labels: {severity: warning}
+      annotations:
+        summary: "{{ "{{ $labels.namespace }}/{{ $labels.name }}" }} exceeds its hourly budget (safety capacity is still provisioned)"
     - alert: KubeCostHPAOperatorDown
       expr: absent(up{job=~".*kubecost-auto-hpa.*operator.*"} == 1)
       for: 10m
