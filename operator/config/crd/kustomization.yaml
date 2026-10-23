@@ -1,2 +1,3 @@
 resources:
 - bases/autoscaling.kubecost.io_kubecosthpas.yaml
+- bases/autoscaling.kubecost.io_kubecostautoscalers.yaml

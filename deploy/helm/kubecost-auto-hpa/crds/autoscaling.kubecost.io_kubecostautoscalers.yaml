@@ -1,0 +1,621 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.16.5
+  name: kubecostautoscalers.autoscaling.kubecost.io
+spec:
+  group: autoscaling.kubecost.io
+  names:
+    kind: KubeCostAutoscaler
+    listKind: KubeCostAutoscalerList
+    plural: kubecostautoscalers
+    shortNames:
+    - kca
+    singular: kubecostautoscaler
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.targetRef.name
+      name: Target
+      type: string
+    - jsonPath: .spec.minReplicas
+      name: Min
+      type: integer
+    - jsonPath: .spec.maxReplicas
+      name: Max
+      type: integer
+    - jsonPath: .status.currentReplicas
+      name: Current
+      type: integer
+    - jsonPath: .status.desiredReplicas
+      name: Desired
+      type: integer
+    - jsonPath: .status.cost.hourlyUSD
+      name: $/h
+      type: string
+    - jsonPath: .status.lastDecision.type
+      name: Decision
+      type: string
+    - jsonPath: .status.scalingOwner
+      name: Owner
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          KubeCostAutoscaler scales a Deployment's replicas using resource demand as the
+          driver and KubeCost cost data as a bounded optimisation signal.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: KubeCostAutoscalerSpec defines the desired state.
+            properties:
+              costPolicy:
+                description: CostPolicy is optional; without it the controller is
+                  purely demand-driven.
+                properties:
+                  cluster:
+                    description: Cluster disambiguates the workload in multi-cluster
+                      KubeCost installs.
+                    maxLength: 253
+                    type: string
+                  maxHourlyCostUSD:
+                    description: |-
+                      MaxHourlyCostUSD is the hourly budget (decimal USD, up to 6 decimals).
+                      Exceeding it applies cost pressure and, with the guardrail, caps
+                      discretionary headroom. It never prevents the replicas needed to stay at
+                      or below the utilisation ceiling.
+                    pattern: ^[0-9]+(\.[0-9]+)?$
+                    type: string
+                  scaleUpCostGuardrail:
+                    default: true
+                    description: |-
+                      ScaleUpCostGuardrail caps scale-up headroom at the budget (never below the
+                      replicas needed for the utilisation ceiling).
+                    type: boolean
+                  targetHourlyCostUSD:
+                    description: |-
+                      TargetHourlyCostUSD is the desired hourly cost; above it the workload is
+                      allowed to run hotter (see demand.costPressureUtilizationPercent).
+                    pattern: ^[0-9]+(\.[0-9]+)?$
+                    type: string
+                  window:
+                    default: 15m
+                    description: Window is the KubeCost allocation window averaged
+                      into an hourly run-rate.
+                    type: string
+                type: object
+              demand:
+                default: {}
+                description: DemandPolicy defines how resource utilisation drives
+                  the replica count.
+                properties:
+                  ceilingUtilizationPercent:
+                    default: 90
+                    description: |-
+                      CeilingUtilizationPercent is the hard limit: replicas needed to stay at or
+                      below it are never withheld for cost reasons.
+                    format: int32
+                    maximum: 100
+                    minimum: 1
+                    type: integer
+                  costPressureUtilizationPercent:
+                    default: 80
+                    description: |-
+                      CostPressureUtilizationPercent is the utilisation the workload may run
+                      hot at while its cost exceeds the cost policy.
+                    format: int32
+                    maximum: 100
+                    minimum: 1
+                    type: integer
+                  resources:
+                    default:
+                    - cpu
+                    description: |-
+                      Resources whose utilisation (usage/request, averaged over ready pods) is
+                      observed through the resource metrics API; the highest one drives scaling.
+                    items:
+                      description: DemandResource is a resource observable through
+                        metrics.k8s.io.
+                      enum:
+                      - cpu
+                      - memory
+                      type: string
+                    maxItems: 2
+                    minItems: 1
+                    type: array
+                    x-kubernetes-list-type: set
+                  targetUtilizationPercent:
+                    default: 70
+                    description: TargetUtilizationPercent is the comfortable steady-state
+                      utilisation.
+                    format: int32
+                    maximum: 100
+                    minimum: 1
+                    type: integer
+                  tolerancePercent:
+                    default: 10
+                    description: |-
+                      TolerancePercent is the hysteresis band around a utilisation target inside
+                      which no change is recommended.
+                    format: int32
+                    maximum: 49
+                    minimum: 0
+                    type: integer
+                type: object
+                x-kubernetes-validations:
+                - message: require targetUtilizationPercent <= costPressureUtilizationPercent
+                    <= ceilingUtilizationPercent
+                  rule: '!has(self.targetUtilizationPercent) || !has(self.costPressureUtilizationPercent)
+                    || !has(self.ceilingUtilizationPercent) || (self.targetUtilizationPercent
+                    <= self.costPressureUtilizationPercent && self.costPressureUtilizationPercent
+                    <= self.ceilingUtilizationPercent)'
+              dryRun:
+                default: false
+                description: |-
+                  DryRun computes and reports decisions without writing replicas or
+                  creating the fallback HPA.
+                type: boolean
+              evaluationInterval:
+                default: 30s
+                description: EvaluationInterval is how often the workload is re-evaluated.
+                type: string
+              failurePolicy:
+                default: {}
+                description: FailurePolicy defines behaviour when signals cannot be
+                  trusted.
+                properties:
+                  allowSafetyScaleUp:
+                    default: true
+                    description: |-
+                      AllowSafetyScaleUp lets the controller add replicas when utilisation
+                      exceeds the ceiling even while degraded. Scale-down is never allowed then.
+                    type: boolean
+                  fallbackActivationDelay:
+                    default: 2m
+                    description: |-
+                      FallbackActivationDelay is how long cost data must stay invalid before
+                      the fallback HPA is created (avoids flapping on short outages).
+                    type: string
+                  fallbackTargetCPUUtilizationPercent:
+                    default: 70
+                    description: FallbackTargetCPUUtilizationPercent is the CPU target
+                      of the fallback HPA.
+                    format: int32
+                    maximum: 100
+                    minimum: 1
+                    type: integer
+                  maxMetricAge:
+                    default: 5m
+                    description: MaxMetricAge is the maximum age of a KubeCost sample.
+                    type: string
+                  mode:
+                    default: Freeze
+                    description: |-
+                      Mode: Freeze keeps the replica count; ResourceMetricsFallback hands
+                      scaling to an operator-managed native HPA on CPU after
+                      fallbackActivationDelay (only if the resource metrics API works).
+                    enum:
+                    - Freeze
+                    - ResourceMetricsFallback
+                    type: string
+                  recoveryDelay:
+                    default: 2m
+                    description: |-
+                      RecoveryDelay is how long cost data must stay valid before the fallback
+                      HPA is removed and the controller resumes.
+                    type: string
+                type: object
+              infrastructurePolicy:
+                default: {}
+                description: InfrastructurePolicy describes Spot/Preemptible vs On-Demand
+                  economics.
+                properties:
+                  onDemandMultiplier:
+                    default: "1.0"
+                    description: |-
+                      OnDemandMultiplier is the relative price weight of an On-Demand replica
+                      (also used for replicas on nodes of unknown class: conservative).
+                    pattern: ^[0-9]+(\.[0-9]+)?$
+                    type: string
+                  onDemandNodeLabels:
+                    description: OnDemandNodeLabels overrides the built-in On-Demand
+                      label rules when non-empty.
+                    items:
+                      description: NodeLabelRule matches nodes by label. An empty
+                        values list matches any value.
+                      properties:
+                        key:
+                          minLength: 1
+                          type: string
+                        values:
+                          items:
+                            type: string
+                          type: array
+                          x-kubernetes-list-type: set
+                      required:
+                      - key
+                      type: object
+                    maxItems: 16
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  spotInterruptionBufferPercent:
+                    default: 20
+                    description: |-
+                      SpotInterruptionBufferPercent discounts the capacity of a Spot replica
+                      because it can be reclaimed: it counts as (100-buffer)% of a replica.
+                    format: int32
+                    maximum: 90
+                    minimum: 0
+                    type: integer
+                  spotMultiplier:
+                    default: "1.0"
+                    description: |-
+                      SpotMultiplier is the relative price weight of a Spot replica. Weights
+                      only matter relative to each other: the observed blended price is split
+                      across the classes present using them. They never imply capacity.
+                    pattern: ^[0-9]+(\.[0-9]+)?$
+                    type: string
+                  spotNodeLabels:
+                    description: SpotNodeLabels overrides the built-in Spot label
+                      rules when non-empty.
+                    items:
+                      description: NodeLabelRule matches nodes by label. An empty
+                        values list matches any value.
+                      properties:
+                        key:
+                          minLength: 1
+                          type: string
+                        values:
+                          items:
+                            type: string
+                          type: array
+                          x-kubernetes-list-type: set
+                      required:
+                      - key
+                      type: object
+                    maxItems: 16
+                    type: array
+                    x-kubernetes-list-type: atomic
+                type: object
+              maxReplicas:
+                format: int32
+                minimum: 1
+                type: integer
+              minHealthyReplicas:
+                description: MinHealthyReplicas is never gone below by a scale-down.
+                  Defaults to minReplicas.
+                format: int32
+                minimum: 0
+                type: integer
+              minReplicas:
+                format: int32
+                minimum: 1
+                type: integer
+              stabilization:
+                default: {}
+                description: |-
+                  StabilizationPolicy configures anti-flapping. The three controls are
+                  independent: a window shapes the recommendation, the interval spaces the
+                  actions, and metric freshness (failurePolicy.maxMetricAge) validates inputs.
+                properties:
+                  downscaleWindow:
+                    default: 10m
+                    description: |-
+                      DownscaleWindow: a scale-down only goes as low as the highest
+                      recommendation seen during this window.
+                    type: string
+                  minimumScaleActionInterval:
+                    default: 60s
+                    description: |-
+                      MinimumScaleActionInterval is the minimum time between two scale actions.
+                      Safety scale-ups are exempt.
+                    type: string
+                  scaleUpWindow:
+                    default: 30s
+                    description: |-
+                      ScaleUpWindow: a (non-safety) scale-up only goes as high as the lowest
+                      recommendation seen during this window.
+                    type: string
+                type: object
+              targetRef:
+                description: |-
+                  WorkloadRef points at the workload whose replicas are managed. It is always
+                  in the namespace of the KubeCostAutoscaler: cross-namespace targets are not
+                  supported.
+                properties:
+                  apiVersion:
+                    default: apps/v1
+                    enum:
+                    - apps/v1
+                    type: string
+                  kind:
+                    default: Deployment
+                    enum:
+                    - Deployment
+                    type: string
+                  name:
+                    maxLength: 253
+                    minLength: 1
+                    type: string
+                required:
+                - name
+                type: object
+                x-kubernetes-validations:
+                - message: targetRef is immutable
+                  rule: self.name == oldSelf.name && self.kind == oldSelf.kind
+            required:
+            - maxReplicas
+            - minReplicas
+            - targetRef
+            type: object
+            x-kubernetes-validations:
+            - message: maxReplicas must be >= minReplicas
+              rule: self.maxReplicas >= self.minReplicas
+            - message: minHealthyReplicas must be <= maxReplicas
+              rule: '!has(self.minHealthyReplicas) || (self.minHealthyReplicas <=
+                self.maxReplicas)'
+          status:
+            description: KubeCostAutoscalerStatus defines the observed state.
+            properties:
+              conditions:
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              cost:
+                description: CostStatus is the last validated cost observation and
+                  derived estimates.
+                properties:
+                  budgetExceeded:
+                    type: boolean
+                  budgetLimited:
+                    type: boolean
+                  hourlyUSD:
+                    description: HourlyUSD is the allocated run-rate over the sample
+                      window (not marginal).
+                    type: string
+                  marginalAddUSD:
+                    description: MarginalAddUSD / MarginalRemoveUSD are the estimated
+                      hourly cost of adding / removing one replica.
+                    type: string
+                  marginalRemoveUSD:
+                    type: string
+                  projectedUSD:
+                    description: ProjectedUSD is the estimated hourly cost at the
+                      candidate replica count.
+                    type: string
+                  sampleTime:
+                    format: date-time
+                    type: string
+                  stable:
+                    description: Stable is false when replicas changed inside the
+                      sample window.
+                    type: boolean
+                required:
+                - hourlyUSD
+                - sampleTime
+                - stable
+                type: object
+              currentReplicas:
+                format: int32
+                type: integer
+              desiredReplicas:
+                format: int32
+                type: integer
+              failure:
+                description: FailureStatus tracks signal health across reconciles
+                  (restart-safe).
+                properties:
+                  consecutiveFailures:
+                    format: int32
+                    type: integer
+                  firstFailureTime:
+                    format: date-time
+                    type: string
+                  healthySince:
+                    description: HealthySince is when the current run of valid signals
+                      started.
+                    format: date-time
+                    type: string
+                  lastErrorClass:
+                    description: LastErrorClass is a coarse class (never a raw error
+                      body).
+                    type: string
+                  lastHealthyTime:
+                    format: date-time
+                    type: string
+                required:
+                - consecutiveFailures
+                type: object
+              fallback:
+                description: FallbackStatus reports the native-HPA fallback.
+                properties:
+                  active:
+                    type: boolean
+                  hpaName:
+                    type: string
+                  since:
+                    format: date-time
+                    type: string
+                required:
+                - active
+                type: object
+              infrastructure:
+                description: InfrastructureStatus counts pods per capacity class.
+                properties:
+                  onDemand:
+                    format: int32
+                    type: integer
+                  pending:
+                    format: int32
+                    type: integer
+                  spot:
+                    format: int32
+                    type: integer
+                  unknown:
+                    format: int32
+                    type: integer
+                  unschedulable:
+                    format: int32
+                    type: integer
+                required:
+                - onDemand
+                - pending
+                - spot
+                - unknown
+                - unschedulable
+                type: object
+              lastDecision:
+                description: DecisionStatus describes the last scaling decision.
+                properties:
+                  candidateReplicas:
+                    format: int32
+                    type: integer
+                  costDriven:
+                    type: boolean
+                  dryRun:
+                    type: boolean
+                  message:
+                    type: string
+                  proposedReplicas:
+                    format: int32
+                    type: integer
+                  reason:
+                    type: string
+                  time:
+                    format: date-time
+                    type: string
+                  type:
+                    description: Type is ScaleUp, ScaleDown, Hold, Fallback or InvalidMetrics.
+                    type: string
+                required:
+                - candidateReplicas
+                - proposedReplicas
+                - reason
+                - time
+                - type
+                type: object
+              lastScaleFrom:
+                format: int32
+                type: integer
+              lastScaleTime:
+                format: date-time
+                type: string
+              lastScaleTo:
+                format: int32
+                type: integer
+              lastSuccessfulReconcileTime:
+                format: date-time
+                type: string
+              observedGeneration:
+                format: int64
+                type: integer
+              readyReplicas:
+                format: int32
+                type: integer
+              recommendations:
+                description: Recommendations is the persisted stabilisation history
+                  (bounded).
+                items:
+                  description: Recommendation is one persisted entry of the stabilisation
+                    history.
+                  properties:
+                    replicas:
+                      format: int32
+                      type: integer
+                    time:
+                      format: date-time
+                      type: string
+                  required:
+                  - replicas
+                  - time
+                  type: object
+                maxItems: 512
+                type: array
+                x-kubernetes-list-type: atomic
+              scalingOwner:
+                description: 'ScalingOwner is who writes spec.replicas right now:
+                  Operator, FallbackHPA or None.'
+                type: string
+              utilization:
+                description: Utilization is the observed demand utilisation in percent.
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

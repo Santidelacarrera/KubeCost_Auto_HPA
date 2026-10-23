@@ -5,6 +5,7 @@ package cache
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"sync"
@@ -26,8 +27,13 @@ type Redis struct{ C redis.UniversalClient }
 
 // NewRedis connects lazily; errors surface on first use.
 func NewRedis(addr, password string, db int) *Redis {
+	return NewRedisTLS(addr, password, db, nil)
+}
+
+// NewRedisTLS is NewRedis over TLS when tlsCfg is not nil.
+func NewRedisTLS(addr, password string, db int, tlsCfg *tls.Config) *Redis {
 	return &Redis{C: redis.NewClient(&redis.Options{
-		Addr: addr, Password: password, DB: db,
+		Addr: addr, Password: password, DB: db, TLSConfig: tlsCfg,
 		DialTimeout: 2 * time.Second, ReadTimeout: 2 * time.Second, WriteTimeout: 2 * time.Second,
 	})}
 }

@@ -2,6 +2,10 @@ package cache
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -55,5 +59,34 @@ func TestRedisDown(t *testing.T) {
 	mr.Close()
 	if _, err := r.Get(context.Background(), "k", &item{}); err == nil {
 		t.Fatal("expected error when redis is down")
+	}
+}
+
+func TestRedisOverTLS(t *testing.T) {
+	srv := httptest.NewTLSServer(http.NotFoundHandler()) // only borrowed for its certificate (SAN 127.0.0.1)
+	defer srv.Close()
+	mr, err := miniredis.RunTLS(srv.TLS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mr.Close()
+	ca := x509.NewCertPool()
+	ca.AddCert(srv.Certificate())
+
+	good := NewRedisTLS(mr.Addr(), "", 0, &tls.Config{RootCAs: ca, MinVersion: tls.VersionTLS12})
+	if err := good.Ping(context.Background()); err != nil {
+		t.Fatalf("TLS with the right CA must work: %v", err)
+	}
+	if err := good.Set(context.Background(), "k", item{3}, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+
+	untrusted := NewRedisTLS(mr.Addr(), "", 0, &tls.Config{RootCAs: x509.NewCertPool(), MinVersion: tls.VersionTLS12})
+	if err := untrusted.Ping(context.Background()); err == nil {
+		t.Fatal("an untrusted server certificate must be rejected")
+	}
+	plain := NewRedis(mr.Addr(), "", 0)
+	if err := plain.Ping(context.Background()); err == nil {
+		t.Fatal("plaintext against a TLS server must fail")
 	}
 }
