@@ -58,6 +58,35 @@ rules:
   - patch
   - update
 - apiGroups:
+  - autoscaling
+  resources:
+  - horizontalpodautoscalers
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - autoscaling.kubecost.io
+  resources:
+  - kubecostautoscalers
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - autoscaling.kubecost.io
+  resources:
+  - kubecostautoscalers/status
+  - kubecosthpas/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
   - autoscaling.kubecost.io
   resources:
   - kubecosthpas
@@ -76,13 +105,12 @@ rules:
   verbs:
   - update
 - apiGroups:
-  - autoscaling.kubecost.io
+  - metrics.k8s.io
   resources:
-  - kubecosthpas/status
+  - pods
   verbs:
   - get
-  - patch
-  - update
+  - list
 - apiGroups:
   - policy
   resources:

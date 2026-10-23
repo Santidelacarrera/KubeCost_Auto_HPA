@@ -47,9 +47,10 @@ func (b *bearerTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	return b.base.RoundTrip(r)
 }
 
-// NewClient returns a client with the given timeout and security options.
-func NewClient(o Options, timeout time.Duration) (*http.Client, error) {
-	tr := http.DefaultTransport.(*http.Transport).Clone()
+// TLSConfig builds the client TLS configuration described by o (TLS 1.2+,
+// optional custom CA and client certificate). It is shared with non-HTTP
+// backends such as Redis.
+func TLSConfig(o Options) (*tls.Config, error) {
 	cfg := &tls.Config{MinVersion: tls.VersionTLS12}
 	if o.CAFile != "" {
 		pem, err := os.ReadFile(o.CAFile)
@@ -72,6 +73,16 @@ func NewClient(o Options, timeout time.Duration) (*http.Client, error) {
 		}
 		cfg.Certificates = []tls.Certificate{cert}
 	}
+	return cfg, nil
+}
+
+// NewClient returns a client with the given timeout and security options.
+func NewClient(o Options, timeout time.Duration) (*http.Client, error) {
+	cfg, err := TLSConfig(o)
+	if err != nil {
+		return nil, err
+	}
+	tr := http.DefaultTransport.(*http.Transport).Clone()
 	tr.TLSClientConfig = cfg
 	var rt http.RoundTripper = tr
 	if o.BearerTokenFile != "" || o.BearerToken != "" {
