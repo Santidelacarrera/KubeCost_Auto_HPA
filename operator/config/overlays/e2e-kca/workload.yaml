@@ -1,0 +1,44 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kca
+---
+# CPU-bound pods: they burn their whole 200m limit against a 100m request, so measured
+# utilisation is far above the 70% target and the controller must scale out.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: load
+  namespace: kca
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: load}}
+  template:
+    metadata: {labels: {app: load}}
+    spec:
+      containers:
+      - name: burn
+        image: busybox:1.37
+        command: ["sh", "-c", "while true; do :; done"]
+        resources:
+          requests: {cpu: 100m, memory: 16Mi}
+          limits: {cpu: 200m, memory: 32Mi}
+---
+apiVersion: autoscaling.kubecost.io/v1alpha1
+kind: KubeCostAutoscaler
+metadata:
+  name: load
+  namespace: kca
+spec:
+  targetRef: {apiVersion: apps/v1, kind: Deployment, name: load}
+  minReplicas: 1
+  maxReplicas: 4
+  demand:
+    resources: [cpu]
+    targetUtilizationPercent: 70
+  costPolicy:
+    maxHourlyCostUSD: "5.00"
+    window: 15m
+  stabilization:
+    scaleUpWindow: 10s
+    minimumScaleActionInterval: 10s
