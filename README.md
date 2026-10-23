@@ -222,6 +222,7 @@ cd operator && make test           # unitarias (clientes fake, miniredis, httpte
 cd operator && make integration    # E2E con el motor Python real + Redis + Prometheus/KubeCost simulados
 cd operator && make envtest        # contra un kube-apiserver 1.33 + etcd REALES (KUBEBUILDER_ASSETS)
 make -C operator e2e-kind          # clúster kind 1.33 real, imágenes reales (necesita docker + kind)
+hack/e2e-kca.sh                    # kind + metrics-server: KubeCostAutoscaler (necesita docker + kind + kubectl)
 cd operator && make manifests      # regenera deepcopy, CRD, RBAC y copia el CRD al chart (requiere controller-gen)
 ```
 
@@ -234,10 +235,16 @@ cd operator && make manifests      # regenera deepcopy, CRD, RBAC y copia el CRD
 | **envtest (kube-apiserver 1.33.4 + etcd reales)** | defaults del CRD, `pods/resize`, subrecurso `scale`, Eviction + PDB, y el **binario real del manager** | ✅ ejecutado |
 | **`KubeCostAutoscaler` en envtest** | defaults/validación CEL del CRD (17 formas inválidas rechazadas), `/scale` con compare-and-swap, HPA nativo real (conflicto y fallback), el binario real del manager con un KubeCost simulado | ✅ ejecutado |
 | `-race` | `go test -race -p 2 ./...` | ✅ ejecutado |
-| kind 1.33 (`hack/e2e-kind.sh`) | kubelet real: resize sin reinicio, pods sin recrear, imágenes Docker de operador y motor | ✅ pasa en CI de GitHub (job `e2e-kind`). **No cubre `KubeCostAutoscaler`** (sin KubeCost ni metrics-server) |
+| kind 1.33 (`hack/e2e-kind.sh`) | kubelet real: resize sin reinicio, pods sin recrear, imágenes Docker de operador y motor | ✅ pasa en CI de GitHub (job `e2e-kind`) |
+| kind 1.33 + metrics-server real (`hack/e2e-kca.sh`) | `KubeCostAutoscaler`: una carga que consume CPU se escala por `/scale` y el estado publica la decisión; KubeCost simulado (su respuesta se validó con el cliente real) | ✅ pasa en CI de GitHub (job `e2e-kca`). **Sin KubeCost real**: el formato se verificó contra el código de OpenCost, no contra una instalación |
 | `release.yml` | build multi-arch y publicación en GHCR (chart OCI en tags `v*`) | ✅ imágenes publicadas tras el merge a `main`; la publicación del chart (tag) aún no se ha ejecutado |
 | Helm / Kustomize / Compose | `lint`, `template`, `build`, `config` | ✅ ejecutados (sin instalar en un clúster) |
 
 Límites conocidos: sin kubelet en envtest no se observa el cambio efectivo de cgroups tras un resize; la caché del
 reconciler puede ver un pod con retraso (el patch es idempotente);  las consultas PromQL por defecto
 asumen `http_requests_total` / `http_request_duration_seconds` (configurables en `internal/metrics`).
+
+## Licencia
+
+[Apache License 2.0](LICENSE): licencia permisiva con concesión expresa de patentes, la misma que usan Kubernetes,
+controller-runtime y OpenCost, de modo que el código es compatible con las dependencias del proyecto.
