@@ -243,3 +243,8 @@ cd operator && make manifests      # regenera deepcopy, CRD, RBAC y copia el CRD
 Límites conocidos: sin kubelet en envtest no se observa el cambio efectivo de cgroups tras un resize; la caché del
 reconciler puede ver un pod con retraso (el patch es idempotente);  las consultas PromQL por defecto
 asumen `http_requests_total` / `http_request_duration_seconds` (configurables en `internal/metrics`).
+
+## Licencia
+
+[Apache License 2.0](LICENSE): licencia permisiva con concesión expresa de patentes, la misma que usan Kubernetes,
+controller-runtime y OpenCost, de modo que el código es compatible con las dependencias del proyecto.
