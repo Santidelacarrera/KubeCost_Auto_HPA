@@ -100,6 +100,12 @@ importes no numéricos o negativos y `onSpendUnavailable` desconocido. El motor 
 `kubecost_hpa_savings_usd_total` (ahorro acumulado), `kubecost_hpa_budget_frozen`, `kubecost_hpa_resizes_total`, `kubecost_spot_drains_total`.
 Dashboard de Grafana en `deploy/compose/grafana/dashboards/`.
 
+Para `KubeCostAutoscaler` el chart incluye un dashboard de Grafana (réplicas actuales/deseadas, costo vs presupuesto,
+edad de la muestra de KubeCost, fallback, errores de la API por clase, decisiones y escrituras): actívalo con
+`--set grafanaDashboard.enabled=true` (ConfigMap con la etiqueta `grafana_dashboard` que lee el sidecar de Grafana).
+Se validó que el JSON y la plantilla se renderizan; no se ha cargado en un Grafana real. Los valores del chart se validan
+con `values.schema.json` (una clave mal escrita falla en `helm install` en vez de ignorarse).
+
 ## KubeCostAutoscaler: escalado horizontal consciente del costo
 
 Recurso namespaced `autoscaling.kubecost.io/v1alpha1 KubeCostAutoscaler` que gestiona las **réplicas** de un Deployment.

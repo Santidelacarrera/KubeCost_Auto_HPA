@@ -66,3 +66,9 @@ networkPolicy:
 
 prometheusRule:
   enabled: false           # alerts (needs the Prometheus Operator CRDs)
+
+grafanaDashboard:
+  enabled: false           # ConfigMap with the KubeCostAutoscaler dashboard for the Grafana sidecar
+  label: grafana_dashboard # label the sidecar selects on (kube-prometheus-stack default)
+  labelValue: "1"
+  annotations: {}          # e.g. {grafana_folder: "Autoscaling"}
