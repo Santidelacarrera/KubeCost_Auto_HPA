@@ -250,6 +250,14 @@ Límites conocidos: sin kubelet en envtest no se observa el cambio efectivo de c
 reconciler puede ver un pod con retraso (el patch es idempotente);  las consultas PromQL por defecto
 asumen `http_requests_total` / `http_request_duration_seconds` (configurables en `internal/metrics`).
 
+### Parada de emergencia y comparación sintética
+
+`kubectl annotate kubecostautoscaler <nombre> autoscaling.kubecost.io/pause=true` detiene todas las escrituras de ese
+autoscaler al instante (sigue calculando y explicando decisiones; no cambia réplicas ni crea/borra el HPA de respaldo);
+quitar la anotación reanuda sin reiniciar. `docs/BENCHMARKS.md` compara, con un simulador determinista y supuestos
+explícitos, el HPA nativo frente al motor de decisión (no son mediciones de un clúster real);
+`docs/ENGINEERING_REPORT.md` resume hallazgos, pruebas ejecutadas y riesgos pendientes.
+
 ## Licencia
 
 [Apache License 2.0](LICENSE): licencia permisiva con concesión expresa de patentes, la misma que usan Kubernetes,

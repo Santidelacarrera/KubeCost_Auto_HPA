@@ -86,8 +86,50 @@ func TestSafetyScaleUpIsCappedByBudgetOnlyAboveTheCeiling(t *testing.T) {
 	if d.Type != ScaleUp || d.Proposed != 5 || d.Reason != ReasonSafetyScaleUp {
 		t.Fatalf("%+v", d)
 	}
-	if !d.Details.BudgetLimited || d.Details.DemandReplicas != 6 || d.Details.SafetyReplicas != 5 || d.Details.BudgetReplicas != 5 {
+	// The comfortable size (6 replicas, $6/h) would exceed the $5/h budget, so cost pressure
+	// already lowers the recommendation to the 80% target (5 replicas) before the guardrail acts.
+	if !d.Details.CostPressure || d.Details.DemandReplicas != 6 || d.Details.SafetyReplicas != 5 || d.Details.CostReplicas != 5 || d.Details.BudgetReplicas != 5 {
 		t.Fatalf("details %+v", d.Details)
+	}
+}
+
+func pressureCfg() Config {
+	c := baseCfg()
+	c.TargetHourly, c.MaxHourly = usd("1.00"), usd("2.00")
+	c.MinReplicas, c.MinHealthy, c.MaxReplicas = 2, 2, 60
+	return c
+}
+
+// Regression: the pressure decision used today's spend, which depends on the replica count the
+// controller itself chose. 22 replicas at $0.05 cost $1.10 (> $1.00 target), so the controller ran
+// hotter at 19 ($0.95), where the pressure vanished and demand scaled it back to 22. Constant demand
+// must settle, not cycle.
+func TestCostPressureIsJudgedOnTheComfortableSizeNotOnCurrentSpend(t *testing.T) {
+	cfg := pressureCfg()
+	// 19 replicas at 78.9% (1500 rps / 1900). Comfortable size 22 would cost $1.10 > target.
+	d := Evaluate(cfg, input(t0, 19, 15.0/19, "0.05"))
+	if d.Type != Hold || d.Proposed != 19 || !d.Details.CostPressure {
+		t.Fatalf("must hold at 19 replicas, got %+v (details %+v)", d, d.Details)
+	}
+	// Same demand at 22 replicas: pressure applies and the controller steps down once, to 19.
+	d = Evaluate(cfg, input(t0, 22, 15.0/22, "0.05"))
+	if d.Candidate != 19 || !d.CostDriven {
+		t.Fatalf("want a cost-driven recommendation of 19, got %+v", d)
+	}
+}
+
+func TestNoCostPressureWhenTheComfortableSizeIsAffordable(t *testing.T) {
+	cfg := pressureCfg()
+	// 20 replicas ($1.00/h) at 35%: comfortable size is 10 replicas ($0.50/h), well under target.
+	h := steady(t0, 10, 10*time.Minute, 15*time.Second)
+	in := input(t0, 20, 0.35, "0.05")
+	in.History = h
+	d := Evaluate(cfg, in)
+	if d.Details.CostPressure || d.CostDriven {
+		t.Fatalf("no cost pressure expected: %+v", d)
+	}
+	if d.Type != ScaleDown || d.Reason != ReasonDemandScaleDown {
+		t.Fatalf("a demand-driven scale-down is expected: %+v", d)
 	}
 }
 

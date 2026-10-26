@@ -122,6 +122,9 @@ func (r *KubeCostAutoscalerReconciler) Reconcile(ctx context.Context, req ctrl.R
 		st.ScalingOwner = v1alpha1.OwnerNone
 		return ctrl.Result{}, r.persist(ctx, &a, st)
 	}
+	if a.Annotations[v1alpha1.AnnotationPause] == "true" {
+		s.DryRun, s.Paused = true, true
+	}
 	run.s = s
 
 	// --- target ---
@@ -531,7 +534,11 @@ func (rs *runState) apply(ctx context.Context, dec policy.Decision, current int3
 		return nil
 	}
 	if rs.s.DryRun {
-		st.LastDecision.Message = "dry-run: would scale " + fmt.Sprintf("%d -> %d. ", current, dec.Proposed) + st.LastDecision.Message
+		prefix := "dry-run"
+		if rs.s.Paused {
+			prefix = "paused"
+		}
+		st.LastDecision.Message = prefix + ": would scale " + fmt.Sprintf("%d -> %d. ", current, dec.Proposed) + st.LastDecision.Message
 		return nil
 	}
 	dir := "up"
@@ -585,6 +592,8 @@ func (rs *runState) setHealthConditions(derr, cerr error, dec policy.Decision, s
 	switch {
 	case scaleErr != nil:
 		// condition already set by apply()
+	case rs.s.Paused:
+		rs.cond(v1alpha1.ConditionScalingActive, false, "Paused", "paused by the "+v1alpha1.AnnotationPause+" annotation: decisions are reported but nothing is written")
 	case rs.s.DryRun:
 		rs.cond(v1alpha1.ConditionScalingActive, false, "DryRun", "dry-run: decisions are reported but not applied")
 	default:

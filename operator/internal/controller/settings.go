@@ -24,7 +24,9 @@ type Settings struct {
 	Mode                                                   string
 	FallbackCPU                                            int32
 	DryRun                                                 bool
-	Classifier                                             *infra.Classifier
+	// Paused is the emergency stop (annotation): it forces DryRun and is reported as such.
+	Paused     bool
+	Classifier *infra.Classifier
 }
 
 func dur(d metav1.Duration, def time.Duration) time.Duration {

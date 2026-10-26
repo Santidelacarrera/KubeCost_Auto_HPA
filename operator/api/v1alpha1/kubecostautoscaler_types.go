@@ -12,6 +12,13 @@ const (
 	ConditionScalingActive    = "ScalingActive"    // this resource currently owns replica writes
 )
 
+// AnnotationPause is the emergency stop. While a KubeCostAutoscaler carries
+// autoscaling.kubecost.io/pause="true" the controller keeps evaluating and reporting
+// decisions (exactly like spec.dryRun) but writes nothing: no replica changes, no fallback
+// HPA created or removed. The workload keeps running at its current size and any native HPA
+// may act on it. Removing the annotation resumes control without a restart.
+const AnnotationPause = "autoscaling.kubecost.io/pause"
+
 // Failure policy modes.
 const (
 	FailureModeFreeze                  = "Freeze"

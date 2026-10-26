@@ -140,6 +140,63 @@ func TestDryRunReportsButNeverWrites(t *testing.T) {
 	e.requireCond("ScalingActive", metav1.ConditionFalse, "DryRun")
 }
 
+// The emergency stop: an annotation halts every write at once and is lifted without a restart.
+func TestPauseAnnotationStopsAllWritesAndResumesWhenRemoved(t *testing.T) {
+	a := baseAutoscaler()
+	a.Annotations = map[string]string{v1alpha1.AnnotationPause: "true"}
+	e := newKCAEnv(t, a, 4)
+	e.pricePerReplica = "0.2"
+	e.res.util = 0.97 // would trigger a safety scale-up
+	e.mustReconcile()
+	st := e.get().Status
+	if len(e.scl.writes) != 0 || e.replicas() != 4 {
+		t.Fatal("a paused autoscaler must not write replicas")
+	}
+	if st.LastDecision.Type != "ScaleUp" || !strings.HasPrefix(st.LastDecision.Message, "paused: would scale 4 ->") || st.ScalingOwner != v1alpha1.OwnerNone {
+		t.Fatalf("the decision must still be explained while paused: %+v", st)
+	}
+	e.requireCond("ScalingActive", metav1.ConditionFalse, "Paused")
+
+	// Lift the stop: the very next reconcile acts, with no restart.
+	cur := e.get()
+	delete(cur.Annotations, v1alpha1.AnnotationPause)
+	if err := e.c.Update(context.Background(), &cur); err != nil {
+		t.Fatal(err)
+	}
+	e.advance(time.Minute)
+	e.mustReconcile()
+	if len(e.scl.writes) == 0 || e.replicas() <= 4 {
+		t.Fatalf("scaling must resume once the annotation is removed (writes %v)", e.scl.writes)
+	}
+}
+
+func TestPauseDoesNotTouchAnActiveFallbackHPA(t *testing.T) {
+	a := baseAutoscaler()
+	fallbackMode(a)
+	e := newKCAEnv(t, a, 6)
+	e.costErr = transientErr()
+	for i := 0; i < 15; i++ {
+		e.advance(20 * time.Second)
+		e.mustReconcile()
+	}
+	if _, found := e.hpa(); !found {
+		t.Fatal("fallback HPA expected before pausing")
+	}
+	cur := e.get()
+	cur.Annotations = map[string]string{v1alpha1.AnnotationPause: "true"}
+	if err := e.c.Update(context.Background(), &cur); err != nil {
+		t.Fatal(err)
+	}
+	e.costErr = nil // recovery would normally remove the fallback HPA after the recovery delay
+	for i := 0; i < 15; i++ {
+		e.advance(30 * time.Second)
+		e.mustReconcile()
+	}
+	if _, found := e.hpa(); !found {
+		t.Fatal("pausing must leave the running fallback HPA alone: the workload keeps its autoscaler")
+	}
+}
+
 func TestScaleDownOnlyAfterStabilisationWindowAndSurvivesRestart(t *testing.T) {
 	a := baseAutoscaler()
 	a.Spec.CostPolicy = nil // demand-only

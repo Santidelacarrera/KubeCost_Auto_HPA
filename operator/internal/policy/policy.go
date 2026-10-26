@@ -220,7 +220,13 @@ func Evaluate(cfg Config, in Input) Decision {
 			return failClosed(cfg, d, in, rs, ReasonCostUnavailable, "per-replica cost cannot be estimated")
 		}
 		d.Details.Observed, d.Details.MarginalAdd, d.Details.MarginalRemove = in.Cost.Hourly, est.add, est.remove
-		pressure := (cfg.TargetHourly > 0 && in.Cost.Hourly > cfg.TargetHourly) || (cfg.MaxHourly > 0 && in.Cost.Hourly > cfg.MaxHourly)
+		// Pressure is judged on what the comfortable replica count (rd) would cost, not on
+		// today's spend. Today's spend depends on the replica count this controller picks, so
+		// using it would be a feedback loop: running hotter lowers the cost below the target,
+		// the pressure disappears, demand scales back up, the cost rises again, and so on.
+		// Under constant demand rd is constant, so the decision is too.
+		comfort := project(in, est, rd)
+		pressure := (cfg.TargetHourly > 0 && comfort > cfg.TargetHourly) || (cfg.MaxHourly > 0 && comfort > cfg.MaxHourly)
 		d.Details.CostPressure = pressure
 		if pressure {
 			rc := need(cfg.CostUtil)
