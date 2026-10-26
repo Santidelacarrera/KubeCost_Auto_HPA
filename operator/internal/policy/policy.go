@@ -487,8 +487,17 @@ func budgetReplicas(cfg Config, in Input, e estimateResult) int32 {
 	return clamp32(int64(in.Current) - k)
 }
 
+// cooling reports whether the last scale is still inside MinInterval. A last scale
+// after Now (clock skew) counts as just happened, so the cooldown is bounded.
 func cooling(cfg Config, in Input) bool {
-	return !in.LastScale.IsZero() && in.Now.Sub(in.LastScale) < cfg.MinInterval
+	if in.LastScale.IsZero() {
+		return false
+	}
+	elapsed := in.Now.Sub(in.LastScale)
+	if elapsed < 0 {
+		elapsed = 0
+	}
+	return elapsed < cfg.MinInterval
 }
 
 func retention(cfg Config) time.Duration {

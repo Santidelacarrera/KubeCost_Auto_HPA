@@ -4,6 +4,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 
 ## [Unreleased]
 
+### Fixed
+- Stabilisation timestamps written in the future (clock skew, a restored or hand-edited status) froze the cooldown and the stability window until that time passed (observed: 20 min freeze with a 2 h future timestamp). They are now replaced with the current time once and persisted, so the window is bounded. Regression test: `TestFutureStabilisationTimestampCannotFreezeScaling`.
+- Race condition in the real-apiserver manager test (the log buffer was read while the manager still wrote to it). Test-only; found by `make test-all`.
+
+### Changed
+- KubeCost client: honours `Retry-After` on HTTP 429/503 (delta-seconds and HTTP-date forms, capped at 30 s) and allows at most 4 concurrent requests across all workloads.
+- `make envtest` fails immediately when `KUBEBUILDER_ASSETS` is unset instead of skipping every real-apiserver test. New `make test-all` runs the complete tagged suite under the race detector.
+
 ### Added
 - `autoscaling.kubecost.io/pause` annotation: emergency stop for a `KubeCostAutoscaler` (decisions still reported, nothing written, lifted without restart).
 - `internal/sim` + `cmd/simbench`: deterministic synthetic comparison of the native HPA with the decision engine (`docs/BENCHMARKS.md`), and `docs/ENGINEERING_REPORT.md`.

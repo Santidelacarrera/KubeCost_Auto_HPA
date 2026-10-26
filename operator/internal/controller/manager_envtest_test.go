@@ -16,6 +16,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -67,11 +68,11 @@ func TestManagerBinaryAgainstRealAPIServer(t *testing.T) {
 	if out, err := exec.Command("go", "build", "-o", bin, "../../cmd").CombinedOutput(); err != nil {
 		t.Fatalf("build manager: %v\n%s", err, out)
 	}
-	var logs bytes.Buffer
+	logs := &syncBuffer{}
 	mgr := exec.Command(bin, "--prometheus-url="+ps.URL, "--engine-url="+engURL,
 		"--metrics-bind-address=0", "--health-probe-bind-address=0", "--enable-spot-drain=false")
 	mgr.Env = append(os.Environ(), "KUBECONFIG="+kcPath)
-	mgr.Stdout, mgr.Stderr = &logs, &logs
+	mgr.Stdout, mgr.Stderr = logs, logs
 	if err := mgr.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +119,7 @@ func TestManagerBinaryAgainstRealAPIServer(t *testing.T) {
 			if got := p.Spec.Containers[0].Resources.Requests.Cpu().MilliValue(); got < 143 {
 				t.Fatalf("shrunk below the usage floor: %dm", got)
 			}
-			deleteAndExpectRestore(t, c, &logs)
+			deleteAndExpectRestore(t, c, logs)
 			return
 		}
 		time.Sleep(500 * time.Millisecond)
@@ -128,7 +129,7 @@ func TestManagerBinaryAgainstRealAPIServer(t *testing.T) {
 
 // Deleting the KubeCostHPA must hand the pods back at their template resources
 // (the finalizer) and then let the resource go.
-func deleteAndExpectRestore(t *testing.T, c client.Client, logs *bytes.Buffer) {
+func deleteAndExpectRestore(t *testing.T, c client.Client, logs *syncBuffer) {
 	t.Helper()
 	ctx := context.Background()
 	var h v1alpha1.KubeCostHPA
@@ -198,11 +199,11 @@ func TestManagerRunsKubeCostAutoscalerAgainstRealAPIServer(t *testing.T) {
 	if out, err := exec.Command("go", "build", "-o", bin, "../../cmd").CombinedOutput(); err != nil {
 		t.Fatalf("build manager: %v\n%s", err, out)
 	}
-	var logs bytes.Buffer
+	logs := &syncBuffer{}
 	mgr := exec.Command(bin, "--kubecost-url="+kc.URL, "--kubecost-bearer-token-file="+tokenFile,
 		"--metrics-bind-address=0", "--health-probe-bind-address=0", "--enable-spot-drain=false")
 	mgr.Env = append(os.Environ(), "KUBECONFIG="+kcPath)
-	mgr.Stdout, mgr.Stderr = &logs, &logs
+	mgr.Stdout, mgr.Stderr = logs, logs
 	if err := mgr.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -255,4 +256,23 @@ func TestManagerRunsKubeCostAutoscalerAgainstRealAPIServer(t *testing.T) {
 		time.Sleep(500 * time.Millisecond)
 	}
 	t.Fatalf("the KubeCostAutoscaler was never reconciled\nmanager logs:\n%s", logs.String())
+}
+
+// syncBuffer collects the manager's output. exec copies stdout and stderr on their
+// own goroutines, so the test reads the logs while they are still being written.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (s *syncBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.buf.Write(p)
+}
+
+func (s *syncBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.buf.String()
 }

@@ -260,7 +260,9 @@ explícitos, el HPA nativo frente al motor de decisión (no son mediciones de un
 
 Documentación de esta fase de validación: `docs/RBAC.md` (permisos y su justificación), `docs/OBSERVABILITY.md` (métricas y SLO propuestos),
 `docs/BENCHMARK_PROCEDURE.md` (medición real, no ejecutada), `docs/DEMAND_SIGNALS.md` (análisis), `docs/SUPPLY_CHAIN.md` (SBOM, escaneo y firma, con su estado real)
-y `docs/RELEASING.md` (ensayos y procedimiento de release).
+y `docs/RELEASING.md` (ensayos y procedimiento de release). Para evaluarlo en un piloto: `docs/PILOT.md` (instalación,
+permisos, política de fallos, pausa, rollback y criterios de salida) y `docs/THREAT_MODEL.md` (amenazas, controles y riesgos
+residuales). Antes de ejecutar la suite completa, `make -C operator test-all` (requiere `KUBEBUILDER_ASSETS`).
 
 ## Licencia
 

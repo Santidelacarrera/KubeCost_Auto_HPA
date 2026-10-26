@@ -178,6 +178,15 @@ cost decisions (fail closed). The estimate also assumes homogeneous replicas; it
 
 ---
 
+### 5.1 Request discipline and failure handling
+
+* **One sample per workload per 20 s.** Results, including errors, are cached per `KubeCostAutoscaler` for 20 s. A reconcile never issues more than one request for the same workload inside that window.
+* **Bounded concurrency.** One client allows at most 4 requests in flight across all workloads. A caller waiting for a slot gives up when its reconcile context ends and sends nothing.
+* **Bounded retries.** Timeouts, connection errors, HTTP 408/429/5xx are retried up to 3 attempts with jittered exponential backoff (250 ms base, 4 s cap). A server `Retry-After` on 429/503 is honoured up to 30 s. Authentication errors, other 4xx and malformed bodies are never retried.
+* **Redirects are not followed**, so the bearer token cannot be sent to another host.
+* **Units.** `totalCost` is USD over `minutes`; the hourly rate is `totalCost × 60 / minutes`, computed in exact rational arithmetic. Negative, NaN, infinite and out-of-range costs are rejected by `money.Parse` (`TestClassification` covers a negative cost).
+* **Version differences.** The client reads the OpenCost allocation shape. KubeCost forks may add fields (ignored) but rename or retype the fields this client needs (fails closed as `malformed`). No KubeCost version has been validated against a live installation; see §14 and `docs/PILOT.md`.
+
 ## 6. Scaling algorithm
 
 Notation: `L = util · ready` (load in replica-equivalents), `cf` = capacity factor (§8), targets
@@ -242,6 +251,10 @@ The scale intent is persisted *before* the write, so a crash in between delays t
 than repeating it.
 
 ---
+
+### 7.1 Timestamps in the future
+
+A stabilisation timestamp (`status.lastScaleTime`, `status.lastReplicaChangeTime`) later than the controller's clock can only come from clock skew, a restored backup or a hand-edited status. The controller replaces it with the current time once and persists the change, so the cooldown and the stability window end within one interval. Without this, the elapsed time stays negative and scaling is frozen until the future time passes. Covered by `TestFutureStabilisationTimestampCannotFreezeScaling`; the policy engine also clamps a negative elapsed time to zero.
 
 ## 8. Spot / Preemptible awareness
 

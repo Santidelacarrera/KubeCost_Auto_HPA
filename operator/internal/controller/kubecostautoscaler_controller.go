@@ -259,6 +259,7 @@ func (r *KubeCostAutoscalerReconciler) reconcile(ctx context.Context, req ctrl.R
 		st.Utilization = strconv.FormatFloat(demand.Value*100, 'f', 1, 64)
 	}
 	if st.LastScaleTime != nil {
+		fixFutureTime(&st.LastScaleTime, now)
 		in.LastScale = st.LastScaleTime.Time
 	}
 	dec := policy.Evaluate(s.Cfg, in)
@@ -352,10 +353,22 @@ func (r *KubeCostAutoscalerReconciler) costSignal(ctx context.Context, a *v1alph
 	mAge.WithLabelValues(a.Namespace, a.Name).Set(sample.Age(now).Seconds())
 	mHourly.WithLabelValues(a.Namespace, a.Name).Set(sample.HourlyCost.Float())
 	// Stable only if neither this controller nor anyone else changed the replica count inside the window.
+	fixFutureTime(&st.LastScaleTime, now)
+	fixFutureTime(&st.LastReplicaChangeTime, now)
 	stable := (st.LastScaleTime == nil || now.Sub(st.LastScaleTime.Time) >= s.CostWindow) &&
 		(st.LastReplicaChangeTime == nil || now.Sub(st.LastReplicaChangeTime.Time) >= s.CostWindow)
 	st.Cost = &v1alpha1.CostStatus{HourlyUSD: sample.HourlyCost.String(), SampleTime: metav1.NewTime(sample.WindowEnd), Stable: stable}
 	return &policy.Cost{Hourly: sample.HourlyCost, Stable: stable}, nil
+}
+
+// fixFutureTime replaces a stabilisation timestamp that lies after now (clock skew
+// or an edited status) with now, once, and the caller persists it. Left alone, the
+// elapsed time would stay negative and the cooldown or stability window never end.
+func fixFutureTime(t **metav1.Time, now time.Time) {
+	if *t != nil && (*t).Time.After(now) {
+		nt := metav1.NewTime(now)
+		*t = &nt
+	}
 }
 
 // costReason maps an error class to a CamelCase condition reason.
