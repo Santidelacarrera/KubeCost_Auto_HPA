@@ -568,6 +568,13 @@ spec:
                 - time
                 - type
                 type: object
+              lastReplicaChangeTime:
+                description: |-
+                  LastReplicaChangeTime is when the target's replica count was last seen to change by anyone other
+                  than this controller (another autoscaler, a person, a pipeline). Together with lastScaleTime it
+                  decides whether the per-replica cost estimate is still trustworthy.
+                format: date-time
+                type: string
               lastScaleFrom:
                 format: int32
                 type: integer

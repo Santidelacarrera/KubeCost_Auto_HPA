@@ -2,6 +2,9 @@ name: ci
 on:
   push:
   pull_request:
+# CI only reads the repository; no job needs to write.
+permissions:
+  contents: read
 jobs:
   engine:
     runs-on: ubuntu-latest
@@ -89,6 +92,9 @@ jobs:
           helm template r deploy/helm/kubecost-auto-hpa \
             --set grafanaDashboard.enabled=true --set prometheusRule.enabled=true --set serviceMonitor.enabled=true \
             --set networkPolicy.enabled=true --set networkPolicy.operatorEgress.enabled=true >/dev/null
+      - name: RBAC (generated role and Helm role) equals the documented allow-list
+        working-directory: operator
+        run: REQUIRE_HELM=1 go test -count=1 ./internal/rbaccheck
       - name: values.schema.json rejects a mistyped key
         run: |
           if helm template r deploy/helm/kubecost-auto-hpa --set kubecost.ulr=x >/dev/null 2>&1; then

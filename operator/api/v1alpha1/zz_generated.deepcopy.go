@@ -337,6 +337,10 @@ func (in *KubeCostAutoscalerStatus) DeepCopyInto(out *KubeCostAutoscalerStatus) 
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
+	if in.LastReplicaChangeTime != nil {
+		in, out := &in.LastReplicaChangeTime, &out.LastReplicaChangeTime
+		*out = (*in).DeepCopy()
+	}
 	if in.LastSuccessfulReconcileTime != nil {
 		in, out := &in.LastSuccessfulReconcileTime, &out.LastSuccessfulReconcileTime
 		*out = (*in).DeepCopy()

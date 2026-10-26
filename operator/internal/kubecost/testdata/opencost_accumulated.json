@@ -1,0 +1,66 @@
+{
+  "code": 200,
+  "status": "success",
+  "data": [
+    {
+      "production/payments-api": {
+        "name": "production/payments-api",
+        "properties": {"cluster": "cluster-one", "namespace": "production", "controllerKind": "deployment", "controller": "payments-api", "labels": {"app": "payments"}},
+        "window": {"start": "2026-10-01T11:00:00Z", "end": "2026-10-01T12:00:00Z"},
+        "start": "2026-10-01T11:00:00Z",
+        "end": "2026-10-01T12:00:00Z",
+        "minutes": 60,
+        "cpuCores": 4,
+        "cpuCoreHours": 4,
+        "cpuCost": 0.124,
+        "gpuCost": 0,
+        "pvCost": 0,
+        "networkCost": 0.0012,
+        "ramBytes": 8589934592,
+        "ramCost": 0.0273,
+        "sharedCost": 0,
+        "externalCost": 0,
+        "totalCost": 0.1525,
+        "totalEfficiency": 0.62
+      },
+      "production/checkout": {
+        "name": "production/checkout",
+        "properties": {"cluster": "cluster-one", "namespace": "production", "controllerKind": "deployment", "controller": "checkout"},
+        "window": {"start": "2026-10-01T11:00:00Z", "end": "2026-10-01T12:00:00Z"},
+        "start": "2026-10-01T11:00:00Z",
+        "end": "2026-10-01T12:00:00Z",
+        "minutes": 60,
+        "cpuCost": 0.31,
+        "ramCost": 0.07,
+        "totalCost": 0.39
+      },
+      "staging/payments-api": {
+        "name": "staging/payments-api",
+        "properties": {"cluster": "cluster-one", "namespace": "staging", "controllerKind": "deployment", "controller": "payments-api"},
+        "window": {"start": "2026-10-01T11:00:00Z", "end": "2026-10-01T12:00:00Z"},
+        "start": "2026-10-01T11:00:00Z",
+        "end": "2026-10-01T12:00:00Z",
+        "minutes": 60,
+        "totalCost": 9.99
+      },
+      "__idle__": {
+        "name": "__idle__",
+        "properties": {"cluster": "cluster-one"},
+        "window": {"start": "2026-10-01T11:00:00Z", "end": "2026-10-01T12:00:00Z"},
+        "start": "2026-10-01T11:00:00Z",
+        "end": "2026-10-01T12:00:00Z",
+        "minutes": 60,
+        "totalCost": 1.8
+      },
+      "__unallocated__": {
+        "name": "__unallocated__",
+        "properties": {},
+        "window": {"start": "2026-10-01T11:00:00Z", "end": "2026-10-01T12:00:00Z"},
+        "start": "2026-10-01T11:00:00Z",
+        "end": "2026-10-01T12:00:00Z",
+        "minutes": 60,
+        "totalCost": 0.2
+      }
+    }
+  ]
+}

@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/tls"
 	"flag"
+	"fmt"
 	"net/http"
 	"os"
 	"time"
@@ -78,9 +79,15 @@ func main() {
 	bindHTTP("prometheus", &promHTTP, "PROMETHEUS_TOKEN")
 	bindHTTP("kubecost", &kcHTTP, "KUBECOST_TOKEN")
 	bindHTTP("engine", &engHTTP, "ENGINE_TOKEN")
+	showVersion := flag.Bool("version", false, "Print the version and exit.")
 	opts := zap.Options{}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
+	if *showVersion {
+		fmt.Println(versionString())
+		return
+	}
+	registerBuildInfo()
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 	log := ctrl.Log.WithName("setup")
 
@@ -190,7 +197,7 @@ func main() {
 	_ = mgr.AddHealthzCheck("healthz", healthz.Ping)
 	_ = mgr.AddReadyzCheck("readyz", healthz.Ping)
 
-	log.Info("starting manager")
+	log.Info("starting manager", "version", version, "commit", buildCommit())
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
 		log.Error(err, "manager exited")
 		os.Exit(1)

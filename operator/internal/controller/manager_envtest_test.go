@@ -51,7 +51,7 @@ func TestManagerBinaryAgainstRealAPIServer(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer env.Stop()
-	user, err := env.ControlPlane.AddUser(envtest.User{Name: "operator", Groups: []string{"system:masters"}}, nil)
+	user, err := restrictedOperator(env, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +183,7 @@ func TestManagerRunsKubeCostAutoscalerAgainstRealAPIServer(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer env.Stop()
-	user, err := env.ControlPlane.AddUser(envtest.User{Name: "operator", Groups: []string{"system:masters"}}, nil)
+	user, err := restrictedOperator(env, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}

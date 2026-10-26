@@ -1,126 +1,114 @@
-# Engineering report
+# Engineering report: validation, security and release preparation
 
-State of the repository after the audit and hardening pass described in the engineering brief. Everything below says
-whether it was **run** (and where) or is an **assumption**. Nothing here is a production measurement.
+Status words: **VERIFIED** (run here, result checked), **UNVERIFIED** (implemented, but not exercised against the real
+thing), **PENDING** (not done), **BLOCKED** (needs infrastructure or authorisation that does not exist here). Nothing was
+pushed, merged, tagged, published or deployed in this pass; the default branch is unchanged.
 
-## 1. Architecture and controller ownership
+## 1. Executive summary
 
-* Two controllers share one operator: the legacy `KubeCostHPA` (vertical in-place resize driven by Prometheus SLO signals and
-  the Python unit-economics engine, optional horizontal scaling) and `KubeCostAutoscaler` (cost-aware horizontal scaling:
-  `metrics.k8s.io` demand, KubeCost allocation cost, deterministic engine in `internal/policy`).
-* **Single writer of replicas.** `KubeCostAutoscaler` writes only through `deployments/scale` with compare-and-swap; it refuses to
-  write while a native HPA, a legacy `KubeCostHPA` with `spec.replicas`, or an older `KubeCostAutoscaler` targets the same
-  Deployment (`internal/ownership`, deterministic oldest-wins). The legacy controller applies the mirror rule. The only native
-  HPA it tolerates is its own fallback HPA (controller reference).
-* Cost estimation (`internal/kubecost`, `internal/money`) is separate from control (`internal/policy`, no I/O, no clock).
-  Diagram and derivation: `docs/KUBECOST_AUTOSCALER.md` sections 2-6.
-* Spot awareness is an **input**, not placement control: pods per capacity class discount capacity (`spotInterruptionBuffer`)
-  and weight marginal cost. The operator does not choose nodes. Only the legacy controller cordons/drains Spot nodes on
-  interruption signals.
+* Verified: reduced RBAC with allow-list tests and with the real reconcilers/manager run against a real kube-apiserver **as a user holding only that
+  role**; KubeCost client contract and negative tests against fixtures; a corrected simulator comparing the HPA and the engine on identical traces; new
+  operational metrics; a Go SBOM; a signing mechanism check; an offline release rehearsal; a real latent release bug found and fixed.
+* Not verified against the real thing: **KubeCost itself** (live test written, never run), **any latency/error behaviour**, the whole tagged-release path
+  (image SBOM/provenance, keyless signing, chart push), the kind Helm rehearsal, image vulnerability scanning.
+* Biggest finding: the shipped cost policy saves money by running with less headroom (benchmarks, section 4); a conservative setting removes the headroom penalty
+  and, in simulation, the savings along with it.
 
-## 2. Findings, ranked
+## 2. Changes and files
 
-| # | Severity | Finding | Status |
-|---|---|---|---|
-| 1 | High (oscillation) | Cost pressure used today's spend, which the controller itself changes: under constant demand the replica count cycled (5 reversals in 2 h in simulation). | **Fixed**: pressure is judged on the cost of the comfortable size. Regression tests fail on the old code. |
-| 2 | High (operability) | No live emergency stop except per-resource `dryRun` edits or a redeploy. | **Fixed**: `autoscaling.kubecost.io/pause` annotation, tested, lifted without restart. |
-| 3 | Medium (cost/efficiency) | While replicas changed inside the 15 min cost window the cost signal is "unstable" and the engine freezes non-safety moves: scale-down is delayed after every action (gradual decline cost more than the HPA in simulation) and a ramp rides the utilisation ceiling (about 880 s in simulation, no saturation). | **Open, by design, quantified** in `docs/BENCHMARKS.md`. Trade-off decision below. |
-| 4 | High (unverified) | The KubeCost response format is verified against OpenCost's source and a stub, not against a live KubeCost. | **Open**: needs a cluster with KubeCost; start in `dryRun`. |
-| 5 | Medium (security) | RBAC is a ClusterRole including `nodes: patch` (spot cordon), `kubecosthpas: create/delete`, and HPA write cluster-wide. | **Open**, documented below. |
-| 6 | Medium (coverage of the brief) | `KubeCostAutoscaler` demand is CPU/memory utilisation only; no request-rate, queue-depth, latency or error-rate signal. The legacy controller uses Prometheus SLO signals. | **Open** limitation. |
-| 7 | Low | Tagged-release path (versioned images, OCI chart) never executed; `main` publishes images on every push (runs succeeded). | **Open**, steps in `docs/RELEASING.md`. |
-| 8 | Info | Coverage of the single-writer logic was 62%: now 93%, with mutation checks. | Done (PR #30). |
+| Area | Change | Files |
+|---|---|---|
+| RBAC | unused verbs removed; Helm role synced and conditioned on Spot draining; allow-list tests; restricted-user envtest | `operator/internal/controller/*_controller.go` markers, `config/rbac/role.yaml`, `deploy/helm/.../templates/rbac.yaml`, `operator/internal/rbaccheck/`, `internal/controller/envtest_test.go`, `manager_envtest_test.go`, `kca_envtest_test.go`, `docs/RBAC.md` |
+| KubeCost | contract fixtures, negative/bounds tests, live test (tagged) | `operator/internal/kubecost/testdata/`, `contract_test.go`, `live_test.go` |
+| Engine | experimental unstable-cost modes (off, simulator only); external replica changes mark the cost unstable | `internal/policy/policy.go`, `api/v1alpha1/kubecostautoscaler_types.go` (+ regenerated CRD), `kubecostautoscaler_controller.go` |
+| Simulator | identical traces, real evaluation periods, disturbances, acceptance criteria, generated doc block | `operator/internal/sim/`, `cmd/simbench/`, `docs/BENCHMARKS.md` |
+| Observability | 7 new metrics, 4 alerts, SLO proposals, benchmark procedure | `autoscaler_telemetry.go`, `kubecostautoscaler_controller.go`, `resmetrics.go`, `extras.yaml`, `docs/OBSERVABILITY.md`, `docs/BENCHMARK_PROCEDURE.md` |
+| Demand signals | analysis only | `docs/DEMAND_SIGNALS.md` |
+| Supply chain / release | version injection, `--version`, build_info, SBOM/provenance/signing steps, hardened permissions, chart-push fix, rehearsal scripts, manual workflow | `operator/Dockerfile`, `operator/cmd/version.go`, `.github/workflows/{ci,release,supply-chain}.yml`, `hack/release-dry-run.sh`, `hack/helm-rehearsal.sh`, `docs/SUPPLY_CHAIN.md`, `docs/RELEASING.md` |
 
-## 3. Changes in this pass (uncommitted until authorised)
-
-| File | Change |
-|---|---|
-| `operator/internal/policy/policy.go` | cost pressure from the projected cost of the comfortable size (finding 1) |
-| `operator/internal/policy/policy_test.go` | regression tests for the new semantics, attribution assertion updated |
-| `operator/internal/sim/` (new) | deterministic simulator + tests (determinism, bounds, no reversals at constant demand, HPA arithmetic) |
-| `operator/cmd/simbench/` (new) | prints the benchmark tables |
-| `operator/api/v1alpha1/kubecostautoscaler_types.go`, `internal/controller/{settings,kubecostautoscaler_controller}.go` + tests | pause annotation (finding 2) |
-| `docs/BENCHMARKS.md`, `docs/KUBECOST_AUTOSCALER.md`, `docs/ENGINEERING_REPORT.md`, `README.md`, `CHANGELOG.md` | documentation |
-
-Earlier passes (already merged): the `KubeCostAutoscaler` controller and CRD, ownership model, kind end-to-end
-(`hack/e2e-kca.sh`), Helm values schema and dashboard, release pipeline, SECURITY/CONTRIBUTING/RELEASING docs.
-
-## 4. Tests actually run in this pass (local sandbox)
+## 3. Tests run (this sandbox, final tree)
 
 ```text
-gofmt -l .                                              no output
-go vet ./...                                            ok
-go test -race -p 2 ./...                                all packages ok (policy, sim, controller, ownership, kubecost, ...)
-KUBEBUILDER_ASSETS=/tmp/envtest/bin go test -tags envtest -p 2 ./internal/controller/...   ok (58 s, real kube-apiserver + etcd)
-go run ./cmd/simbench                                   output reproduced in docs/BENCHMARKS.md
+gofmt -l .                                      no output
+go vet ./... ; go vet -tags "envtest integration" ./... ; go vet -tags kubecost_live ./internal/kubecost    clean
+go test -race -count=1 -p 2 ./...               all 15 packages ok
+go test -tags integration -count=1 ./...        ok (real Python engine)
+KUBEBUILDER_ASSETS=... go test -tags "envtest integration" -count=1 ./internal/controller/...   ok, 83 s (real kube-apiserver 1.33.4 + etcd)
+REQUIRE_HELM=1 go test ./internal/rbaccheck      4 tests ok (generated role, Helm role, Helm without Spot draining, leader election)
+pytest (engine)                                  27 passed
+helm lint / helm template (defaults, all optional features, schema negative)    ok
+kustomize build (default, local, e2e, e2e-kca)   ok
+actionlint                                       clean
+PromQL parse of the 13 alert expressions (real Prometheus parser)   13 ok (syntax only)
+hack/release-dry-run.sh v0.1.0                   passes
 ```
 
-Mutation checks (code deliberately broken, then restored): reverting the pressure fix fails the new policy test and
-`TestConstantDemandNeverReversesDirection`; disabling the pause line fails both pause tests; breaking the ownership
-conflict checks fails `TestForAutoscalerSeesEveryOtherReplicaWriter`. The Python engine tests were not re-run (unchanged).
-CI (GitHub Actions) ran the full matrix, including `e2e-kind`, `e2e-kca`, `govulncheck` and `helm lint`, on the merged
-work up to PR #30; it has **not** run on this pass.
+Negative controls (code or role deliberately broken, then restored): removing `pods/resize` fails the manager test with `forbidden`; removing
+`deployments/scale` fails the scale test; reverting the pressure fix, the pause line, the recovery metric, the external-change detection and the
+ownership checks each fail their tests. Baseline before changes: the same suites passed on the PR #31 head; GitHub CI on that head is green (12 checks).
+**GitHub CI has not run on this pass's changes.**
 
-## 5. Scaling behaviour before and after
+## 4. Benchmarks and assumptions
 
-Synthetic only (`docs/BENCHMARKS.md`). The one behavioural change in this pass: at constant 1500 rps with the cost policy the
-controller used to cycle between 22 and 19 replicas (5 direction reversals in 2 h); it now steps down once to 19 and
-stays (0 reversals, about 12% fewer replica-hours than an HPA at 22).
+Synthetic only, `docs/BENCHMARKS.md` (deterministic, generated block, checked by a test). 14 scenarios, 13 scalers, one fixed assumption set. The criteria
+for acceptability were fixed before the results. Headline facts: without a cost policy the engine is not better than a matched HPA; the shipped cost policy
+is -3.4% cost against it in total, cheaper in 8 scenarios and dearer in 6, with about 2240 s more above 90% utilisation (ramp, outage); the 75/80 setting
+removes that headroom penalty (+90 s) at +2.6% cost; a 5 minute scale-down window and the "demand-only while unstable" mode fail the criteria. No latency,
+error or throughput numbers exist.
 
-## 6. Cost versus reliability
+## 5. Needs real KubeCost or external infrastructure
 
-Measured in simulation only: no latency, error-rate or throughput data exist. In the simulated patterns the cost policy
-never saturated more than the HPA except for 60 s extra in `burst`, saved about 12% (`steady`) and about 20%
-(`intermittent`), and cost more than the HPA in `gradual-decline` (finding 3). Savings figures are not claims about production.
+| Item | State |
+|---|---|
+| Contract against a live KubeCost/OpenCost | BLOCKED: `go test -tags kubecost_live -run Live ./internal/kubecost` with `KUBECOST_LIVE_*`; not run |
+| Latency, error rate, throughput, real cost comparison | BLOCKED: `docs/BENCHMARK_PROCEDURE.md`; not run |
+| Kind install/upgrade/rollback of the chart | UNVERIFIED: `hack/helm-rehearsal.sh` written, no Docker daemon here |
+| Image build, image scan, image SBOM | UNVERIFIED/BLOCKED: no Docker daemon, no scanner database |
+| Keyless signing, provenance, chart push on a tag | UNVERIFIED: only runs on a tag, which was not created |
+| Spot draining and leader election with the restricted role | UNVERIFIED: not exercised against a real apiserver |
+| Request-rate / latency demand signals | PENDING: analysis only |
 
-## 7. Security and RBAC
+## 6. Critical and high risks
 
-* ClusterRole `kubecost-auto-hpa-manager` (`operator/config/rbac/role.yaml`, generated from markers). Needed: read pods, deployments,
-  PDBs, nodes; `deployments/scale` get/patch/update; `metrics.k8s.io` pods; HPA create/delete/update (fallback only); events; own
-  CRs and status; `pods/resize` and `pods/eviction` (legacy controller only).
-* Over-broad for the new controller alone: `nodes: patch` (legacy Spot cordon), `kubecosthpas: create/delete`
-  (the controller does not create or delete its own CRs). Hardening option: ship a minimal role for installs that only use
-  `KubeCostAutoscaler` and keep the legacy permissions behind a Helm switch. `Freeze` mode avoids HPA write permission use.
-* No cloud credentials in manifests or images; KubeCost/Prometheus/engine bearer tokens come from Secrets, TLS/mTLS options
-  exist, no redirects are followed, raw response bodies are never logged or stored. `govulncheck` runs in CI. Images are not
-  signed and have no SBOM/provenance yet (roadmap).
-* The pause annotation can be set by anyone who can update the CR; it only removes the operator's ability to act.
+1. **High:** the KubeCost integration has never touched a real KubeCost.
+2. **High:** no measured latency/error behaviour anywhere; the simulator cannot show tail latency.
+3. **High (for latency-sensitive workloads):** with the default 90% ceiling the cost policy tracks the ceiling during continuous change; recommended mitigation is configuration (docs/BENCHMARKS.md), the CRD defaults are unchanged.
+4. **High until rehearsed:** the tagged-release path has never run; one bug (mixed-case OCI owner) was found by inspection and fixed, more may exist.
+5. **Medium:** RBAC is cluster-wide and the kustomize base still grants `nodes: patch`/`pods/eviction`; the legacy controller cannot be disabled, so its permissions stay.
+6. **Medium:** `pause` stops all scaling of that workload; it is a stop switch, not a degraded mode.
+7. **Medium:** base images and actions are pinned by tag, not by digest/commit.
 
-## 8. Known failure modes and remaining risks
+## 7. RBAC, SBOM, scanning, signing
 
-Behaviour per scenario with test names: `docs/KUBECOST_AUTOSCALER.md` section 9 (KubeCost down, 5xx/429, malformed, stale,
-API outage, missing metrics API, restart, target deleted, over budget). Additional: coverage of the ten scenarios in the brief:
-stable demand (`TestNoOscillationUnderConstantDemand`, sim `steady`), spike (`TestSafetyScaleUpIsCappedByBudgetOnlyAboveTheCeiling`, sim
-`burst`), gradual decline (sim `gradual-decline`, `TestScaleDownOnlyAfterStabilisationWindowAndSurvivesRestart`), missing cost
-(`TestKubeCostOutageFreezesThenRecovers`), stale utilisation (`TestMissingDemandHolds`, `resmetrics` freshness tests), Spot
-interruption/capacity (`TestSpotCapacityIsNotGuaranteedCapacity`, legacy drainer tests), node capacity shortage (pending-pod gate,
-`TestSafetyGates`), restart (`TestRestartDuringCooldownDoesNotRescale`, `TestRestartKeepsStabilisationState`), competing
-controllers (ownership tests, `TestRealAPIServer_NativeHPAConflictBlocksAllWrites`), availability floor
-(`TestCostPressureScaleDownStopsAtSafetyReplicas`, bounds and `minHealthyReplicas`).
-Remaining risks: findings 3-6; a Spot interruption is seen only as pods becoming unready/pending, not predicted; PDBs are
-respected by the legacy drainer (Eviction API) but the horizontal controller never evicts.
+| Item | Status |
+|---|---|
+| RBAC reduction (unused verbs) | VERIFIED: restricted-user tests + allow-list + negative controls (`docs/RBAC.md`) |
+| "Least privilege" | NOT claimed for every install: reduced and verified for the current feature set only |
+| Go SBOM (CycloneDX) | VERIFIED (generated, 62 components); not published |
+| Image SBOM + provenance | UNVERIFIED (tags only) |
+| Source vulnerability scan | CI govulncheck green on the PR head; BLOCKED locally (vuln.go.dev unreachable) |
+| Image vulnerability scan | UNVERIFIED (workflow written, never run) |
+| Signing | mechanics VERIFIED (ephemeral key, tamper negative control); keyless/registry path UNVERIFIED; **no image is signed** |
 
-## 9. Reproduce
+## 8. PR #31 and the repository (not changed)
 
-```bash
-cd engine && pip install -e '.[dev]' && pytest
-cd operator
-make check                                  # gofmt, vet, unit, -race, integration
-KUBEBUILDER_ASSETS=<dir> make envtest       # real apiserver + etcd
-go run ./cmd/simbench                       # benchmark tables
-cd .. && hack/e2e-kind.sh && hack/e2e-kca.sh   # kind end-to-end (docker, kind, kubectl)
-```
+PR #31 (`claude/bold-carson-5479vm` to `main`): open, mergeable state clean, 12 of 12 checks green on `978656a`; it contains the cost-pressure
+oscillation fix, the pause annotation, the first simulator and the previous report. This pass's work is **uncommitted in the working tree**, on top of that
+commit. `main` is at `683b9d6`; the default branch of the repository is still `claude/bold-carson-5479vm`. No tag, release, merge or close happened.
 
-## 10. Roadmap to production hardening
+## 9. Proposed isolated-cluster test
 
-1. Run against a real KubeCost in a non-critical namespace in `dryRun`, compare `status.cost` with the KubeCost UI for a full
-   business cycle; fix any schema or unit mismatch.
-2. Decide finding 3: let non-safety, *demand-driven* scale-ups and scale-downs proceed while the cost signal is unstable
-   (cost then only restrains, never gates), accepting that the budget guardrail cannot cap headroom for up to one cost window.
-   The simulator can score the change before it ships.
-3. Least-privilege RBAC profile for `KubeCostAutoscaler`-only installs (finding 5).
-4. Request-rate / latency / error-rate demand signals for `KubeCostAutoscaler` (custom/external metrics API) so cost can
-   never trade against an SLO that CPU does not see (finding 6).
-5. Image signing (cosign), SBOM and provenance in `release.yml`; Trivy image scan in CI.
-6. First tagged release (`docs/RELEASING.md`), then a published, versioned install and rollback rehearsal.
-7. Load and soak tests on a cluster, and a measured (not simulated) comparison against an HPA with real latency percentiles.
+`docs/RELEASING.md`, section "Test in an isolated cluster": kind with metrics-server and KubeCost, `hack/helm-rehearsal.sh`, a `dryRun` autoscaler, the
+live KubeCost contract test, load for a full cycle, then `docs/BENCHMARK_PROCEDURE.md`, the pause, a KubeCost outage and a restart.
+
+## 10. Checklist before publishing v0.1.0
+
+- [ ] Review and merge (or discard) this pass's changes and PR #31; CI green on `main`.
+- [ ] `hack/helm-rehearsal.sh` passes on a kind cluster.
+- [ ] `supply-chain` workflow run by hand: SBOM artifact produced, image scan acceptable.
+- [ ] Live KubeCost contract test passes on a real installation; a day of `dryRun` decisions reviewed.
+- [ ] Decide the default headroom (75/80 vs 80/90) for the sample and documentation after real measurements.
+- [ ] Confirm the action versions used in `release.yml` and `supply-chain.yml` exist (`cosign-installer`, `trivy-action`); pin by commit if desired.
+- [ ] `CHANGELOG.md` moved under the version; chart `version`/`appVersion` match.
+- [ ] Explicit authorisation to create the tag; after it: watch `images`, `sign`, `chart`; make the GHCR packages public; verify signatures from a clean machine.
+- [ ] Choose and confirm the repository default branch.

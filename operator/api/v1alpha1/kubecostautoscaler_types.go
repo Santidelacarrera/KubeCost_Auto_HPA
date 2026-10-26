@@ -297,8 +297,13 @@ type KubeCostAutoscalerStatus struct {
 	Conditions         []metav1.Condition `json:"conditions,omitempty"`
 
 	CurrentReplicas int32 `json:"currentReplicas,omitempty"`
-	ReadyReplicas   int32 `json:"readyReplicas,omitempty"`
-	DesiredReplicas int32 `json:"desiredReplicas,omitempty"`
+	// LastReplicaChangeTime is when the target's replica count was last seen to change by anyone other
+	// than this controller (another autoscaler, a person, a pipeline). Together with lastScaleTime it
+	// decides whether the per-replica cost estimate is still trustworthy.
+	// +optional
+	LastReplicaChangeTime *metav1.Time `json:"lastReplicaChangeTime,omitempty"`
+	ReadyReplicas         int32        `json:"readyReplicas,omitempty"`
+	DesiredReplicas       int32        `json:"desiredReplicas,omitempty"`
 
 	// Utilization is the observed demand utilisation in percent.
 	Utilization string `json:"utilization,omitempty"`

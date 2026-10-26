@@ -391,6 +391,8 @@ go run ./cmd/simbench                     # deterministic synthetic HPA vs KubeC
   HPA is CPU-only. Only `Deployment` targets.
 * The controller is exercised end to end against a real API server (envtest) and on a kind cluster with a real
   metrics-server (`e2e-kca`, KubeCost stubbed), but **not** against a live KubeCost installation.
+* The cost signal is "unstable" for a full cost window after **any** change of the replica count: one this controller made (`status.lastScaleTime`) or one
+  made by anyone else (`status.lastReplicaChangeTime`, recorded when the observed count differs from the last one this controller saw or wrote).
 * While replicas changed inside the 15-minute cost window the cost signal is "unstable" and the engine falls back to
   its Freeze semantics for non-safety moves (§9). The simulator quantifies the price of that conservatism: slower
   scale-down in a decline and time spent at the utilisation ceiling during a ramp (docs/BENCHMARKS.md).

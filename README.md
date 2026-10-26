@@ -258,6 +258,10 @@ quitar la anotación reanuda sin reiniciar. `docs/BENCHMARKS.md` compara, con un
 explícitos, el HPA nativo frente al motor de decisión (no son mediciones de un clúster real);
 `docs/ENGINEERING_REPORT.md` resume hallazgos, pruebas ejecutadas y riesgos pendientes.
 
+Documentación de esta fase de validación: `docs/RBAC.md` (permisos y su justificación), `docs/OBSERVABILITY.md` (métricas y SLO propuestos),
+`docs/BENCHMARK_PROCEDURE.md` (medición real, no ejecutada), `docs/DEMAND_SIGNALS.md` (análisis), `docs/SUPPLY_CHAIN.md` (SBOM, escaneo y firma, con su estado real)
+y `docs/RELEASING.md` (ensayos y procedimiento de release).
+
 ## Licencia
 
 [Apache License 2.0](LICENSE): licencia permisiva con concesión expresa de patentes, la misma que usan Kubernetes,

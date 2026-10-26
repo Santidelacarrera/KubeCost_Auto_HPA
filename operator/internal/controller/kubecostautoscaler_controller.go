@@ -87,17 +87,29 @@ func (r *KubeCostAutoscalerReconciler) now() time.Time {
 }
 
 // +kubebuilder:rbac:groups=autoscaling.kubecost.io,resources=kubecostautoscalers,verbs=get;list;watch
-// +kubebuilder:rbac:groups=autoscaling.kubecost.io,resources=kubecostautoscalers/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=autoscaling.kubecost.io,resources=kubecostautoscalers/status,verbs=get;update
 // +kubebuilder:rbac:groups=autoscaling.kubecost.io,resources=kubecosthpas,verbs=get;list;watch
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch
 // +kubebuilder:rbac:groups=apps,resources=deployments/scale,verbs=get;update
 // +kubebuilder:rbac:groups="",resources=pods;nodes,verbs=get;list;watch
-// +kubebuilder:rbac:groups=autoscaling,resources=horizontalpodautoscalers,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=metrics.k8s.io,resources=pods,verbs=get;list
+// +kubebuilder:rbac:groups=autoscaling,resources=horizontalpodautoscalers,verbs=get;list;watch;create;patch;delete
+// +kubebuilder:rbac:groups=metrics.k8s.io,resources=pods,verbs=list
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
 // Reconcile runs one evaluation of one autoscaler.
-func (r *KubeCostAutoscalerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *KubeCostAutoscalerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (res ctrl.Result, err error) {
+	start := time.Now()
+	defer func() {
+		result := "ok"
+		if err != nil {
+			result = "error"
+		}
+		mReconcileSeconds.WithLabelValues(result).Observe(time.Since(start).Seconds())
+	}()
+	return r.reconcile(ctx, req)
+}
+
+func (r *KubeCostAutoscalerReconciler) reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	lg := log.FromContext(ctx)
 	var a v1alpha1.KubeCostAutoscaler
 	if err := r.Get(ctx, req.NamespacedName, &a); err != nil {
@@ -125,6 +137,14 @@ func (r *KubeCostAutoscalerReconciler) Reconcile(ctx context.Context, req ctrl.R
 	if a.Annotations[v1alpha1.AnnotationPause] == "true" {
 		s.DryRun, s.Paused = true, true
 	}
+	if prev := meta.FindStatusCondition(st.Conditions, v1alpha1.ConditionScalingActive); s.Paused && (prev == nil || prev.Reason != "Paused") {
+		mPauses.WithLabelValues(a.Namespace, a.Name).Inc()
+	}
+	paused := 0.0
+	if s.Paused {
+		paused = 1
+	}
+	mPaused.WithLabelValues(a.Namespace, a.Name).Set(paused)
 	run.s = s
 
 	// --- target ---
@@ -151,6 +171,12 @@ func (r *KubeCostAutoscalerReconciler) Reconcile(ctx context.Context, req ctrl.R
 	current := int32(1)
 	if dep.Spec.Replicas != nil {
 		current = *dep.Spec.Replicas
+	}
+	// st.CurrentReplicas holds the last observation, or the count this controller wrote, so a
+	// difference here is a change made by someone else.
+	if prev := st.CurrentReplicas; prev != 0 && prev != current {
+		t := metav1.NewTime(now)
+		st.LastReplicaChangeTime = &t
 	}
 	st.CurrentReplicas, st.ReadyReplicas = current, dep.Status.ReadyReplicas
 	setReplicaMetrics(&a, current)
@@ -207,6 +233,9 @@ func (r *KubeCostAutoscalerReconciler) Reconcile(ctx context.Context, req ctrl.R
 	setNodeMetrics(&a, summary)
 
 	demand, derr := r.demand(ctx, &a, s, sel, podList.Items, now)
+	if derr == nil {
+		mDemandAge.WithLabelValues(a.Namespace, a.Name).Set(demand.OldestSampleAge.Seconds())
+	}
 	var cost *policy.Cost
 	var cerr error
 	if s.Cfg.CostRequired() {
@@ -322,7 +351,9 @@ func (r *KubeCostAutoscalerReconciler) costSignal(ctx context.Context, a *v1alph
 	}
 	mAge.WithLabelValues(a.Namespace, a.Name).Set(sample.Age(now).Seconds())
 	mHourly.WithLabelValues(a.Namespace, a.Name).Set(sample.HourlyCost.Float())
-	stable := st.LastScaleTime == nil || now.Sub(st.LastScaleTime.Time) >= s.CostWindow
+	// Stable only if neither this controller nor anyone else changed the replica count inside the window.
+	stable := (st.LastScaleTime == nil || now.Sub(st.LastScaleTime.Time) >= s.CostWindow) &&
+		(st.LastReplicaChangeTime == nil || now.Sub(st.LastReplicaChangeTime.Time) >= s.CostWindow)
 	st.Cost = &v1alpha1.CostStatus{HourlyUSD: sample.HourlyCost.String(), SampleTime: metav1.NewTime(sample.WindowEnd), Stable: stable}
 	return &policy.Cost{Hourly: sample.HourlyCost, Stable: stable}, nil
 }
@@ -365,7 +396,13 @@ func (r *KubeCostAutoscalerReconciler) fetchCost(ctx context.Context, key types.
 	if r.Cost == nil {
 		return kubecost.Sample{}, &kubecost.Error{Class: kubecost.ClassClient, Err: errors.New("KubeCost is not configured")}
 	}
+	began := time.Now()
 	sample, err := r.Cost.Allocation(ctx, q)
+	outcome := "ok"
+	if err != nil {
+		outcome = string(classOrUnknown(err))
+	}
+	mCostRequestSeconds.WithLabelValues(outcome).Observe(time.Since(began).Seconds())
 	r.mu.Lock()
 	if r.costCache == nil {
 		r.costCache = map[types.NamespacedName]cachedCost{}
@@ -385,6 +422,9 @@ func (r *KubeCostAutoscalerReconciler) forgetCost(key types.NamespacedName) {
 func (r *KubeCostAutoscalerReconciler) trackHealth(st *v1alpha1.KubeCostAutoscalerStatus, healthy bool, derr, cerr error, now time.Time) {
 	t := metav1.NewTime(now)
 	if healthy {
+		if st.Failure.FirstFailureTime != nil && st.Failure.ConsecutiveFailures > 0 {
+			mRecoverySeconds.Observe(now.Sub(st.Failure.FirstFailureTime.Time).Seconds())
+		}
 		if st.Failure.ConsecutiveFailures > 0 || st.Failure.HealthySince == nil {
 			st.Failure.HealthySince = &t
 		}
@@ -516,6 +556,7 @@ func (rs *runState) recordDecision(dec policy.Decision, cost *policy.Cost) {
 		mBudget.WithLabelValues(rs.a.Namespace, rs.a.Name).Set(rs.s.Cfg.MaxHourly.Float())
 	}
 	mDecisions.WithLabelValues(string(dec.Type), rs.a.Namespace, rs.a.Name).Inc()
+	mReasons.WithLabelValues(string(dec.Reason), rs.a.Namespace, rs.a.Name).Inc()
 	mDesired.WithLabelValues(rs.a.Namespace, rs.a.Name).Set(float64(dec.Proposed))
 }
 
