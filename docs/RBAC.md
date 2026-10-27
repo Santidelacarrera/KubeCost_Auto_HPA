@@ -70,3 +70,25 @@ drain unit tests only.
 
 This is **reduced and verified least privilege for the current feature set**, not minimal for every
 possible install.
+
+## Namespace-scoped design (evaluated, not implemented)
+
+Evaluated against the generated ClusterRole in `operator/config/rbac/role.yaml`:
+
+| Resource (rules) | Scope it needs | Can move to a per-namespace Role? |
+|---|---|---|
+| `deployments`, `deployments/scale`, `pods`, `pods/resize`, `pods/eviction`, `poddisruptionbudgets`, `horizontalpodautoscalers`, `kubecostautoscalers`, `kubecosthpas`, `events`, `metrics.k8s.io pods` | Only the namespaces that hold targets | Yes |
+| `nodes` (get, list, watch, patch) | Cluster (nodes are not namespaced) | **No.** Needs a ClusterRole, read-only unless Spot draining is on |
+
+What would change to support it:
+
+1. The manager's cache would watch an explicit namespace list instead of all namespaces. This is a code change in
+   `cmd/main.go` and is **not** done.
+2. The chart would create one Role and RoleBinding per listed namespace, plus a read-only ClusterRole for `nodes`.
+3. Envtest would need a case with two namespaces and a restricted user per namespace, to prove the negative
+   (no access to a non-listed namespace).
+
+Why it is not applied now: a permission reduction that is not run against a real multi-namespace install could break
+reconciliation silently (for example, a target in an unlisted namespace is ignored, not reported as an error). The
+current ClusterRole stays. Do not describe the operator as least-privilege beyond what the restricted-user envtest
+proves (the verbs above, in one namespace set).

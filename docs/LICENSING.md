@@ -20,23 +20,27 @@ is needed before commercial distribution.
   matches your organisation's policy before a commercial release.
 * No contributor licence agreement (CLA) or DCO is enforced. Adding one is a maintainer decision.
 
-## 3. Third-party dependencies
+## 3. Third-party dependencies (operator Go module)
 
-Method: `go list -m all` in `operator/`, then the licence file found in each module directory.
+Method (reproducible): `go mod download` for every module in `go list -m all` (run in `operator/`), then a text
+match against the licence file found in each module directory. The result below was produced in this review.
 
-| Result | Count | Notes |
-|---|---|---|
-| Apache-2.0 licence file found | 34 | Permissive |
-| MIT licence file found | 20 | Permissive |
-| BSD-style text found | 29 | Permissive (heuristic) |
-| Other licence file found, not classified | remainder | Not fully classified |
-| Modules with no recognisable licence file in the module directory | majority of the list | Cannot be classified by this method |
-| Copyleft text (GPL, LGPL, AGPL, MPL) in any found licence file | 0 | Checked by text search |
+| Licence (text match) | Modules |
+|---|---|
+| Apache-2.0 | 32 |
+| MIT | 26 |
+| BSD-3-Clause | 26 |
+| ISC | 1 |
+| Copyleft (GPL, LGPL, AGPL, MPL) | **0** |
+| Unclassified or no licence file | **0** |
 
-**Limitation:** the search matched files named `LICENSE*` or `COPYING*` only, so many modules are unclassified. The
-Go module zips do not always ship a licence file under those names. Do not conclude that these modules are
-permissively licensed from this table. The correct tool is `go-licenses` (or an equivalent SBOM-based scanner) run
-against the CycloneDX SBOM. That tool is **not installed here** and was not run.
+Total third-party modules: 85. The module list is in `go list -m all`; the classification script is not committed,
+so rerun with the same method when dependencies change.
+
+**Limitations.** The match is by licence text, not by an SPDX scanner, so it can misidentify a dual-licensed module.
+Only the Go module graph of the operator is covered. The Python dependencies of `engine/` are **not** covered, and
+the container base image packages are not reviewed here. An earlier version of this file reported most modules as
+unclassified; that was a method error (modules had not been downloaded), now corrected.
 
 ## 4. Container base image
 
@@ -55,7 +59,7 @@ against the CycloneDX SBOM. That tool is **not installed here** and was not run.
 ## 6. Open items before a commercial release
 
 1. Maintainer chooses the copyright holder line and whether to add `NOTICE`.
-2. Run `go-licenses report ./...` (or equivalent) on `operator/` and the Python engine's dependencies, and review
-   every non-permissive or unknown result.
+2. Run an SPDX-based scanner (for example `go-licenses`, which fails on the current Go 1.26 standard library here) on
+   `operator/` and on the engine's Python dependencies, and review every non-permissive or unknown result.
 3. Review the container base image's package licences from the SBOM.
 4. Confirm the AI-assistance and contributor policy with the maintainer's organisation.

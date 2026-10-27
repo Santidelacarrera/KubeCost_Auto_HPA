@@ -126,3 +126,36 @@ when demand is already past the safety ceiling (`TestFreezeStillAllowsAuthorised
 
 Report vulnerabilities as described in `SECURITY.md`. For functional issues, open a GitHub issue with the operator
 version, the KubeCost version, the `KubeCostAutoscaler` status and the controller logs with secrets removed.
+
+## 11. Live KubeCost validation (staging) — procedure
+
+Run this against a **staging** KubeCost only, with a read-only token, and record the results. Nothing in this section
+has been run against a real KubeCost yet.
+
+```bash
+# 1. Record the exact KubeCost version you are testing (chart and app), and how you reach it.
+helm list -n kubecost                       # chart name and version
+# 2. Choose a running Deployment in staging that has been running for at least one cost window.
+# 3. Run the live test. The token is read from the environment and never printed.
+cd operator
+KUBECOST_LIVE_URL=https://kubecost.staging.example \
+KUBECOST_LIVE_NAMESPACE=<namespace> KUBECOST_LIVE_CONTROLLER=<deployment> \
+KUBECOST_LIVE_TOKEN="$(cat ./kubecost-staging-token.txt)" \
+go test -tags kubecost_live -run Live -v -count=1 ./internal/kubecost/
+```
+
+Interpretation:
+
+| Result | Meaning | Action |
+|---|---|---|
+| `SKIP` | `KUBECOST_LIVE_URL` was not set. **Not a pass.** | Set the variables and rerun. |
+| `FAIL: the documented contract did not hold` | The real response differs from `operator/internal/kubecost/testdata/README.md`. | Do not pilot. Save the response with secrets removed and compare field by field. |
+| `FAIL: a running workload must have a positive hourly cost` | Cost is zero or missing for a running workload. | Check aggregation (`aggregate=controller`) and the cluster name. |
+| `FAIL: sample failed freshness/coverage validation` | KubeCost data is older than `maxMetricAge` or covers less than half the window. | This is the freeze behaviour working; compare with the configured `maxMetricAge`. |
+| `PASS` | The contract holds for this one installation, version and workload. | Record it. It does not validate other versions. |
+
+Also record: HTTP status codes seen, response time, whether the token was accepted, and the KubeCost version. Do not
+paste the token or the full response if it contains internal names you cannot share.
+
+The live test checks the response shape and the cost arithmetic. It does **not** test 429/503 behaviour, timeouts or
+outages; those are covered with fixtures and local servers only (`internal/kubecost`).

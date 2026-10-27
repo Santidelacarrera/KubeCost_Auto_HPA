@@ -41,3 +41,22 @@ docker buildx imagetools inspect ghcr.io/<owner>/kubecost-auto-hpa-operator:0.1.
 Pinning actions and base images by digest, an image scan on every pull request, a published Go SBOM next to each release, SLSA level claims, and a
 Dependabot rule for pinned digests. Do not describe any image as "signed", "with SBOM" or "free of vulnerabilities" until the tag release has run
 and the commands above succeed.
+
+## Local evidence from the latest validation round (sandbox, not GitHub)
+
+Everything below was run in the validation sandbox. None of it is a GitHub Actions run, and none of it is a published
+artifact.
+
+| Step | Result |
+|---|---|
+| Build of the operator image from `operator/Dockerfile` | **Not possible as written** in the sandbox: `go mod download` fails because the sandbox egress proxy re-signs TLS. Built with a sandbox-only layer that trusts the proxy CA (not part of the repo). Tag `kca-operator:local-test`. |
+| Image user | `65532:65532` (non-root), entrypoint `/manager`, size ≈ 81 MB |
+| Version metadata | `--version` prints `0.1.0-rc.test (commit b86308d, go1.27.3)` |
+| Trivy 0.67.2 vulnerability scan (HIGH and CRITICAL, then all severities) | 6 OS packages (Debian 13.7) and 64 Go packages scanned: **0 findings**. Database from `mirror.gcr.io/aquasec/trivy-db:2`, not the official source; the database date is not recorded here |
+| SBOM of the image (CycloneDX 1.6, Trivy) | 72 components, including `stdlib` |
+| Push to a local registry, then sign with cosign v2.4.1 | **Ephemeral key pair**. Verify with the matching public key: pass. Verify with another key: fail (exit 12). **Keyless signing is not validated**: it needs GitHub OIDC and the public transparency log, which the sandbox cannot reach |
+| `govulncheck` | Not run: `vuln.go.dev` returns `Forbidden` from the sandbox proxy (a policy denial; not worked around) |
+| `hack/helm-rehearsal.sh` on kind | **Not run.** kind v0.27.0 with `kindest/node:v1.33.4` starts, but the control plane never comes up: `runc create failed: can't get final child's PID`. Plain and privileged containers work, so this is a nested-cgroup limitation of the sandbox, not a chart result. CI's `e2e-kind` and `e2e-kca` jobs on GitHub runners passed on b86308d |
+
+Not verified by any of the above: the image on a registry you control, the SBOM as a release asset, provenance
+attestations, and keyless signing with the release workflow.
