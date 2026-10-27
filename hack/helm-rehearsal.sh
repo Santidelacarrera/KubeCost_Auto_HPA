@@ -1,9 +1,14 @@
 #!/usr/bin/env bash
 # Install -> upgrade -> rollback -> uninstall of the Helm chart on a throwaway kind cluster, with locally
 # built images. Publishes nothing and touches no real cluster. Needs: docker, kind, kubectl, helm.
-# STATUS: written but NOT YET RUN (no Docker daemon where it was authored); run it before the first tag.
+# STATUS: NOT YET RUN WITH PODS. Validated only on a host without a kubelet (see docs/PILOT.md section 12).
+# Pipes into grep -q were replaced by captured variables: with `set -o pipefail` a grep that exits early
+# makes the writer fail (SIGPIPE, exit 141) even when the text matched.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+for tool in docker kind kubectl helm; do
+  command -v "$tool" >/dev/null || { echo "missing required tool: $tool (see docs/PILOT.md section 12)" >&2; exit 2; }
+done
 CLUSTER=${CLUSTER:-kch-helm-rehearsal}
 NODE_IMAGE=${NODE_IMAGE:-kindest/node:v1.33.1}
 REL=rehearsal
@@ -28,7 +33,8 @@ VALUES=(--set operator.image.repository=kubecost-auto-hpa-operator --set operato
 helm install "$REL" deploy/helm/kubecost-auto-hpa -n "$NS" --create-namespace "${VALUES[@]}" --wait --timeout 4m
 kubectl get crd kubecostautoscalers.autoscaling.kubecost.io kubecosthpas.autoscaling.kubecost.io >/dev/null
 ok "installed (revision 1): operator, engine and Redis are ready and both CRDs exist"
-kubectl -n "$NS" logs deploy/"$REL"-kubecost-auto-hpa-operator --tail=50 | grep -q "starting manager" || fail "operator did not start"
+logs=$(kubectl -n "$NS" logs deploy/"$REL"-kubecost-auto-hpa-operator --tail=50)
+grep -q "starting manager" <<<"$logs" || fail "operator did not start"
 ok "operator logged 'starting manager' with its version"
 
 # 2. upgrade: switch an optional feature on and check that exactly it appears
@@ -45,7 +51,8 @@ ok "rolled back to revision 1 (now revision 3): dashboard gone, operator healthy
 
 # 4. uninstall: release resources go; CRDs installed from crds/ are intentionally kept by Helm
 helm uninstall "$REL" -n "$NS" --wait
-kubectl -n "$NS" get deploy 2>/dev/null | grep -q "$REL" && fail "release resources remain after uninstall"
+remaining=$(kubectl -n "$NS" get deploy 2>/dev/null || true)
+grep -q "$REL" <<<"$remaining" && fail "release resources remain after uninstall"
 kubectl get crd kubecostautoscalers.autoscaling.kubecost.io >/dev/null || fail "CRD unexpectedly removed (Helm keeps crds/)"
 ok "uninstalled: workloads removed, CRDs kept (delete them by hand if you also want the custom resources gone)"
 echo "helm rehearsal passed"

@@ -9,7 +9,7 @@ package kubecost
 //
 //	KUBECOST_LIVE_URL=http://kubecost-cost-analyzer.kubecost:9090 \
 //	KUBECOST_LIVE_NAMESPACE=production KUBECOST_LIVE_CONTROLLER=payments-api \
-//	[KUBECOST_LIVE_KIND=deployment] [KUBECOST_LIVE_WINDOW=1h] [KUBECOST_LIVE_TOKEN=...] \
+//	[KUBECOST_LIVE_KIND=deployment] [KUBECOST_LIVE_WINDOW=1h] [KUBECOST_LIVE_MAX_AGE=5m] [KUBECOST_LIVE_TOKEN=...] \
 //	  go test -tags kubecost_live -count=1 -v -run Live ./internal/kubecost
 //
 // (kubectl port-forward -n kubecost svc/kubecost-cost-analyzer 9090 gives a local URL.)
@@ -62,7 +62,13 @@ func TestLiveAllocationContract(t *testing.T) {
 	if s.HourlyCost <= 0 {
 		t.Errorf("a running workload must have a positive hourly cost, got %s", s.HourlyCost)
 	}
-	if err := s.Validate(time.Now(), 30*time.Minute, 0.5); err != nil {
-		t.Errorf("sample failed freshness/coverage validation: %v (a lag this large is why failurePolicy.maxMetricAge exists; compare with its value)", err)
+	// Freshness uses the CRD default for failurePolicy.maxMetricAge (5m). A looser bound here would
+	// accept samples that the operator itself would freeze on.
+	maxAge, err := time.ParseDuration(liveEnv(t, "KUBECOST_LIVE_MAX_AGE", "5m"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Validate(time.Now(), maxAge, 0.5); err != nil {
+		t.Errorf("sample failed freshness/coverage validation (max age %s): %v", maxAge, err)
 	}
 }
