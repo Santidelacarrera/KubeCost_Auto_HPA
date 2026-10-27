@@ -159,3 +159,22 @@ paste the token or the full response if it contains internal names you cannot sh
 
 The live test checks the response shape and the cost arithmetic. It does **not** test 429/503 behaviour, timeouts or
 outages; those are covered with fixtures and local servers only (`internal/kubecost`).
+
+## 12. Validation status and how to close each gap
+
+| Item | Status | Evidence / how to close |
+|---|---|---|
+| Automated tests (`make test-all`, race, envtest, integration) | **Validated** | Local run and GitHub `envtest`, `operator`, `engine`, `manifests` jobs on the PR head. |
+| Helm install, upgrade, rollback, uninstall on a real apiserver (no kubelet) | **Validated** on kube-apiserver 1.33.4 + etcd | `hack/helm-lifecycle.sh` with `KUBECONFIG` pointing at a disposable cluster. No pods run in this mode. |
+| Helm lifecycle with pods (`hack/helm-rehearsal.sh`, kind) | **Pending.** Not run in the sandbox: kind nodes cannot start pod sandboxes there (nested cgroup v1). GitHub `e2e-kind` passed on the runner | Run on a host where `kind create cluster` works, with `NODE_IMAGE=kindest/node:v1.33.4`. |
+| Live KubeCost contract (`kubecost_live`) | **Pending.** No instance or token available | Section 11. Without `KUBECOST_LIVE_URL` the test is skipped, not passed. Verified in this round: unreachable URL → FAIL with the connection error. |
+| 429/503/`Retry-After`, concurrency cap, stale or missing cost | **Validated with fixtures and local servers only** | `TestRetryAfterHonouredAndCapped`, `TestInFlightRequestsAreBounded`, `TestFailureClassesAllFreeze`, `TestKubeCostOutageFreezesThenRecovers`. Not against KubeCost. |
+| Pause, no writes while paused, no revert on resume | **Validated on a real apiserver**, with a negative control | `TestRealAPIServer_PauseWritesNothingAndResumeRevertsNothing`. |
+| Latency p50/p95/p99 under controlled load | **Pending.** Needs a cluster with real traffic and a real KubeCost | `docs/BENCHMARK_PROCEDURE.md`. No numbers are reported in this repo. |
+| Image scan, SBOM, signing | Local only | `docs/SUPPLY_CHAIN.md`. Keyless signing and provenance are **not** validated. |
+
+**Pilot entry criteria.** Move from development to a controlled pilot in staging when all of these hold:
+1. The live KubeCost test passes against the staging version, with the version recorded.
+2. `hack/helm-rehearsal.sh` passes on kind, including upgrade and rollback.
+3. The pause and rollback steps in section 7 are exercised once on the pilot cluster.
+4. A staging benchmark exists with recorded p50, p95, p99 and error rate, and the team has accepted the thresholds.

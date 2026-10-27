@@ -92,3 +92,16 @@ Why it is not applied now: a permission reduction that is not run against a real
 reconciliation silently (for example, a target in an unlisted namespace is ignored, not reported as an error). The
 current ClusterRole stays. Do not describe the operator as least-privilege beyond what the restricted-user envtest
 proves (the verbs above, in one namespace set).
+
+## Essential permissions (current state, reviewed in the latest validation round)
+
+Cluster-scoped permissions that cannot be namespaced today:
+- `nodes` get, list, watch: the classification of pods by capacity class and the Spot interruption signal.
+- `nodes` patch: only with Spot draining (cordon and the `drained` annotation). Helm grants it only with `operator.enableSpotDrain=true`.
+
+Every other permission is namespaced in effect (targets live in any namespace, so the ClusterRole is still
+required for the watch). A namespace-scoped install is designed above but **not implemented or validated**.
+
+Before reducing any verb: run `make test-all` (the restricted-user envtest checks allowed and denied verbs) and
+the Helm lifecycle (`hack/helm-lifecycle.sh`). A reduction is only acceptable if both still pass and a
+target in a namespace the operator should manage still scales.

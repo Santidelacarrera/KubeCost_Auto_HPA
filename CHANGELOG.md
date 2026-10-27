@@ -10,6 +10,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 
 ### Added (validation round)
 - Real-apiserver test for the emergency pause: no writes while paused (including against an external replica change), no revert on resume. Negative control verified.
+- `hack/helm-lifecycle.sh`: Helm install, upgrade, rollback and uninstall against any disposable cluster (no pods). Ran green on kube-apiserver 1.33.4.
 - `docs/PILOT.md` §11: staging procedure for the live KubeCost test; `docs/RBAC.md`: namespace-scoped design evaluation (not implemented).
 
 ### Changed
