@@ -105,3 +105,41 @@ required for the watch). A namespace-scoped install is designed above but **not 
 Before reducing any verb: run `make test-all` (the restricted-user envtest checks allowed and denied verbs) and
 the Helm lifecycle (`hack/helm-lifecycle.sh`). A reduction is only acceptable if both still pass and a
 target in a namespace the operator should manage still scales.
+
+## Restricted mode by namespace: design (not implemented)
+
+Current mode (default, validated): one ClusterRole, the manager watches every namespace.
+
+Restricted mode would scope the operator to an explicit list of namespaces. It is **not implemented**; this section
+is the design that an implementation must satisfy before anyone relies on it.
+
+**1. Manager and cache.** Add a flag (for example `--watch-namespaces=a,b`) that sets `cache.Options.DefaultNamespaces`
+in `operator/cmd/main.go`. Informers then list and watch only those namespaces. Cluster-scoped objects (`nodes`) keep
+their own cluster-wide informer. Namespace-scoped `Get` and `List` calls in the controllers already pass
+`client.InNamespace`, so they do not need changes.
+
+**2. Watches and reconciliation.** `For(KubeCostAutoscaler)`, `Owns(HPA)`, `Watches(Deployment)` and the PDB and pod
+reads all become namespace-bounded. An object outside the list is never reconciled, and the controller must say so in
+its status or logs rather than silently ignore it. The fallback HPA and the legacy `KubeCostHPA` follow the same list.
+
+**3. Helm.** A new value (for example `rbac.namespaces: []`). When empty, the chart renders today's ClusterRole. When
+set, it renders one Role and one RoleBinding per namespace, with the namespaced rules above, plus a ClusterRole that
+grants only `nodes` get, list, watch (and patch when Spot draining is enabled). The schema must reject an empty list
+when the mode is requested.
+
+**4. Permissions that stay cluster-scoped.** `nodes` (see the table above) and the CRDs themselves, which the installer
+creates with cluster rights. Nothing else needs cluster scope in restricted mode.
+
+**5. Tests that must exist before this is enabled:**
+- Envtest with two namespaces, `production` in the list and `staging` not in it. Create a `KubeCostAutoscaler` in each.
+  Assert that the one in `production` is reconciled and the one in `staging` is never touched (no status, no replica
+  writes, no events).
+- Restricted-user envtest bound only to the generated per-namespace Roles: allowed verbs in `production`, denied verbs
+  in `staging` and in cluster scope, except `nodes`.
+- Helm lifecycle (`hack/helm-lifecycle.sh`) with `rbac.namespaces` set, and uninstall removes every generated Role and
+  RoleBinding.
+- Drift check: the Helm templates must produce the same verbs as the kubebuilder markers, per namespace.
+
+**Why it is not enabled now.** Without the flag and the two-namespace tests above, a restricted install would fail in
+a way that is easy to miss: informers denied for a namespace are logged as errors, but the controller would look
+healthy for the namespaces it can see. The ClusterRole stays until those tests pass.

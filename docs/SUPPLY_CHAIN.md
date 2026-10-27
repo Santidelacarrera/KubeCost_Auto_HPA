@@ -60,3 +60,26 @@ artifact.
 
 Not verified by any of the above: the image on a registry you control, the SBOM as a release asset, provenance
 attestations, and keyless signing with the release workflow.
+
+## Keyless signing and provenance: what can be checked where
+
+| Check | Locally (no GitHub) | Needs an authorised CI run |
+|---|---|---|
+| The workflow syntax and permissions | Yes: `actionlint`, reading `release.yml` | No |
+| `id-token: write` only on the signing jobs | Yes: grep of `release.yml` (lines 60–63 and 92–95) | No |
+| `cosign sign` and `cosign verify` with an ephemeral key | Yes (done: verify with the right key passes, with a wrong key fails) | No |
+| Keyless `cosign sign --yes` with GitHub OIDC | **No.** Needs the OIDC token of a real run and Fulcio | Yes: a run on a tag or `workflow_dispatch` in a test repository or fork |
+| Transparency log entry (Rekor) | **No.** The sandbox cannot reach the public log | Yes, same run |
+| SLSA provenance from BuildKit (`provenance: mode=max`) | **No.** Only generated on `v*` tags | Yes: a tag build in a test repository, then `docker buildx imagetools inspect` and the attestation check |
+| SBOM attestation on the registry image | **No** (the local SBOM is a file, not an attestation) | Yes, same tag build |
+
+**No permanent secrets are needed.** Keyless signing uses the job's OIDC identity. Do not add a long-lived signing key
+to the repository or to repository secrets to make a check pass; the ephemeral-key check above is only a test of the
+mechanism.
+
+**Requirements for the authorised run:** a test repository or fork where tag creation is allowed, a registry the
+workflow can push to, and an owner who accepts that the image is pushed there. The run is a release rehearsal. It is
+not a publication.
+
+**Not validated until that run has passed:** keyless signing, the Rekor entry, the provenance attestation, and the SBOM
+attestation. Until then the release workflow is reviewed but not run.
