@@ -19,7 +19,8 @@ VALUES=(--set operator.image.repository=kubecost-auto-hpa-operator --set operato
 kubectl create namespace "$NS" >/dev/null 2>&1 || true
 helm install "$REL" "$CHART" -n "$NS" "${VALUES[@]}" --timeout 2m >/dev/null || fail "install"
 kubectl get crd kubecostautoscalers.autoscaling.kubecost.io kubecosthpas.autoscaling.kubecost.io >/dev/null || fail "CRDs missing after install"
-kubectl -n "$NS" get deploy -o name | grep -q operator || fail "operator Deployment missing"
+deploys=$(kubectl -n "$NS" get deploy -o name)
+grep -q operator <<<"$deploys" || fail "operator Deployment missing"
 ok "install: revision 1 accepted by the apiserver"
 helm upgrade "$REL" "$CHART" -n "$NS" "${VALUES[@]}" --set grafanaDashboard.enabled=true --timeout 2m >/dev/null || fail "upgrade"
 kubectl -n "$NS" get configmap "$REL-kubecost-auto-hpa-dashboard" >/dev/null || fail "dashboard ConfigMap missing after upgrade"
@@ -29,7 +30,8 @@ helm rollback "$REL" 1 -n "$NS" --timeout 2m >/dev/null || fail "rollback"
 kubectl -n "$NS" get configmap "$REL-kubecost-auto-hpa-dashboard" >/dev/null 2>&1 && fail "dashboard survived rollback"
 ok "rollback to revision 1 (revision 3 in history): dashboard removed"
 helm uninstall "$REL" -n "$NS" >/dev/null || fail "uninstall"
-kubectl -n "$NS" get deploy -o name 2>/dev/null | grep -q "$REL" && fail "release objects remain after uninstall"
+remaining=$(kubectl -n "$NS" get deploy -o name 2>/dev/null || true)
+grep -q "$REL" <<<"$remaining" && fail "release objects remain after uninstall"
 kubectl get crd kubecostautoscalers.autoscaling.kubecost.io >/dev/null || fail "CRD removed (Helm keeps crds/)"
 ok "uninstall: release objects removed; CRDs kept by design"
 echo "helm lifecycle passed"

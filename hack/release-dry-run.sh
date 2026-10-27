@@ -18,15 +18,16 @@ ok "tag $TAG -> version $VERSION, registry owner $OWNER_LC"
 # 1. chart packaging carries the tag's version
 helm package deploy/helm/kubecost-auto-hpa --version "$VERSION" --app-version "$VERSION" --destination "$WORK" >/dev/null
 PKG="$WORK/kubecost-auto-hpa-$VERSION.tgz"; [[ -f $PKG ]] || fail "chart package $PKG not produced"
-helm show chart "$PKG" | grep -q "^version: $VERSION$"       || fail "chart version is not $VERSION"
-helm show chart "$PKG" | grep -q "^appVersion: \"\?$VERSION\"\?$" || fail "chart appVersion is not $VERSION"
+CHART_META=$(helm show chart "$PKG")
+grep -q "^version: $VERSION$" <<<"$CHART_META" || fail "chart version is not $VERSION"
+grep -q "^appVersion: \"\?$VERSION\"\?$" <<<"$CHART_META" || fail "chart appVersion is not $VERSION"
 ok "chart packaged as kubecost-auto-hpa-$VERSION.tgz with version and appVersion $VERSION"
 
 # 2. the packaged chart installs the images the release publishes (default tag = appVersion)
 helm lint "$PKG" >/dev/null
 RENDER=$(helm template r "$PKG")
 for c in operator engine; do
-  echo "$RENDER" | grep -q "image: \"\?ghcr.io/$OWNER_LC/kubecost-auto-hpa-$c:$VERSION\"\?$" \
+  grep -q "image: \"\?ghcr.io/$OWNER_LC/kubecost-auto-hpa-$c:$VERSION\"\?$" <<<"$RENDER" \
     || fail "chart does not reference ghcr.io/$OWNER_LC/kubecost-auto-hpa-$c:$VERSION (release.yml pushes exactly that tag)"
 done
 ok "rendered manifests reference ghcr.io/$OWNER_LC/kubecost-auto-hpa-{operator,engine}:$VERSION"
