@@ -8,6 +8,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -16,15 +17,18 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	policyv1 "k8s.io/api/policy/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
+	"sigs.k8s.io/yaml"
 
 	"k8s.io/apimachinery/pkg/runtime"
 
@@ -37,6 +41,14 @@ import (
 )
 
 func startEnv(t *testing.T) (client.Client, *kubernetes.Clientset) {
+	t.Helper()
+	c, cs, _, _ := startEnvFull(t)
+	return c, cs
+}
+
+// startEnvFull also returns the environment and the admin config, so a test can derive a
+// restricted user (see restrictedOperator).
+func startEnvFull(t *testing.T) (client.Client, *kubernetes.Clientset, *envtest.Environment, *rest.Config) {
 	t.Helper()
 	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
 		t.Skip("KUBEBUILDER_ASSETS not set")
@@ -59,7 +71,41 @@ func startEnv(t *testing.T) (client.Client, *kubernetes.Clientset) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return c, cs
+	return c, cs, env, cfg
+}
+
+// restrictedOperator returns an authenticated user that holds ONLY the generated ClusterRole
+// (config/rbac/role.yaml) - not cluster-admin - so a manager started with it proves that those
+// permissions are sufficient for what the manager actually does against a real apiserver.
+// (Spot draining and leader election are not exercised here: see docs/RBAC.md.)
+func restrictedOperator(env *envtest.Environment, admin *rest.Config) (*envtest.AuthenticatedUser, error) {
+	raw, err := os.ReadFile("../../config/rbac/role.yaml")
+	if err != nil {
+		return nil, err
+	}
+	var role rbacv1.ClusterRole
+	if err := yaml.Unmarshal(raw, &role); err != nil {
+		return nil, err
+	}
+	if role.Name == "" || len(role.Rules) == 0 {
+		return nil, fmt.Errorf("role.yaml did not parse into a ClusterRole")
+	}
+	c, err := client.New(admin, client.Options{Scheme: clientgoscheme.Scheme})
+	if err != nil {
+		return nil, err
+	}
+	ctx := context.Background()
+	if err := c.Create(ctx, &role); err != nil {
+		return nil, err
+	}
+	if err := c.Create(ctx, &rbacv1.ClusterRoleBinding{
+		ObjectMeta: metav1.ObjectMeta{Name: "operator-under-test"},
+		RoleRef:    rbacv1.RoleRef{APIGroup: "rbac.authorization.k8s.io", Kind: "ClusterRole", Name: role.Name},
+		Subjects:   []rbacv1.Subject{{APIGroup: "rbac.authorization.k8s.io", Kind: "User", Name: "operator"}},
+	}); err != nil {
+		return nil, err
+	}
+	return env.ControlPlane.AddUser(envtest.User{Name: "operator"}, nil)
 }
 
 func mkPod(t *testing.T, c client.Client, name, node string) {

@@ -4,3 +4,11 @@ __pycache__/
 operator/bin/
 build/
 dist/
+
+# Secrets and local access material: never commit (see docs/PILOT.md section 11)
+*token*.txt
+*.token
+kubeconfig*
+*.kubeconfig
+*.key
+*.pem

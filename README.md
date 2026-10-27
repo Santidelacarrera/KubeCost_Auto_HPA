@@ -250,6 +250,20 @@ Límites conocidos: sin kubelet en envtest no se observa el cambio efectivo de c
 reconciler puede ver un pod con retraso (el patch es idempotente);  las consultas PromQL por defecto
 asumen `http_requests_total` / `http_request_duration_seconds` (configurables en `internal/metrics`).
 
+### Parada de emergencia y comparación sintética
+
+`kubectl annotate kubecostautoscaler <nombre> autoscaling.kubecost.io/pause=true` detiene todas las escrituras de ese
+autoscaler al instante (sigue calculando y explicando decisiones; no cambia réplicas ni crea/borra el HPA de respaldo);
+quitar la anotación reanuda sin reiniciar. `docs/BENCHMARKS.md` compara, con un simulador determinista y supuestos
+explícitos, el HPA nativo frente al motor de decisión (no son mediciones de un clúster real);
+`docs/ENGINEERING_REPORT.md` resume hallazgos, pruebas ejecutadas y riesgos pendientes.
+
+Documentación de esta fase de validación: `docs/RBAC.md` (permisos y su justificación), `docs/OBSERVABILITY.md` (métricas y SLO propuestos),
+`docs/BENCHMARK_PROCEDURE.md` (medición real, no ejecutada), `docs/DEMAND_SIGNALS.md` (análisis), `docs/SUPPLY_CHAIN.md` (SBOM, escaneo y firma, con su estado real)
+y `docs/RELEASING.md` (ensayos y procedimiento de release). Para evaluarlo en un piloto: `docs/PILOT.md` (instalación,
+permisos, política de fallos, pausa, rollback y criterios de salida) y `docs/THREAT_MODEL.md` (amenazas, controles y riesgos
+residuales). Antes de ejecutar la suite completa, `make -C operator test-all` (requiere `KUBEBUILDER_ASSETS`).
+
 ## Licencia
 
 [Apache License 2.0](LICENSE): licencia permisiva con concesión expresa de patentes, la misma que usan Kubernetes,

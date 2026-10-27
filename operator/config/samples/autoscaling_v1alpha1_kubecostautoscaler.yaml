@@ -18,8 +18,11 @@ spec:
   demand:                          # utilisation = usage / request, averaged over ready pods
     resources: [cpu]
     targetUtilizationPercent: 70   # comfortable level
-    costPressureUtilizationPercent: 80   # allowed while cost > target
-    ceilingUtilizationPercent: 90  # replicas needed to stay below this are never withheld for cost
+    # Conservative headroom (see docs/BENCHMARKS.md, synthetic): with the 80/90 defaults the cost policy saves money by
+    # running closer to the ceiling for longer during ramps; 75/80 keeps a latency margin and, in the simulation, saves
+    # about what an equivalent HPA does. Use 80/90 only where running hot is acceptable.
+    costPressureUtilizationPercent: 75   # allowed while cost > target
+    ceilingUtilizationPercent: 80  # replicas needed to stay below this are never withheld for cost
     tolerancePercent: 10
 
   costPolicy:                      # optional; without it the controller is purely demand-driven

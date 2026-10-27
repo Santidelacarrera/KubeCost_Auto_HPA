@@ -124,6 +124,30 @@ spec:
       labels: {severity: warning}
       annotations:
         summary: "{{ "{{ $labels.namespace }}/{{ $labels.name }}" }} exceeds its hourly budget (safety capacity is still provisioned)"
+    - alert: KubeCostAutoscalerPaused
+      expr: kubecost_autoscaler_paused == 1
+      for: 1h
+      labels: {severity: warning}
+      annotations:
+        summary: "{{ "{{ $labels.namespace }}/{{ $labels.name }}" }} has been paused for over an hour: nothing is scaling it"
+    - alert: KubeCostAutoscalerDemandMetricsStale
+      expr: kubecost_autoscaler_demand_metric_age_seconds > 120
+      for: 10m
+      labels: {severity: warning}
+      annotations:
+        summary: "Resource metrics behind {{ "{{ $labels.namespace }}/{{ $labels.name }}" }} are over 2 minutes old: decisions lag the load"
+    - alert: KubeCostAutoscalerKubeCostSlow
+      expr: histogram_quantile(0.95, sum by (le) (rate(kubecost_autoscaler_kubecost_request_duration_seconds_bucket{outcome="ok"}[15m]))) > 10
+      for: 15m
+      labels: {severity: warning}
+      annotations:
+        summary: "KubeCost allocation queries take over 10 s at p95: risk of stale cost data"
+    - alert: KubeCostAutoscalerReconcileSlow
+      expr: histogram_quantile(0.99, sum by (le) (rate(kubecost_autoscaler_reconcile_duration_seconds_bucket[15m]))) > 20
+      for: 15m
+      labels: {severity: warning}
+      annotations:
+        summary: "KubeCostAutoscaler reconciles take over 20 s at p99"
     - alert: KubeCostHPAOperatorDown
       expr: absent(up{job=~".*kubecost-auto-hpa.*operator.*"} == 1)
       for: 10m

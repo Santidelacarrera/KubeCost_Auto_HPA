@@ -1,0 +1,42 @@
+name: supply-chain
+# Manual and weekly checks that publish NOTHING: an SBOM of the operator, and a vulnerability scan of the
+# images built from the Dockerfiles. STATUS: written but not yet run on GitHub; run it by hand first.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 6 * * 1"
+permissions:
+  contents: read
+jobs:
+  sbom:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with: {go-version-file: operator/go.mod}
+      - name: CycloneDX SBOM of the operator (modules actually linked into the binary)
+        working-directory: operator
+        run: |
+          go install github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1.9.0
+          "$(go env GOPATH)"/bin/cyclonedx-gomod app -json -licenses=false -main cmd -output "$RUNNER_TEMP/operator.cdx.json" .
+          python3 -c "import json,sys;b=json.load(open(sys.argv[1]));assert b['bomFormat']=='CycloneDX' and b['components'];print(len(b['components']),'components')" "$RUNNER_TEMP/operator.cdx.json"
+      - uses: actions/upload-artifact@v4
+        with: {name: operator-sbom, path: "${{ runner.temp }}/operator.cdx.json", retention-days: 14}
+  image-scan:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - {name: operator, context: operator}
+          - {name: engine, context: engine}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build the image locally (never pushed)
+        run: docker build -t "scan-${{ matrix.name }}:ci" --build-arg VERSION=ci --build-arg COMMIT="$GITHUB_SHA" "${{ matrix.context }}"
+      - name: Scan for fixable HIGH/CRITICAL vulnerabilities
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: scan-${{ matrix.name }}:ci
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"

@@ -49,6 +49,20 @@ const (
 	ReasonCostEstimateUnstable Reason = "CostEstimateUnstable"
 )
 
+// UnstableMode is the behaviour while the cost signal is unstable.
+type UnstableMode int
+
+const (
+	// UnstableFreeze (shipped): hold every non-safety move; only a safety scale-up is allowed.
+	UnstableFreeze UnstableMode = iota
+	// UnstableDemandOnly (experimental, REJECTED by the benchmark: it oscillates): evaluate demand
+	// only, so demand may move the count both ways while cost is ignored.
+	UnstableDemandOnly
+	// UnstableScaleUpAtCostTarget (experimental): only scale UP, and only to the cost-pressure
+	// utilisation target (never lower the count, never cap at the budget).
+	UnstableScaleUpAtCostTarget
+)
+
 // Config is the resolved (defaulted and validated) policy.
 type Config struct {
 	MinReplicas, MaxReplicas, MinHealthy int32
@@ -69,6 +83,12 @@ type Config struct {
 	SpotBuffer             float64
 
 	AllowSafetyScaleUp bool
+
+	// WhenCostUnstable selects what happens while replicas changed inside the cost window and the
+	// per-replica cost is therefore unreliable. The zero value is the shipped behaviour (freeze).
+	// The other modes are EXPERIMENTAL, not exposed in the CRD, and only evaluated by the simulator
+	// (docs/BENCHMARKS.md); neither enforces the budget while the signal is unstable.
+	WhenCostUnstable UnstableMode
 }
 
 // CostRequired reports whether any cost bound is configured. Without one the
@@ -210,7 +230,14 @@ func Evaluate(cfg Config, in Input) Decision {
 		return failClosed(cfg, d, in, rs, ReasonCostUnavailable, "cost data is unavailable or invalid")
 	}
 	if cfg.CostRequired() && !in.Cost.Stable {
-		return failClosed(cfg, d, in, rs, ReasonCostEstimateUnstable, "replicas changed inside the cost window; per-replica cost is not reliable yet")
+		switch cfg.WhenCostUnstable {
+		case UnstableDemandOnly:
+			// fall through: evaluated below as if no cost policy were configured
+		case UnstableScaleUpAtCostTarget:
+			return unstableScaleUp(cfg, d, in, util, need, rd, rs, emergency)
+		default:
+			return failClosed(cfg, d, in, rs, ReasonCostEstimateUnstable, "replicas changed inside the cost window; per-replica cost is not reliable yet")
+		}
 	}
 
 	cand := rd
@@ -220,7 +247,13 @@ func Evaluate(cfg Config, in Input) Decision {
 			return failClosed(cfg, d, in, rs, ReasonCostUnavailable, "per-replica cost cannot be estimated")
 		}
 		d.Details.Observed, d.Details.MarginalAdd, d.Details.MarginalRemove = in.Cost.Hourly, est.add, est.remove
-		pressure := (cfg.TargetHourly > 0 && in.Cost.Hourly > cfg.TargetHourly) || (cfg.MaxHourly > 0 && in.Cost.Hourly > cfg.MaxHourly)
+		// Pressure is judged on what the comfortable replica count (rd) would cost, not on
+		// today's spend. Today's spend depends on the replica count this controller picks, so
+		// using it would be a feedback loop: running hotter lowers the cost below the target,
+		// the pressure disappears, demand scales back up, the cost rises again, and so on.
+		// Under constant demand rd is constant, so the decision is too.
+		comfort := project(in, est, rd)
+		pressure := (cfg.TargetHourly > 0 && comfort > cfg.TargetHourly) || (cfg.MaxHourly > 0 && comfort > cfg.MaxHourly)
 		d.Details.CostPressure = pressure
 		if pressure {
 			rc := need(cfg.CostUtil)
@@ -268,6 +301,25 @@ func Evaluate(cfg Config, in Input) Decision {
 	default:
 		return scaleDown(cfg, in, d)
 	}
+}
+
+// unstableScaleUp is the UnstableScaleUpAtCostTarget mode: while the cost signal is unreliable the
+// count may only grow, up to the cost-pressure utilisation target. Safety, stabilisation windows,
+// cooldown and the pending-pod gate are the normal ones (they live in scaleUp).
+func unstableScaleUp(cfg Config, d Decision, in Input, util float64, need func(float64) int32, _ int32, rs int32, emergency bool) Decision {
+	rc := need(cfg.CostUtil)
+	if math.Abs(util/cfg.CostUtil-1) <= cfg.Tolerance {
+		rc = in.Current
+	}
+	cand := clamp(maxI32(rc, rs), maxI32(cfg.MinReplicas, cfg.MinHealthy), cfg.MaxReplicas)
+	d.Candidate = cand
+	d.History, d.Details.HistoryDiscarded = appendHistory(cfg, in.Now, d.History, cand)
+	if cand > in.Current {
+		return scaleUp(cfg, in, d, emergency)
+	}
+	d.Type, d.Reason = InvalidMetrics, ReasonCostEstimateUnstable
+	d.Message = "replicas changed inside the cost window; holding (scale-up only while the cost signal is unstable)"
+	return d
 }
 
 func scaleUp(cfg Config, in Input, d Decision, emergency bool) Decision {
@@ -435,8 +487,17 @@ func budgetReplicas(cfg Config, in Input, e estimateResult) int32 {
 	return clamp32(int64(in.Current) - k)
 }
 
+// cooling reports whether the last scale is still inside MinInterval. A last scale
+// after Now (clock skew) counts as just happened, so the cooldown is bounded.
 func cooling(cfg Config, in Input) bool {
-	return !in.LastScale.IsZero() && in.Now.Sub(in.LastScale) < cfg.MinInterval
+	if in.LastScale.IsZero() {
+		return false
+	}
+	elapsed := in.Now.Sub(in.LastScale)
+	if elapsed < 0 {
+		elapsed = 0
+	}
+	return elapsed < cfg.MinInterval
 }
 
 func retention(cfg Config) time.Duration {

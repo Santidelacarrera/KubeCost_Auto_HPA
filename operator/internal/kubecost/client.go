@@ -57,6 +57,8 @@ type Error struct {
 	Class  Class
 	Status int
 	Err    error
+	// RetryAfter is the server's Retry-After hint, zero when absent.
+	RetryAfter time.Duration
 }
 
 func (e *Error) Error() string {
@@ -75,6 +77,13 @@ func ClassOf(err error) Class {
 	}
 	return ""
 }
+
+// maxInFlight bounds concurrent requests from one client across every
+// workload, so many KubeCostAutoscaler objects cannot stampede the API.
+const maxInFlight = 4
+
+// maxRetryAfter caps how long a server hint can delay a retry.
+const maxRetryAfter = 30 * time.Second
 
 // Query identifies one workload.
 type Query struct {
@@ -134,6 +143,7 @@ type Client struct {
 	now   func() time.Time
 	sleep func(context.Context, time.Duration) error
 	jit   func() float64
+	sem   chan struct{}
 }
 
 // ParseBaseURL validates and normalises the configured endpoint: http(s) only,
@@ -172,8 +182,45 @@ func New(baseURL string, httpClient *http.Client) (*Client, error) {
 	}
 	return &Client{
 		base: base, http: &hc, MaxAttempts: 3, BaseBackoff: 250 * time.Millisecond, MaxBackoff: 4 * time.Second,
-		now: time.Now, sleep: sleepCtx, jit: rand.Float64,
+		now: time.Now, sleep: sleepCtx, jit: rand.Float64, sem: make(chan struct{}, maxInFlight),
 	}, nil
+}
+
+// acquire waits for a free in-flight slot or the context to end.
+func (c *Client) acquire(ctx context.Context) error {
+	if c.sem == nil {
+		return nil
+	}
+	select {
+	case c.sem <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (c *Client) release() {
+	if c.sem != nil {
+		<-c.sem
+	}
+}
+
+// parseRetryAfter accepts the delta-seconds and HTTP-date forms of Retry-After.
+func parseRetryAfter(v string, now time.Time) time.Duration {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return 0
+	}
+	if secs, err := strconv.Atoi(v); err == nil {
+		if secs <= 0 {
+			return 0
+		}
+		return time.Duration(secs) * time.Second
+	}
+	if t, err := http.ParseTime(v); err == nil && t.After(now) {
+		return t.Sub(now)
+	}
+	return 0
 }
 
 func sleepCtx(ctx context.Context, d time.Duration) error {
@@ -199,11 +246,20 @@ func (c *Client) Allocation(ctx context.Context, q Query) (Sample, error) {
 	var lastErr error
 	for i := 0; i < attempts; i++ {
 		if i > 0 {
-			if err := c.sleep(ctx, c.backoff(i)); err != nil {
+			d := c.backoff(i)
+			var ce *Error
+			if errors.As(lastErr, &ce) && ce.RetryAfter > d {
+				d = min(ce.RetryAfter, maxRetryAfter)
+			}
+			if err := c.sleep(ctx, d); err != nil {
 				return Sample{}, &Error{Class: ClassTransient, Err: err}
 			}
 		}
+		if err := c.acquire(ctx); err != nil {
+			return Sample{}, &Error{Class: ClassTransient, Err: err}
+		}
 		s, err := c.once(ctx, q)
+		c.release()
 		if err == nil {
 			return s, nil
 		}
@@ -244,7 +300,10 @@ func (c *Client) once(ctx context.Context, q Query) (Sample, error) {
 	case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
 		return Sample{}, &Error{Class: ClassAuth, Status: resp.StatusCode, Err: errors.New("authentication or authorisation failed")}
 	case resp.StatusCode == http.StatusRequestTimeout || resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500:
-		return Sample{}, &Error{Class: ClassTransient, Status: resp.StatusCode, Err: errors.New("server error")}
+		return Sample{}, &Error{
+			Class: ClassTransient, Status: resp.StatusCode, Err: errors.New("server error"),
+			RetryAfter: parseRetryAfter(resp.Header.Get("Retry-After"), c.now()),
+		}
 	default:
 		return Sample{}, &Error{Class: ClassClient, Status: resp.StatusCode, Err: errors.New("request rejected")}
 	}

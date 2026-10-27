@@ -9,51 +9,56 @@ kind: ClusterRole
 metadata:
   name: {{ include "kch.name" . }}
   labels: {{- include "kch.labels" . | nindent 4 }}
+# Every verb below is used by the operator code; see docs/RBAC.md for the mapping and
+# operator/internal/rbaccheck for the test that keeps this file and config/rbac/role.yaml in step.
 rules:
 - apiGroups: [""]
   resources: [events]
   verbs: [create, patch]
 - apiGroups: [""]
   resources: [nodes]
-  verbs: [get, list, patch, watch]
+  # patch (cordon + "drained" annotation) is only used by the Spot drain controller.
+  verbs: [get, list, watch{{ if .Values.operator.enableSpotDrain }}, patch{{ end }}]
 - apiGroups: [""]
   resources: [pods]
   verbs: [get, list, watch]
+{{- if .Values.operator.enableSpotDrain }}
 - apiGroups: [""]
   resources: [pods/eviction]
   verbs: [create]
+{{- end }}
 - apiGroups: [""]
   resources: [pods/resize]
-  verbs: [patch, update]
+  verbs: [patch]
 - apiGroups: [apps]
   resources: [deployments]
   verbs: [get, list, watch]
 - apiGroups: [apps]
   resources: [deployments/scale]
-  verbs: [get, patch, update]
-# KubeCostAutoscaler: spec is read-only for the operator; it only writes status.
+  verbs: [get, update]
+# KubeCostAutoscaler: the spec is read-only for the operator; it only writes status.
 - apiGroups: [autoscaling.kubecost.io]
   resources: [kubecostautoscalers]
   verbs: [get, list, watch]
 - apiGroups: [autoscaling.kubecost.io]
-  resources: [kubecostautoscalers/status]
-  verbs: [get, patch, update]
-# Fallback HPA (created/removed only for KubeCostAutoscalers in ResourceMetricsFallback mode).
+  resources: [kubecostautoscalers/status, kubecosthpas/status]
+  verbs: [get, update]
+# Fallback HPA: created, patched and removed only when it is controlled by a KubeCostAutoscaler
+# in ResourceMetricsFallback mode (ownership is checked in code; RBAC cannot restrict by owner).
+# Other HPAs are only read, to detect a competing writer.
 - apiGroups: [autoscaling]
   resources: [horizontalpodautoscalers]
-  verbs: [create, delete, get, list, patch, update, watch]
+  verbs: [create, delete, get, list, patch, watch]
 - apiGroups: [metrics.k8s.io]
   resources: [pods]
-  verbs: [get, list]
+  verbs: [list]
 - apiGroups: [autoscaling.kubecost.io]
   resources: [kubecosthpas]
-  verbs: [create, delete, get, list, patch, update, watch]
+  verbs: [get, list, update, watch]
 - apiGroups: [autoscaling.kubecost.io]
   resources: [kubecosthpas/finalizers]
   verbs: [update]
-- apiGroups: [autoscaling.kubecost.io]
-  resources: [kubecosthpas/status]
-  verbs: [get, patch, update]
+# Read by the legacy KubeCostHPA controller (a PDB selects the Deployment: more cautious scale-down).
 - apiGroups: [policy]
   resources: [poddisruptionbudgets]
   verbs: [get, list, watch]

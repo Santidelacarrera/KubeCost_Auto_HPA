@@ -86,8 +86,50 @@ func TestSafetyScaleUpIsCappedByBudgetOnlyAboveTheCeiling(t *testing.T) {
 	if d.Type != ScaleUp || d.Proposed != 5 || d.Reason != ReasonSafetyScaleUp {
 		t.Fatalf("%+v", d)
 	}
-	if !d.Details.BudgetLimited || d.Details.DemandReplicas != 6 || d.Details.SafetyReplicas != 5 || d.Details.BudgetReplicas != 5 {
+	// The comfortable size (6 replicas, $6/h) would exceed the $5/h budget, so cost pressure
+	// already lowers the recommendation to the 80% target (5 replicas) before the guardrail acts.
+	if !d.Details.CostPressure || d.Details.DemandReplicas != 6 || d.Details.SafetyReplicas != 5 || d.Details.CostReplicas != 5 || d.Details.BudgetReplicas != 5 {
 		t.Fatalf("details %+v", d.Details)
+	}
+}
+
+func pressureCfg() Config {
+	c := baseCfg()
+	c.TargetHourly, c.MaxHourly = usd("1.00"), usd("2.00")
+	c.MinReplicas, c.MinHealthy, c.MaxReplicas = 2, 2, 60
+	return c
+}
+
+// Regression: the pressure decision used today's spend, which depends on the replica count the
+// controller itself chose. 22 replicas at $0.05 cost $1.10 (> $1.00 target), so the controller ran
+// hotter at 19 ($0.95), where the pressure vanished and demand scaled it back to 22. Constant demand
+// must settle, not cycle.
+func TestCostPressureIsJudgedOnTheComfortableSizeNotOnCurrentSpend(t *testing.T) {
+	cfg := pressureCfg()
+	// 19 replicas at 78.9% (1500 rps / 1900). Comfortable size 22 would cost $1.10 > target.
+	d := Evaluate(cfg, input(t0, 19, 15.0/19, "0.05"))
+	if d.Type != Hold || d.Proposed != 19 || !d.Details.CostPressure {
+		t.Fatalf("must hold at 19 replicas, got %+v (details %+v)", d, d.Details)
+	}
+	// Same demand at 22 replicas: pressure applies and the controller steps down once, to 19.
+	d = Evaluate(cfg, input(t0, 22, 15.0/22, "0.05"))
+	if d.Candidate != 19 || !d.CostDriven {
+		t.Fatalf("want a cost-driven recommendation of 19, got %+v", d)
+	}
+}
+
+func TestNoCostPressureWhenTheComfortableSizeIsAffordable(t *testing.T) {
+	cfg := pressureCfg()
+	// 20 replicas ($1.00/h) at 35%: comfortable size is 10 replicas ($0.50/h), well under target.
+	h := steady(t0, 10, 10*time.Minute, 15*time.Second)
+	in := input(t0, 20, 0.35, "0.05")
+	in.History = h
+	d := Evaluate(cfg, in)
+	if d.Details.CostPressure || d.CostDriven {
+		t.Fatalf("no cost pressure expected: %+v", d)
+	}
+	if d.Type != ScaleDown || d.Reason != ReasonDemandScaleDown {
+		t.Fatalf("a demand-driven scale-down is expected: %+v", d)
 	}
 }
 
@@ -568,5 +610,98 @@ func TestRecommendationHistoryIsBoundedAndOrdered(t *testing.T) {
 	in.History = []Recommendation{{Time: t0.Add(time.Hour), Replicas: 20}}
 	if got := Evaluate(c, in).History; len(got) != 1 || got[0].Replicas == 20 {
 		t.Fatalf("%+v", got)
+	}
+}
+
+// Default behaviour (pinned): with an unstable cost window a non-safety scale-down is frozen.
+func TestUnstableCostFreezesNonSafetyMovesByDefault(t *testing.T) {
+	cfg := pressureCfg()
+	in := input(t0, 20, 0.35, "0.05")
+	in.Cost.Stable = false
+	in.History = steady(t0, 10, 11*time.Minute, 15*time.Second)
+	d := Evaluate(cfg, in)
+	if d.Type != InvalidMetrics || d.Reason != ReasonCostEstimateUnstable || d.Proposed != 20 {
+		t.Fatalf("default must hold while cost is unstable: %+v", d)
+	}
+}
+
+// Experimental option: demand-only for the evaluation, still bounded by the safety replicas, and
+// still never invents a cost (no cost pressure, no budget cap).
+func TestDemandMovesWhenCostUnstable(t *testing.T) {
+	cfg := pressureCfg()
+	cfg.WhenCostUnstable = UnstableDemandOnly
+
+	down := input(t0, 20, 0.35, "0.05")
+	down.Cost.Stable = false
+	down.History = steady(t0, 10, 11*time.Minute, 15*time.Second)
+	d := Evaluate(cfg, down)
+	if d.Type != ScaleDown || d.Proposed != 10 || d.Details.CostPressure || d.CostDriven {
+		t.Fatalf("demand scale-down expected, with no cost involvement: %+v", d)
+	}
+
+	// Demand needs 40 replicas (util 1.4 on 20 = 28 load -> 40 at 70%): the $2.00 budget (40) is NOT
+	// applied while the signal is unstable; this is the documented trade-off.
+	up := input(t0, 20, 1.4, "0.05")
+	up.Cost.Stable = false
+	d = Evaluate(cfg, up)
+	if d.Type != ScaleUp || d.Reason != ReasonSafetyScaleUp || d.Proposed < 32 {
+		t.Fatalf("overloaded workload must scale up: %+v", d)
+	}
+	if d.Details.BudgetLimited || d.Details.BudgetReplicas != -1 {
+		t.Fatalf("budget must not be evaluated on an unstable signal: %+v", d.Details)
+	}
+
+	// Never below the safety replicas, and a missing cost is still a Freeze (not zero cost).
+	gone := input(t0, 20, 0.35, "0.05")
+	gone.Cost = nil
+	gone.History = steady(t0, 10, 11*time.Minute, 15*time.Second)
+	if d := Evaluate(cfg, gone); d.Type != InvalidMetrics || d.Reason != ReasonCostUnavailable || d.Proposed != 20 {
+		t.Fatalf("unavailable cost must still freeze, never read as zero cost: %+v", d)
+	}
+}
+
+// Experimental UnstableScaleUpAtCostTarget: while the cost signal is unstable the count may only
+// grow, to the cost-pressure target (80%), never shrink, and the budget is not applied.
+func TestUnstableScaleUpAtCostTarget(t *testing.T) {
+	cfg := pressureCfg()
+	cfg.WhenCostUnstable = UnstableScaleUpAtCostTarget
+	cfg.UpWindow, cfg.MinInterval = 0, 0
+
+	// 20 replicas at 89%: load 17.8 -> the 80% cost target needs 23; comfortable (70%) would need 26.
+	up := input(t0, 20, 0.89, "0.05")
+	up.Cost.Stable = false
+	d := Evaluate(cfg, up)
+	if d.Type != ScaleUp || d.Proposed != 23 || d.Details.BudgetLimited {
+		t.Fatalf("expected a scale-up to the cost target (23), got %+v", d)
+	}
+
+	// Low demand: scale-down is NOT allowed on an unstable signal.
+	down := input(t0, 20, 0.35, "0.05")
+	down.Cost.Stable = false
+	down.History = steady(t0, 10, 11*time.Minute, 15*time.Second)
+	if d := Evaluate(cfg, down); d.Type != InvalidMetrics || d.Reason != ReasonCostEstimateUnstable || d.Proposed != 20 {
+		t.Fatalf("must hold, never scale down while the cost signal is unstable: %+v", d)
+	}
+
+	// Within tolerance of the cost target: hold.
+	near := input(t0, 20, 0.80, "0.05")
+	near.Cost.Stable = false
+	if d := Evaluate(cfg, near); d.Type == ScaleUp || d.Type == ScaleDown {
+		t.Fatalf("no move expected near the cost target: %+v", d)
+	}
+
+	// Above the ceiling it is the normal safety scale-up.
+	hot := input(t0, 20, 1.3, "0.05")
+	hot.Cost.Stable = false
+	if d := Evaluate(cfg, hot); d.Type != ScaleUp || d.Reason != ReasonSafetyScaleUp {
+		t.Fatalf("overload must trigger the safety scale-up: %+v", d)
+	}
+
+	// Pending pods still block adding replicas.
+	pend := input(t0, 20, 0.89, "0.05")
+	pend.Cost.Stable = false
+	pend.Infra.Pending = 2
+	if d := Evaluate(cfg, pend); d.Type == ScaleUp {
+		t.Fatalf("pending pods must block the scale-up: %+v", d)
 	}
 }

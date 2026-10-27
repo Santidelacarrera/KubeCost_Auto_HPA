@@ -12,6 +12,13 @@ const (
 	ConditionScalingActive    = "ScalingActive"    // this resource currently owns replica writes
 )
 
+// AnnotationPause is the emergency stop. While a KubeCostAutoscaler carries
+// autoscaling.kubecost.io/pause="true" the controller keeps evaluating and reporting
+// decisions (exactly like spec.dryRun) but writes nothing: no replica changes, no fallback
+// HPA created or removed. The workload keeps running at its current size and any native HPA
+// may act on it. Removing the annotation resumes control without a restart.
+const AnnotationPause = "autoscaling.kubecost.io/pause"
+
 // Failure policy modes.
 const (
 	FailureModeFreeze                  = "Freeze"
@@ -290,8 +297,13 @@ type KubeCostAutoscalerStatus struct {
 	Conditions         []metav1.Condition `json:"conditions,omitempty"`
 
 	CurrentReplicas int32 `json:"currentReplicas,omitempty"`
-	ReadyReplicas   int32 `json:"readyReplicas,omitempty"`
-	DesiredReplicas int32 `json:"desiredReplicas,omitempty"`
+	// LastReplicaChangeTime is when the target's replica count was last seen to change by anyone other
+	// than this controller (another autoscaler, a person, a pipeline). Together with lastScaleTime it
+	// decides whether the per-replica cost estimate is still trustworthy.
+	// +optional
+	LastReplicaChangeTime *metav1.Time `json:"lastReplicaChangeTime,omitempty"`
+	ReadyReplicas         int32        `json:"readyReplicas,omitempty"`
+	DesiredReplicas       int32        `json:"desiredReplicas,omitempty"`
 
 	// Utilization is the observed demand utilisation in percent.
 	Utilization string `json:"utilization,omitempty"`

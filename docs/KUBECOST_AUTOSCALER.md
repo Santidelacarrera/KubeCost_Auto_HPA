@@ -178,6 +178,15 @@ cost decisions (fail closed). The estimate also assumes homogeneous replicas; it
 
 ---
 
+### 5.1 Request discipline and failure handling
+
+* **One sample per workload per 20 s.** Results, including errors, are cached per `KubeCostAutoscaler` for 20 s. A reconcile never issues more than one request for the same workload inside that window.
+* **Bounded concurrency.** One client allows at most 4 requests in flight across all workloads. A caller waiting for a slot gives up when its reconcile context ends and sends nothing.
+* **Bounded retries.** Timeouts, connection errors, HTTP 408/429/5xx are retried up to 3 attempts with jittered exponential backoff (250 ms base, 4 s cap). A server `Retry-After` on 429/503 is honoured up to 30 s. Authentication errors, other 4xx and malformed bodies are never retried.
+* **Redirects are not followed**, so the bearer token cannot be sent to another host.
+* **Units.** `totalCost` is USD over `minutes`; the hourly rate is `totalCost × 60 / minutes`, computed in exact rational arithmetic. Negative, NaN, infinite and out-of-range costs are rejected by `money.Parse` (`TestClassification` covers a negative cost).
+* **Version differences.** The client reads the OpenCost allocation shape. KubeCost forks may add fields (ignored) but rename or retype the fields this client needs (fails closed as `malformed`). No KubeCost version has been validated against a live installation; see §14 and `docs/PILOT.md`.
+
 ## 6. Scaling algorithm
 
 Notation: `L = util · ready` (load in replica-equivalents), `cf` = capacity factor (§8), targets
@@ -191,7 +200,7 @@ Notation: `L = util · ready` (load in replica-equivalents), `cf` = capacity fac
    emergency = Rs > cur
 3. cost required and invalid/unstable     -> InvalidMetrics (Freeze); only a safety scale-up to Rs is allowed
 4. cand = Rd
-   pressure = observed > targetHourly  or  observed > maxHourly
+   pressure = projected(Rd) > targetHourly  or  projected(Rd) > maxHourly       (cost of the *comfortable* size, not of today's spend)
    if pressure:  Rc = need(c) (= cur inside tolerance);  cand = min(cand, Rc)       ("run hotter", never above u)
    if guardrail: Rb = largest R with projected(R) <= maxHourly
                  cand = min(cand, max(Rb, Rs))                                       budget caps comfort, never safety
@@ -213,6 +222,11 @@ Properties (each one is a test in `policy_test.go`):
 * **Cost pressure is controlled optimisation:** the target moves from `t` to `c ≤ u`, so utilisation never exceeds
   the ceiling because of cost. When cost rises but demand is constant the replica count converges (simulation:
   `TestNoOscillationUnderConstantDemand`: 9 → 7 and stays; a price doubling afterwards changes nothing).
+* **No cost feedback loop:** pressure is judged on what the comfortable size `Rd` would cost, a function of demand
+  only. Judging it on today's spend (an earlier version did) made the controller its own disturbance: running hotter
+  lowered the spend below the target, the pressure vanished, demand scaled it back up, the spend rose again. The
+  simulator found this (`internal/sim`, `TestConstantDemandNeverReversesDirection`: 5 reversals in 2 h at constant
+  demand) and `TestCostPressureIsJudgedOnTheComfortableSizeNotOnCurrentSpend` pins the fix.
 * **No oscillation:** hysteresis (`tolerance`), stabilisation windows, cooldown, and the capacity factor depends only
   on the current placement.
 * **Cost spikes/dips cannot move replicas on their own:** they change *which* recommendation is recorded; removal
@@ -237,6 +251,10 @@ The scale intent is persisted *before* the write, so a crash in between delays t
 than repeating it.
 
 ---
+
+### 7.1 Timestamps in the future
+
+A stabilisation timestamp (`status.lastScaleTime`, `status.lastReplicaChangeTime`) later than the controller's clock can only come from clock skew, a restored backup or a hand-edited status. The controller replaces it with the current time once and persists the change, so the cooldown and the stability window end within one interval. Without this, the elapsed time stays negative and scaling is frozen until the future time passes. Covered by `TestFutureStabilisationTimestampCannotFreezeScaling`; the policy engine also clamps a negative elapsed time to zero.
 
 ## 8. Spot / Preemptible awareness
 
@@ -286,6 +304,18 @@ than repeating it.
 | 7 | Restart during cooldown/window | state read from status; no double action, window continues | `TestRestartDuringCooldownDoesNotRescale` |
 | 8 | Target deleted | `Ready=False/TargetNotFound`, fallback HPA removed, keeps watching; resumes if it returns | `TestTargetDeletedIsHandled` |
 | 9 | Over budget under heavy demand | scales to the **safety** size, never to comfort | `TestSafetyScaleUpIsAppliedEvenOverBudget` |
+
+### Emergency stop
+
+`kubectl annotate kubecostautoscaler <name> autoscaling.kubecost.io/pause=true` stops every write of that
+autoscaler at once, without a restart: decisions are still computed and explained
+(`status.lastDecision`, message prefix `paused:`, `ScalingActive=False/Paused`) but no replica is changed and no fallback
+HPA is created or removed. The workload keeps its current size and a running fallback HPA or any native HPA keeps
+acting, so the application stays autoscaled. Remove the annotation (`...pause-`) to resume on the next reconcile.
+Cluster-wide: `kubectl annotate kubecostautoscalers --all -A autoscaling.kubecost.io/pause=true --overwrite`.
+Pausing never relaxes a safety rule: it only removes the operator's ability to act. (Tests:
+`TestPauseAnnotationStopsAllWritesAndResumesWhenRemoved`, `TestPauseDoesNotTouchAnActiveFallbackHPA`.) Disabling the
+controller entirely is `operator.enableCostAutoscaler=false` (restart).
 
 Error classes are coarse and the only error detail stored in status (`status.failure.lastErrorClass`); raw
 bodies and headers are never stored or logged.
@@ -360,6 +390,7 @@ cd operator
 make check        # gofmt, vet, unit, -race, integration (real Python engine)
 make envtest      # real kube-apiserver 1.33 + etcd (KUBEBUILDER_ASSETS)
 make manifests && git diff --exit-code    # generated code/CRDs/RBAC are current
+go run ./cmd/simbench                     # deterministic synthetic HPA vs KubeCostAutoscaler comparison (docs/BENCHMARKS.md)
 ```
 
 ---
@@ -371,8 +402,13 @@ make manifests && git diff --exit-code    # generated code/CRDs/RBAC are current
 * Freshness cannot detect an ingestion stall inside KubeCost that still reports a recent `end`.
 * Demand metrics come from `metrics.k8s.io` (CPU/memory); custom/external demand metrics are not supported. The fallback
   HPA is CPU-only. Only `Deployment` targets.
-* The controller is exercised end to end against a real API server (envtest) but **not** on a kubelet-backed cluster with
-  metrics-server and KubeCost (the `e2e-kind` job covers `KubeCostHPA` only).
+* The controller is exercised end to end against a real API server (envtest) and on a kind cluster with a real
+  metrics-server (`e2e-kca`, KubeCost stubbed), but **not** against a live KubeCost installation.
+* The cost signal is "unstable" for a full cost window after **any** change of the replica count: one this controller made (`status.lastScaleTime`) or one
+  made by anyone else (`status.lastReplicaChangeTime`, recorded when the observed count differs from the last one this controller saw or wrote).
+* While replicas changed inside the 15-minute cost window the cost signal is "unstable" and the engine falls back to
+  its Freeze semantics for non-safety moves (§9). The simulator quantifies the price of that conservatism: slower
+  scale-down in a decline and time spent at the utilisation ceiling during a ramp (docs/BENCHMARKS.md).
 * The fallback HPA needs cluster-wide HPA write permission; use `Freeze` if that is unacceptable.
 * Rollout: start with `dryRun: true`, watch `status.lastDecision` for a full business cycle, set generous `maxReplicas`,
   then enable on a non-critical service; alert on `FallbackActive` and `StaleCostData` from day one.

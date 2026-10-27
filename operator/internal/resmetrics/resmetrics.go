@@ -29,6 +29,8 @@ type Utilization struct {
 	Resource corev1.ResourceName
 	// Pods is the number of ready pods that contributed.
 	Pods int
+	// OldestSampleAge is the age of the oldest PodMetrics sample that contributed.
+	OldestSampleAge time.Duration
 }
 
 // Reader provides utilisation and API availability.
@@ -61,6 +63,7 @@ func Compute(pods []corev1.Pod, samples []metricsv1beta1.PodMetrics, resources [
 	var firstErr error
 	for _, res := range resources {
 		var usage, request float64
+		var oldest time.Duration
 		used := 0
 		for i := range samples {
 			s := &samples[i]
@@ -82,6 +85,9 @@ func Compute(pods []corev1.Pod, samples []metricsv1beta1.PodMetrics, resources [
 			usage += u
 			request += req
 			used++
+			if age := now.Sub(s.Timestamp.Time); age > oldest {
+				oldest = age
+			}
 		}
 		if float64(used) < MinCoverage*float64(len(ready)) || request <= 0 {
 			if firstErr == nil {
@@ -95,7 +101,7 @@ func Compute(pods []corev1.Pod, samples []metricsv1beta1.PodMetrics, resources [
 			continue
 		}
 		if v > best.Value {
-			best = Utilization{Value: v, Resource: res, Pods: used}
+			best = Utilization{Value: v, Resource: res, Pods: used, OldestSampleAge: oldest}
 		}
 	}
 	if best.Value < 0 {

@@ -141,7 +141,7 @@ type realEnv struct {
 
 func newRealEnv(t *testing.T, spec map[string]any, replicas int32) *realEnv {
 	t.Helper()
-	c, cs := startEnv(t)
+	c, cs, env, adminCfg := startEnvFull(t)
 	ctx := context.Background()
 	mustNoErr(t, c.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "production"}}))
 	lbl := map[string]string{"app": "payments-api"}
@@ -179,9 +179,19 @@ func newRealEnv(t *testing.T, spec map[string]any, replicas int32) *realEnv {
 	}}
 	e.res = &fakeResources{util: 0.7}
 	s := c.Scheme()
+	// The reconciler runs as a user that holds only the generated ClusterRole (config/rbac/role.yaml),
+	// not cluster-admin; the test itself keeps the admin client `c` for setup and assertions. Every
+	// real-apiserver scenario below therefore also proves the permissions are sufficient.
+	user, err := restrictedOperator(env, adminCfg)
+	mustNoErr(t, err)
+	ucfg := user.Config()
+	rc, err := client.New(ucfg, client.Options{Scheme: s})
+	mustNoErr(t, err)
+	rcs, err := kubernetes.NewForConfig(ucfg)
+	mustNoErr(t, err)
 	e.r = &KubeCostAutoscalerReconciler{
-		Client: c, Scheme: s, Cost: e.cost, Resources: e.res, Scaler: &actuator.DeploymentScaler{Client: cs},
-		Fallback: &ownership.Fallback{Client: c, Scheme: s}, Recorder: record.NewFakeRecorder(1000), Now: now, Jitter: func() float64 { return 0 },
+		Client: rc, Scheme: s, Cost: e.cost, Resources: e.res, Scaler: &actuator.DeploymentScaler{Client: rcs},
+		Fallback: &ownership.Fallback{Client: rc, Scheme: s}, Recorder: record.NewFakeRecorder(1000), Now: now, Jitter: func() float64 { return 0 },
 	}
 	return e
 }
