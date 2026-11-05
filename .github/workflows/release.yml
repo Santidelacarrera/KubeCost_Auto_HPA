@@ -65,7 +65,6 @@ jobs:
       matrix:
         name: [operator, engine]
     steps:
-      - uses: docker/setup-buildx-action@v4
       - uses: docker/login-action@v4
         with: {registry: ghcr.io, username: "${{ github.actor }}", password: "${{ secrets.GITHUB_TOKEN }}"}
       - uses: sigstore/cosign-installer@v4.1.2
@@ -74,11 +73,15 @@ jobs:
         env:
           NAME: ${{ matrix.name }}
         run: |
-          set -euo pipefail
+          set -euxo pipefail
           OWNER=$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')
           IMAGE="ghcr.io/$OWNER/kubecost-auto-hpa-$NAME"
           VERSION=${GITHUB_REF_NAME#v}
-          DIGEST=$(docker buildx imagetools inspect "$IMAGE:$VERSION" | awk '/^Digest:/ {print $2; exit}')
+          echo "${{ secrets.GITHUB_TOKEN }}" | cosign login ghcr.io -u "${{ github.actor }}" --password-stdin
+          INSPECT_OUT=$(docker buildx imagetools inspect "$IMAGE:$VERSION")
+          echo "$INSPECT_OUT"
+          DIGEST=$(echo "$INSPECT_OUT" | awk '/^Digest:/ {print $2; exit}')
+          echo "Resolved digest: $DIGEST"
           test -n "$DIGEST"
           cosign sign --yes "$IMAGE@$DIGEST"
           cosign verify "$IMAGE@$DIGEST" \
@@ -96,18 +99,22 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: azure/setup-helm@v5
+      - uses: docker/login-action@v4
+        with: {registry: ghcr.io, username: "${{ github.actor }}", password: "${{ secrets.GITHUB_TOKEN }}"}
       - uses: sigstore/cosign-installer@v4.1.2
         with: {cosign-release: v2.4.1}
       - name: Package, push and sign the chart
         run: |
-          set -euo pipefail
+          set -euxo pipefail
           VERSION=${GITHUB_REF_NAME#v}
           # OCI repository names must be lower-case; github.repository_owner keeps its case.
           OWNER=$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')
+          echo "${{ secrets.GITHUB_TOKEN }}" | cosign login ghcr.io -u "${{ github.actor }}" --password-stdin
           echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
           helm package deploy/helm/kubecost-auto-hpa --version "$VERSION" --app-version "$VERSION"
           OUT=$(helm push "kubecost-auto-hpa-$VERSION.tgz" "oci://ghcr.io/$OWNER/charts" 2>&1)
           echo "$OUT"
           DIGEST=$(echo "$OUT" | awk '/^Digest:/ {print $2; exit}')
+          echo "Resolved chart digest: $DIGEST"
           test -n "$DIGEST"
           cosign sign --yes "ghcr.io/$OWNER/charts/kubecost-auto-hpa@$DIGEST"
