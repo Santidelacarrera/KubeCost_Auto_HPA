@@ -282,6 +282,8 @@ KubeCost Auto-HPA cuenta con una suite completa para organizaciones y equipos de
 - **[Pitch Deck para Ejecutivos](docs/PITCH_DECK.md):** Presentación ejecutiva de 12 diapositivas orientada a VPs de Ingeniería, Directores de FinOps y CISOs.
 - **[Runbook de Demo en Vivo de 15 Minutos](docs/DEMO_SCRIPT.md):** Guía paso a paso para soluciones y preventa técnica con inyección de carga y resizing in-place sin reinicios.
 - **[White Paper de Seguridad y Compliance](docs/ENTERPRISE_SECURITY_WHITE_PAPER.md):** Respuestas a cuestionarios CISO/SOC2 (arquitectura air-gapped, zero-trust, sin fuga de telemetría ni datos PII).
+- **[Auditoría de Protección de Datos & Privacidad (RGPD / CCPA / HIPAA)](docs/DATA_PROTECTION_AND_PRIVACY_COMPLIANCE.md):** Dictamen de conformidad con normativas internacionales de privacidad, certificación de ausencia de PII y análisis de privacidad por diseño (Art. 25 RGPD).
+- **[Anexo de Tratamiento de Datos (DPA) Enterprise](docs/DATA_PROCESSING_ADDENDUM_TEMPLATE.md):** Plantilla legal vinculante de acuerdo de tratamiento de datos con Cláusulas Contractuales Tipo (SCC) para departamentos jurídicos.
 - **[Contrato Marco y Formulario de Pedido Enterprise (MSA / EULA)](docs/ENTERPRISE_ORDER_FORM_AND_MSA_TEMPLATE.md):** Plantilla legal con compromisos de SLA, garantía de devolución por ROI en 60 días y términos de indemnización de PI.
 - **[Resumen Ejecutivo de 1 Página](docs/EXECUTIVE_ONE_PAGER.md):** Briefing ejecutivo de una carilla para decisores de compra.
 - **Despliegue Enterprise:** Módulos listos para producción mediante [Terraform / OpenTofu](deploy/terraform/) y [ArgoCD GitOps](deploy/argocd/application.yaml).

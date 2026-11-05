@@ -30,6 +30,7 @@ Traditional autoscalers (such as the native Kubernetes HPA) scale workloads pure
 | **Multi-Cluster Fleet Dashboard** | Community Grafana | Enterprise Central FinOps Console |
 | **Deployment Architecture** | Self-managed | Assisted Architecture & Deployment |
 | **Security & Compliance Pack** | Public documentation | SOC2/ISO-27001 Due Diligence Package |
+| **Data Privacy & DPA (RGPD/CCPA)** | Self-service docs | Signed Enterprise DPA with SCCs & Zero-PII Guarantee |
 | **Support SLA** | GitHub Issues (Best effort) | Guaranteed Response Time (< 4h for critical issues) |
 | **Dedicated Communication** | No | Private Slack / Microsoft Teams channel |
 | **Custom Feature Development** | No | Roadmap prioritization & custom rules |

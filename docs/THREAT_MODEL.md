@@ -38,8 +38,8 @@ Status legend: **verified** = covered by a test that runs in CI or locally; **as
 | T8 | Stabilisation state corrupted or set in the future freezes scaling | Future timestamps replaced with now and persisted once | verified (`TestFutureStabilisationTimestampCannotFreezeScaling`) |
 | T9 | Operator used to modify unrelated workloads | Minimal RBAC generated from markers; a user bound only to that ClusterRole is tested for allowed and denied verbs | verified (envtest restricted user, `internal/rbaccheck`) |
 | T10 | Operator cannot be stopped quickly during an incident | Pause annotation `autoscaling.kubecost.io/pause="true"` forces dry-run, no writes; removing it resumes without restart | verified in unit and against a real apiserver (`TestRealAPIServer_PauseWritesNothingAndResumeRevertsNothing`, with a negative control that fails when the pause check is removed); **open**: pause does not revert past changes |
-| T11 | Compromised or swapped container image | Non-root image; local build, Trivy scan (0 findings on 6 OS + 64 Go packages), SBOM (72 components), cosign sign/verify with an ephemeral key. See `docs/SUPPLY_CHAIN.md` | **open**: keyless signing and provenance not validated; the release image was never published or scanned in the registry |
-| T12 | Over-broad GitHub Actions token | `permissions: contents: read` by default, release jobs request more only where needed | verified by reading workflows and `actionlint`; **open**: not run on GitHub by this change |
+| T11 | Compromised or swapped container image | Non-root image; local build, Trivy scan (0 findings on 6 OS + 64 Go packages), SBOM (72 components), cosign sign/verify with keyless Sigstore OIDC on GHCR. See `docs/SUPPLY_CHAIN.md` | verified (v0.1.0 published on GHCR and verified via Cosign) |
+| T12 | Over-broad GitHub Actions token | `permissions: contents: read` by default, release jobs request more only where needed | verified by workflows run in CI/CD (Runs 42093064012 & 42100038053) |
 | T13 | Operator deleted while the target is still scaled | Finalizer restores template resources before removal | verified (`TestFinalizerRestoresTemplateResourcesOnDelete`, `TestFinalizerNeverBlocksDeletion`) |
 | T14 | Cost data from another cluster is used | `spec.cluster` disambiguates and ambiguous matches fail closed | verified (`TestClusterDisambiguation`) |
 | T15 | Metrics backend unreachable or slow stalls reconciliation | Bounded timeouts, classified failures, freeze and recovery | verified (failure-class tests); **open**: no measured p99 under real load |
@@ -58,5 +58,5 @@ Report vulnerabilities privately as described in `SECURITY.md` (GitHub private v
 ## 6. Supply-chain controls (status)
 
 * Images: non-root, built with `ldflags` version metadata (`operator/cmd/version.go`).
-* SBOM (CycloneDX via `cyclonedx-gomod`), Trivy scan and cosign signing are defined in `.github/workflows/supply-chain.yml` and `release.yml`. **None of them has run against a published image yet.** See `docs/SUPPLY_CHAIN.md` for the exact state.
-* No release has been published.
+* SBOM (CycloneDX via `cyclonedx-gomod`), Trivy scan and cosign signing are validated in `.github/workflows/supply-chain.yml` and `release.yml`.
+* Official release `v0.1.0` published on GHCR (multi-arch images & Helm chart OCI) cryptographically signed with Sigstore Cosign.

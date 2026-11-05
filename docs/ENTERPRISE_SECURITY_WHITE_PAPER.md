@@ -17,6 +17,7 @@ This white paper provides architecture details, trust boundaries, data privacy g
   - Aggregated Prometheus metric counters (e.g., HTTP request rates and latency histograms).
   - KubeCost namespace/controller cost allocation figures.
 - **Zero Customer Data / PII:** The system never intercepts, logs, or processes HTTP request bodies, customer records, database credentials, or application data.
+- **Formal Privacy Compliance:** For detailed legal analysis under GDPR, CCPA/CPRA, and HIPAA, see [`DATA_PROTECTION_AND_PRIVACY_COMPLIANCE.md`](DATA_PROTECTION_AND_PRIVACY_COMPLIANCE.md) and the enterprise [`DATA_PROCESSING_ADDENDUM_TEMPLATE.md`](DATA_PROCESSING_ADDENDUM_TEMPLATE.md).
 
 ---
 
