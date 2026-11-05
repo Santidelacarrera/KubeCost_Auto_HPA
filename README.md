@@ -286,6 +286,7 @@ KubeCost Auto-HPA cuenta con una suite completa para organizaciones y equipos de
 - **[Anexo de Tratamiento de Datos (DPA) Enterprise](docs/DATA_PROCESSING_ADDENDUM_TEMPLATE.md):** Plantilla legal vinculante de acuerdo de tratamiento de datos con Cláusulas Contractuales Tipo (SCC) para departamentos jurídicos.
 - **[Contrato Marco y Formulario de Pedido Enterprise (MSA / EULA)](docs/ENTERPRISE_ORDER_FORM_AND_MSA_TEMPLATE.md):** Plantilla legal con compromisos de SLA, garantía de devolución por ROI en 60 días y términos de indemnización de PI.
 - **[Resumen Ejecutivo de 1 Página](docs/EXECUTIVE_ONE_PAGER.md):** Briefing ejecutivo de una carilla para decisores de compra.
+- **[Manifiestos y Ejemplos de Producción](examples/):** Plantillas YAML listas para desplegar (`dryRun`, microservicios con latencia crítica, flotas Spot y límites de presupuesto mensual).
 - **Despliegue Enterprise:** Módulos listos para producción mediante [Terraform / OpenTofu](deploy/terraform/) y [ArgoCD GitOps](deploy/argocd/application.yaml).
 - **Landing Page Comercial:** Showcase web interactivo con simulador en tiempo real en [web/index.html](web/index.html).
 

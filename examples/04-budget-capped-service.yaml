@@ -1,0 +1,36 @@
+# Example 04: Budget-Capped Microservice with Hard Economic Ceilings
+# Strictly bounds cloud spend for non-critical internal tools or dev/staging environments.
+# Will scale up during traffic up to the max budget; once reached, scale-out is capped
+# unless the CPU utilization breaches the emergency ceiling (preventing catastrophic crashes).
+apiVersion: autoscaling.kubecost.io/v1alpha1
+kind: KubeCostAutoscaler
+metadata:
+  name: internal-analytics-scaler
+  namespace: analytics
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: internal-analytics
+  minReplicas: 1
+  maxReplicas: 15
+  dryRun: false
+
+  demand:
+    resources:
+      - cpu
+      - memory
+    targetUtilizationPercent: 70
+    costPressureUtilizationPercent: 80
+    ceilingUtilizationPercent: 92
+
+  costPolicy:
+    targetHourlyCostUSD: "0.50"
+    maxHourlyCostUSD: "1.00"
+    scaleUpCostGuardrail: true
+    window: 15m
+
+  failurePolicy:
+    mode: Freeze
+    maxMetricAge: 10m
+    allowSafetyScaleUp: true

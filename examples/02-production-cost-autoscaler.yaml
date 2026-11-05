@@ -1,0 +1,43 @@
+# Example 02: Active Production Cost & Latency Autoscaler
+# Actively optimizes replicas based on demand and hourly cloud cost targets.
+# Automatically falls back to native Kubernetes HPA if telemetry becomes degraded.
+apiVersion: autoscaling.kubecost.io/v1alpha1
+kind: KubeCostAutoscaler
+metadata:
+  name: checkout-api-scaler
+  namespace: production
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: checkout-api
+  minReplicas: 3
+  maxReplicas: 25
+  minHealthyReplicas: 3
+  dryRun: false
+  evaluationInterval: 30s
+
+  demand:
+    resources:
+      - cpu
+    targetUtilizationPercent: 65
+    costPressureUtilizationPercent: 75
+    ceilingUtilizationPercent: 85
+
+  costPolicy:
+    targetHourlyCostUSD: "2.20"
+    maxHourlyCostUSD: "4.50"
+    scaleUpCostGuardrail: true
+    window: 15m
+
+  stabilization:
+    downscaleWindow: 10m
+    scaleUpWindow: 30s
+    minimumScaleActionInterval: 60s
+
+  failurePolicy:
+    mode: ResourceMetricsFallback
+    fallbackActivationDelay: 2m
+    recoveryDelay: 2m
+    fallbackTargetCPUUtilizationPercent: 70
+    allowSafetyScaleUp: true

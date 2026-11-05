@@ -1,0 +1,35 @@
+# Example 01: Zero-Risk Dry-Run Shadow Evaluation
+# Use this configuration during the initial 14-day POC phase.
+# The controller evaluates metrics, calculates unit economics, and publishes
+# recommendations to status and Prometheus without writing changes to the Deployment.
+apiVersion: autoscaling.kubecost.io/v1alpha1
+kind: KubeCostAutoscaler
+metadata:
+  name: payment-service-dryrun
+  namespace: default
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: payment-service
+  minReplicas: 2
+  maxReplicas: 10
+  dryRun: true # Shadow mode: zero changes made to the running pods
+  evaluationInterval: 15s
+
+  demand:
+    resources:
+      - cpu
+    targetUtilizationPercent: 70
+    costPressureUtilizationPercent: 80
+    ceilingUtilizationPercent: 90
+
+  costPolicy:
+    targetHourlyCostUSD: "0.85"
+    maxHourlyCostUSD: "1.50"
+    scaleUpCostGuardrail: true
+    window: 15m
+
+  failurePolicy:
+    mode: Freeze
+    maxMetricAge: 5m

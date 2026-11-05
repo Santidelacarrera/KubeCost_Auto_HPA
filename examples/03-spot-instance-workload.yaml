@@ -1,0 +1,37 @@
+# Example 03: Spot/Preemptible Workload with Economic Multipliers
+# Optimized for batch workers or stateless microservices deployed across
+# Spot (discounted) and On-Demand worker nodes.
+apiVersion: autoscaling.kubecost.io/v1alpha1
+kind: KubeCostAutoscaler
+metadata:
+  name: image-processor-scaler
+  namespace: batch-jobs
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: image-processor
+  minReplicas: 2
+  maxReplicas: 30
+  dryRun: false
+
+  demand:
+    resources:
+      - cpu
+    targetUtilizationPercent: 75
+    costPressureUtilizationPercent: 85
+    ceilingUtilizationPercent: 95
+
+  infrastructurePolicy:
+    spotMultiplier: "0.35" # Spot compute typically costs ~35% of On-Demand
+    onDemandMultiplier: "1.0"
+    spotInterruptionBufferPercent: 25 # Maintain 25% extra headroom for potential preemption
+
+  costPolicy:
+    targetHourlyCostUSD: "1.20"
+    maxHourlyCostUSD: "3.00"
+    scaleUpCostGuardrail: true
+
+  failurePolicy:
+    mode: Freeze
+    allowSafetyScaleUp: true
