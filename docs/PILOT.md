@@ -238,8 +238,8 @@ Accept or reject cluster-wide permissions (`docs/RBAC.md`, "Essential permission
 ### F. Benchmark (blocked: needs a cluster with load and KubeCost)
 `docs/BENCHMARK_PROCEDURE.md`. Report p50, p95, p99 and error rate only from a run you executed; the simulator is not a measurement.
 
-### G. Licence (decision needed from the owner)
-Choose the copyright holder line (`docs/LICENSING.md` §1). Not decided here.
+### G. Licence
+Configured in LICENSE and NOTICE (Copyright 2026 Santiago de la Carrera López).
 
 ### Go or no-go for preproduction
-Go only when A and B pass with recorded evidence, `make test-all` is green on the same commit, and E and G are decided.
+Go only when A and B pass with recorded evidence, `make test-all` is green on the same commit, and E is decided.

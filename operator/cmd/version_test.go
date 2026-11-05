@@ -3,6 +3,7 @@ package main
 import (
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -10,7 +11,11 @@ import (
 // The release pipeline injects the version and commit with -ldflags; this proves the wiring
 // end to end on a real build (not just that the variables exist).
 func TestVersionIsInjectedAtLinkTime(t *testing.T) {
-	bin := filepath.Join(t.TempDir(), "manager")
+	binName := "manager"
+	if runtime.GOOS == "windows" {
+		binName = "manager.exe"
+	}
+	bin := filepath.Join(t.TempDir(), binName)
 	build := exec.Command("go", "build", "-trimpath", "-ldflags", "-X main.version=0.1.0 -X main.commit=0123abcd", "-o", bin, ".")
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build: %v\n%s", err, out)
