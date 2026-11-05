@@ -37,7 +37,7 @@ roi:
 	python scripts/calculate_roi.py --nodes 100 --avg-cpu-util 0.20
 
 load-test:
-	python scripts/simulate_500_concurrent_users.py --users 500 --requests 4
+	python scripts/simulate_500_concurrent_users.py --users 500 --output-json docs/load_test_500_users_metrics.json
 
 stripe-catalog:
 	python scripts/setup_stripe_billing.py --dry-run --output web/stripe-config.json

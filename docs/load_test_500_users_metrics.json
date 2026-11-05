@@ -1,0 +1,77 @@
+{
+  "concurrent_users": 500,
+  "total_requests": 2000,
+  "successful_requests": 2000,
+  "failed_requests": 0,
+  "error_rate_pct": 0.0,
+  "wall_duration_seconds": 3.816844900022261,
+  "throughput_rps": 523.9929974593244,
+  "latency_ms": {
+    "avg": 441.37592414941173,
+    "p50": 299.3429000489414,
+    "p90": 947.0907999202609,
+    "p95": 1353.3084000227973,
+    "p99": 2323.9729000488296,
+    "max": 3032.08330005873
+  },
+  "personas": {
+    "Buyer / Storefront Visitor": {
+      "total": 668,
+      "success": 668,
+      "avg_ms": 451.3094750012363
+    },
+    "DevOps Lead / Console Operator": {
+      "total": 668,
+      "success": 668,
+      "avg_ms": 435.1975799412369
+    },
+    "K8s Fleet Controller / Autoscaler": {
+      "total": 664,
+      "success": 664,
+      "avg_ms": 437.598095778993
+    }
+  },
+  "endpoints": {
+    "/": {
+      "total": 167,
+      "success": 167,
+      "avg_ms": 319.2315622738947
+    },
+    "/styles/impeccable-tokens.css": {
+      "total": 167,
+      "success": 167,
+      "avg_ms": 387.66792934307057
+    },
+    "/styles/impeccable-kit.css": {
+      "total": 167,
+      "success": 167,
+      "avg_ms": 702.5267065901443
+    },
+    "/stripe-config.json": {
+      "total": 167,
+      "success": 167,
+      "avg_ms": 395.8117017978356
+    },
+    "/app.html": {
+      "total": 167,
+      "success": 167,
+      "avg_ms": 316.8681323365169
+    },
+    "/healthz": {
+      "total": 333,
+      "success": 333,
+      "avg_ms": 355.0497591579417
+    },
+    "/v1/evaluate": {
+      "total": 665,
+      "success": 665,
+      "avg_ms": 522.5713563883411
+    },
+    "/metrics": {
+      "total": 167,
+      "success": 167,
+      "avg_ms": 374.9617910177118
+    }
+  },
+  "certified_stable": true
+}

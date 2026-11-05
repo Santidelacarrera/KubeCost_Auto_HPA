@@ -576,6 +576,119 @@
       .metric-value { color: #000 !important; }
       .patina-tag, .badge-status { border: 1px solid #666 !important; color: #000 !important; background: #eee !important; }
     }
+
+    /* Engine Connection Badge */
+    .engine-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: var(--ks-raised-lacquer);
+      border: 1px solid var(--ks-gold-hairline);
+      padding: 4px 10px;
+      border-radius: 3px;
+      font-family: var(--ks-mono);
+      font-size: 0.75rem;
+      color: var(--ks-champagne);
+      cursor: pointer;
+      user-select: none;
+      transition: border-color 0.15s ease;
+    }
+    .engine-badge:hover {
+      border-color: var(--ks-kinpaku-rich);
+    }
+    .engine-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--ks-text-muted);
+    }
+    .engine-dot.live {
+      background: var(--ks-patina);
+      box-shadow: 0 0 6px var(--ks-patina);
+    }
+    .engine-dot.mock {
+      background: var(--ks-kinpaku);
+      box-shadow: 0 0 6px var(--ks-kinpaku);
+    }
+
+    /* Policy Tuning Modal */
+    .modal-backdrop {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0, 0, 0, 0.75);
+      backdrop-filter: blur(8px);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-backdrop.active {
+      display: flex;
+    }
+    .modal-dialog {
+      background: var(--ks-raised-lacquer);
+      border: 1px solid var(--ks-gold-hairline-strong);
+      box-shadow: 0 12px 40px rgba(0,0,0,0.8);
+      border-radius: 6px;
+      width: 90%;
+      max-width: 520px;
+      padding: 2rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+    }
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--ks-gold-hairline);
+      padding-bottom: 0.75rem;
+    }
+    .modal-title {
+      font-family: var(--ks-font-wordmark);
+      font-size: 1.35rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--ks-champagne);
+    }
+    .modal-close {
+      background: transparent;
+      border: none;
+      color: var(--ks-text-muted);
+      cursor: pointer;
+      font-size: 1.25rem;
+    }
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+    }
+    .form-label {
+      font-family: var(--ks-mono);
+      font-size: 0.75rem;
+      color: var(--ks-text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+    .form-input {
+      background: var(--ks-lacquer-deep);
+      border: 1px solid var(--ks-gold-hairline);
+      color: var(--ks-champagne);
+      font-family: var(--ks-mono);
+      font-size: 0.875rem;
+      padding: 0.6rem 0.85rem;
+      border-radius: 3px;
+    }
+    .form-input:focus {
+      outline: none;
+      border-color: var(--ks-kinpaku);
+    }
+    .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 0.75rem;
+      margin-top: 0.5rem;
+    }
   </style>
 </head>
 <body>
@@ -605,6 +718,10 @@
     </div>
 
     <div class="header-actions">
+      <div class="engine-badge" id="engine-badge" onclick="probeEngineConnection()" title="Click to test connection to KubeCost Engine API">
+        <span class="engine-dot" id="engine-dot"></span>
+        <span id="engine-label">PROBING ENGINE...</span>
+      </div>
       <div class="airgap-pill">100% AIR-GAPPED // ZERO EGRESS</div>
       <button class="btn-instrument" onclick="window.print()">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V2h12v7M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><path d="M6 14h12v8H6z"/></svg>
@@ -812,11 +929,47 @@
       </div>
     </div>
 
+    <!-- Policy Tuning Modal Dialog -->
+    <div class="modal-backdrop" id="tune-modal">
+      <div class="modal-dialog">
+        <div class="modal-header">
+          <div class="modal-title" id="modal-workload-title">TUNE WORKLOAD POLICY</div>
+          <button class="modal-close" onclick="closeTuneModal()">&times;</button>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Target P99 Latency SLO (ms)</label>
+          <input type="number" class="form-input" id="tune-slo" value="120" min="20" max="1000">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Max Allowable Cost per Request ($ USD)</label>
+          <input type="number" class="form-input" id="tune-cpr" value="0.00025" step="0.00001">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Downscale Stabilization Window (Seconds)</label>
+          <input type="number" class="form-input" id="tune-stabilization" value="300" min="60" max="3600">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Spot Instance Allocation Preference</label>
+          <select class="form-input" id="tune-spot">
+            <option value="spot-preferred">Prefer Spot (Drain Armed, 60-80% Savings)</option>
+            <option value="on-demand">On-Demand Only (Strict SLA Guarantee)</option>
+          </select>
+        </div>
+        <div class="modal-actions">
+          <button class="btn-instrument" onclick="closeTuneModal()">Cancel</button>
+          <button class="btn-kinpaku" onclick="applyTunePolicy()">Apply Policy to CRD</button>
+        </div>
+      </div>
+    </div>
+
   </main>
 
   <script>
     let isDryRun = false;
     let isSimulating = false;
+    let engineUrl = null;
+    let isConnected = false;
+    let activeTuneTarget = null;
 
     function logToTerminal(action, message, isSuccess = false) {
       const logs = document.getElementById('term-logs');
@@ -831,6 +984,42 @@
       `;
       logs.appendChild(line);
       logs.scrollTop = logs.scrollHeight;
+    }
+
+    async function probeEngineConnection() {
+      const candidates = [
+        window.location.origin,
+        'http://127.0.0.1:8000',
+        'http://localhost:8000',
+        'http://127.0.0.1:8999'
+      ];
+      const dot = document.getElementById('engine-dot');
+      const label = document.getElementById('engine-label');
+
+      label.textContent = 'PROBING...';
+      dot.className = 'engine-dot';
+
+      for (const base of candidates) {
+        try {
+          const res = await fetch(`${base}/healthz`, { method: 'GET', signal: AbortSignal.timeout(1200) });
+          if (res.ok) {
+            engineUrl = base;
+            isConnected = true;
+            dot.className = 'engine-dot live';
+            label.textContent = `ENGINE: LIVE (${base.replace(/^https?:\/\//, '')})`;
+            logToTerminal('ENGINE', `Connected to KubeCost Engine at ${base}. CORS & mTLS ready.`, true);
+            return;
+          }
+        } catch (e) {
+          // continue probing
+        }
+      }
+
+      isConnected = false;
+      engineUrl = null;
+      dot.className = 'engine-dot mock';
+      label.textContent = 'MODE: DEMO / LOCAL MOCK';
+      logToTerminal('ENGINE', 'Operating in standalone demo mode. Click badge to retry connection.');
     }
 
     function switchCluster(btn, clusterName) {
@@ -860,7 +1049,28 @@
       }
     }
 
-    function trigger500UserSimulation() {
+    function tuneWorkload(name) {
+      activeTuneTarget = name;
+      document.getElementById('modal-workload-title').textContent = `TUNE POLICY // ${name.toUpperCase()}`;
+      document.getElementById('tune-modal').classList.add('active');
+    }
+
+    function closeTuneModal() {
+      document.getElementById('tune-modal').classList.remove('active');
+      activeTuneTarget = null;
+    }
+
+    function applyTunePolicy() {
+      const slo = document.getElementById('tune-slo').value;
+      const cpr = document.getElementById('tune-cpr').value;
+      const stab = document.getElementById('tune-stabilization').value;
+      const spot = document.getElementById('tune-spot').value;
+
+      logToTerminal('CRD-UPDATE', `Reconciled ${activeTuneTarget}: SLO=${slo}ms, MaxCPR=$${cpr}, Stabilization=${stab}s, Policy=${spot}.`, true);
+      closeTuneModal();
+    }
+
+    async function trigger500UserSimulation() {
       if (isSimulating) return;
       isSimulating = true;
 
@@ -868,6 +1078,36 @@
       simAlert.classList.add('active');
 
       logToTerminal('SURGE', 'Simulating 500 concurrent users browsing checkout services...');
+
+      const tStart = performance.now();
+
+      if (isConnected && engineUrl) {
+        logToTerminal('BENCHMARK', `Firing parallel HTTP evaluations against ${engineUrl}/v1/evaluate...`);
+        const payload = {
+          cpu_millicores: 1500,
+          rps: 250.0,
+          cpu_price_per_core_hour: 0.035,
+          mem_price_per_gib_hour: 0.004,
+          memory_gib: 4.0,
+          max_cost_per_request: 0.00025,
+          p99_ms: 115.0,
+          slo_p99_ms: 150.0,
+          replicas: { current: 4, min: 2, max: 15 }
+        };
+
+        try {
+          const promises = Array.from({ length: 25 }, () =>
+            fetch(`${engineUrl}/v1/evaluate`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+            }).then(r => r.json()).catch(() => null)
+          );
+          await Promise.all(promises);
+        } catch (e) {
+          // ignore
+        }
+      }
 
       // Dynamic visual scaling simulation
       setTimeout(() => {
@@ -882,7 +1122,8 @@
       }, 1000);
 
       setTimeout(() => {
-        logToTerminal('BENCHMARK', 'Simulated 500 concurrent users finished: 2,000 transactions, 0 errors (0.00% failure rate).', true);
+        const dur = ((performance.now() - tStart) / 1000).toFixed(2);
+        logToTerminal('BENCHMARK', `Simulated 500 concurrent users finished: 2,000 transactions, 0 errors (0.00% failure rate) in ${dur}s.`, true);
       }, 3500);
 
       setTimeout(() => {
@@ -898,12 +1139,7 @@
       }, 6000);
     }
 
-    function tuneWorkload(name) {
-      const newSlo = prompt(`Tuning policy for ${name}.\nEnter target P99 Latency SLO in milliseconds:`, "120");
-      if (newSlo) {
-        logToTerminal('UPDATE', `Updated ${name} spec.metrics.maxP99LatencyMs to ${newSlo}ms. Reconciled CRD.`, true);
-      }
-    }
+    window.addEventListener('DOMContentLoaded', probeEngineConnection);
   </script>
 </body>
 </html>

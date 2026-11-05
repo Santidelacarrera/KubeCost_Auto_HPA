@@ -143,6 +143,34 @@ def _token() -> str:
     return os.environ.get("ENGINE_TOKEN", "")
 
 
+def _get_web_dir() -> str | None:
+    """Locate web static assets directory if available."""
+    custom = os.environ.get("WEB_DIR")
+    if custom and os.path.isdir(custom):
+        return os.path.abspath(custom)
+    candidates = [
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "web")),
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "web")),
+        "/app/web",
+    ]
+    for c in candidates:
+        if os.path.isdir(c):
+            return c
+    return None
+
+
+_MIME_TYPES = {
+    ".html": "text/html; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".js": "application/javascript; charset=utf-8",
+    ".json": "application/json; charset=utf-8",
+    ".svg": "image/svg+xml",
+    ".png": "image/png",
+    ".ico": "image/x-icon",
+    ".txt": "text/plain; charset=utf-8",
+}
+
+
 class Handler(BaseHTTPRequestHandler):
     def _authorized(self) -> bool:
         """Bearer-token check for /v1/*; disabled when ENGINE_TOKEN is unset."""
@@ -152,20 +180,61 @@ class Handler(BaseHTTPRequestHandler):
         got = self.headers.get("Authorization", "")
         return hmac.compare_digest(got.encode(), f"Bearer {token}".encode())
 
-    def _send(self, code: int, body: str, ctype: str = "application/json") -> None:
-        data = body.encode()
+    def _send(self, code: int, body: str | bytes, ctype: str = "application/json") -> None:
+        data = body.encode("utf-8") if isinstance(body, str) else body
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
         self.end_headers()
         self.wfile.write(data)
 
+    def do_OPTIONS(self):  # noqa: N802
+        """CORS preflight handling."""
+        self.send_response(204)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+        self.send_header("Access-Control-Max-Age", "86400")
+        self.end_headers()
+
+    def _serve_file(self, file_path: str, ctype: str) -> bool:
+        try:
+            with open(file_path, "rb") as f:
+                content = f.read()
+            self._send(200, content, ctype)
+            return True
+        except OSError:
+            return False
+
     def do_GET(self):  # noqa: N802
-        if self.path == "/healthz":
+        path_only = self.path.split("?")[0]
+        if path_only in ("/healthz", "/health"):
             self._send(200, '{"status":"ok"}')
-        elif self.path == "/metrics":
+        elif path_only == "/metrics":
             self._send(200, render_metrics(), "text/plain; version=0.0.4")
         else:
+            # Check for static file in web directory
+            web_dir = _get_web_dir()
+            if web_dir:
+                if path_only in ("/", ""):
+                    target = os.path.join(web_dir, "index.html")
+                elif path_only in ("/app", "/app.html", "/console"):
+                    target = os.path.join(web_dir, "app.html")
+                else:
+                    clean_rel = os.path.normpath(path_only.lstrip("/\\"))
+                    target = os.path.join(web_dir, clean_rel)
+
+                target = os.path.abspath(target)
+                # Prevent path traversal outside web_dir
+                if target.startswith(web_dir) and os.path.isfile(target):
+                    ext = os.path.splitext(target)[1].lower()
+                    ctype = _MIME_TYPES.get(ext, "application/octet-stream")
+                    if self._serve_file(target, ctype):
+                        return
+
             self._send(404, '{"error":"not found"}')
 
     def do_POST(self):  # noqa: N802
@@ -191,7 +260,9 @@ class HighConcurrencyHTTPServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
 
-    def __init__(self, server_address, RequestHandlerClass, bind_and_activate=True, max_workers=128):
+    def __init__(self, server_address, RequestHandlerClass, bind_and_activate=True, max_workers=None):
+        if max_workers is None:
+            max_workers = int(os.environ.get("MAX_WORKERS", "256"))
         self.executor = concurrent.futures.ThreadPoolExecutor(
             max_workers=max_workers, thread_name_prefix="engine-worker"
         )
@@ -214,9 +285,9 @@ class HighConcurrencyHTTPServer(ThreadingHTTPServer):
         self.executor.shutdown(wait=False)
 
 
-def make_server(host: str = "0.0.0.0", port: int = 8000) -> HighConcurrencyHTTPServer:
+def make_server(host: str = "0.0.0.0", port: int = 8000, max_workers: int | None = None) -> HighConcurrencyHTTPServer:
     """TLS is enabled with TLS_CERT/TLS_KEY; adding TLS_CLIENT_CA requires client certs (mTLS)."""
-    srv = HighConcurrencyHTTPServer((host, port), Handler)
+    srv = HighConcurrencyHTTPServer((host, port), Handler, max_workers=max_workers)
     cert, key = os.environ.get("TLS_CERT"), os.environ.get("TLS_KEY")
     if cert and key:
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
