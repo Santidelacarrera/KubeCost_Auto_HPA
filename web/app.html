@@ -689,6 +689,110 @@
       gap: 0.75rem;
       margin-top: 0.5rem;
     }
+
+    /* ScaleOps Parity: Node Bin-Packing & Consolidation Heatmap */
+    .binpack-section {
+      display: grid;
+      grid-template-columns: repeat(12, 1fr);
+      gap: 1.25rem;
+    }
+    .node-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1rem;
+      margin-top: 1rem;
+    }
+    .node-card {
+      background: var(--ks-lacquer-deep);
+      border: 1px solid var(--ks-gold-hairline);
+      border-radius: 4px;
+      padding: 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.65rem;
+      transition: all 0.3s ease;
+    }
+    .node-card.drain-candidate {
+      border-color: var(--ks-vermilion);
+      background: oklch(52% 0.16 35 / 0.1);
+    }
+    .node-card.consolidated {
+      opacity: 0.35;
+      filter: grayscale(0.8);
+      pointer-events: none;
+    }
+    .node-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-family: var(--ks-mono);
+      font-size: 0.75rem;
+    }
+    .node-bar-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+    .node-bar-label {
+      font-size: 0.6875rem;
+      color: var(--ks-text-muted);
+      display: flex;
+      justify-content: space-between;
+      font-family: var(--ks-mono);
+    }
+    .node-progress {
+      height: 6px;
+      background: var(--ks-graphite);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .node-progress-fill {
+      height: 100%;
+      background: var(--ks-patina);
+      transition: width 0.5s ease;
+    }
+    .node-progress-fill.warn {
+      background: var(--ks-kinpaku);
+    }
+    .node-progress-fill.danger {
+      background: var(--ks-vermilion);
+    }
+
+    /* OOM Protection Radar & Signature Resource Gap */
+    .oom-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1rem;
+      margin-top: 1rem;
+    }
+    .oom-card {
+      background: var(--ks-lacquer-deep);
+      border: 1px solid var(--ks-gold-hairline);
+      border-radius: 4px;
+      padding: 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+    .oom-badge {
+      font-family: var(--ks-mono);
+      font-size: 0.6875rem;
+      padding: 2px 6px;
+      border-radius: 2px;
+      display: inline-block;
+      width: fit-content;
+    }
+    .oom-badge.safe {
+      background: oklch(70% 0.12 188 / 0.15);
+      color: var(--ks-patina);
+      border: 1px solid var(--ks-patina);
+    }
+    .oom-badge.critical {
+      background: oklch(52% 0.16 35 / 0.2);
+      color: #ff6b6b;
+      border: 1px solid var(--ks-vermilion);
+      animation: pulseAlert 1.5s infinite;
+    }
   </style>
 </head>
 <body>
@@ -885,6 +989,144 @@
           </tr>
         </tbody>
       </table>
+    </div>
+
+    <!-- ScaleOps Parity: Node Bin-Packing & Consolidation Heatmap -->
+    <div class="table-container">
+      <div class="table-header-bar">
+        <div>
+          <div class="table-title">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+            Intelligent Node Bin-Packing & Consolidation Optimizer
+          </div>
+          <div style="font-family: var(--ks-mono); font-size: 0.75rem; color: var(--ks-text-muted); margin-top: 2px;">
+            Cluster Packing Density: <span id="bp-density" style="color: var(--ks-kinpaku); font-weight: 600;">74.2%</span> (Target: 91.8%) • Potential Node Consolidation Savings: <span id="bp-savings" style="color: var(--ks-patina); font-weight: 600;">+$675.00 / mo</span>
+          </div>
+        </div>
+        <button class="btn-kinpaku" id="btn-binpack" onclick="executeBinPackingConsolidation()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
+          Execute Consolidation (Drain 2 Nodes)
+        </button>
+      </div>
+
+      <div class="node-grid">
+        <div class="node-card" id="node-card-1">
+          <div class="node-header">
+            <span style="color: var(--ks-champagne); font-weight: 600;">ip-10-0-12-42</span>
+            <span class="badge-status active">DENSE (82%)</span>
+          </div>
+          <div style="font-size: 0.75rem; color: var(--ks-text-muted);">m6i.2xlarge • us-east-1a • 18 Pods</div>
+          <div class="node-bar-wrap">
+            <div class="node-bar-label"><span>CPU Allocation</span><span id="node-cpu-1">82.5%</span></div>
+            <div class="node-progress"><div class="node-progress-fill" id="node-bar-1" style="width: 82.5%;"></div></div>
+          </div>
+          <div class="node-bar-wrap">
+            <div class="node-bar-label"><span>Memory Allocation</span><span>78.0%</span></div>
+            <div class="node-progress"><div class="node-progress-fill" style="width: 78%;"></div></div>
+          </div>
+        </div>
+
+        <div class="node-card drain-candidate" id="node-card-2">
+          <div class="node-header">
+            <span style="color: var(--ks-champagne); font-weight: 600;">ip-10-0-12-88</span>
+            <span class="badge-status" id="badge-node-2" style="border: 1px solid var(--ks-vermilion); color: #ff6b6b;">DRAIN TARGET</span>
+          </div>
+          <div style="font-size: 0.75rem; color: var(--ks-text-muted);">m6i.2xlarge • us-east-1a • 3 Pods</div>
+          <div class="node-bar-wrap">
+            <div class="node-bar-label"><span>CPU Allocation</span><span>21.0%</span></div>
+            <div class="node-progress"><div class="node-progress-fill warn" style="width: 21%;"></div></div>
+          </div>
+          <div class="node-bar-wrap">
+            <div class="node-bar-label"><span>Memory Allocation</span><span>19.5%</span></div>
+            <div class="node-progress"><div class="node-progress-fill warn" style="width: 19.5%;"></div></div>
+          </div>
+          <div style="font-family: var(--ks-mono); font-size: 0.6875rem; color: var(--ks-patina);" id="node-sub-2">Consolidate -> 10-0-12-42 (+$280/mo)</div>
+        </div>
+
+        <div class="node-card" id="node-card-3">
+          <div class="node-header">
+            <span style="color: var(--ks-champagne); font-weight: 600;">ip-10-0-14-102</span>
+            <span class="badge-status active">DENSE (88%)</span>
+          </div>
+          <div style="font-size: 0.75rem; color: var(--ks-text-muted);">c6i.4xlarge • us-east-1b • 26 Pods</div>
+          <div class="node-bar-wrap">
+            <div class="node-bar-label"><span>CPU Allocation</span><span id="node-cpu-3">88.0%</span></div>
+            <div class="node-progress"><div class="node-progress-fill" id="node-bar-3" style="width: 88%;"></div></div>
+          </div>
+          <div class="node-bar-wrap">
+            <div class="node-bar-label"><span>Memory Allocation</span><span>64.0%</span></div>
+            <div class="node-progress"><div class="node-progress-fill" style="width: 64%;"></div></div>
+          </div>
+        </div>
+
+        <div class="node-card drain-candidate" id="node-card-4">
+          <div class="node-header">
+            <span style="color: var(--ks-champagne); font-weight: 600;">ip-10-0-14-109</span>
+            <span class="badge-status" id="badge-node-4" style="border: 1px solid var(--ks-vermilion); color: #ff6b6b;">DRAIN TARGET</span>
+          </div>
+          <div style="font-size: 0.75rem; color: var(--ks-text-muted);">c6i.4xlarge • us-east-1b • 2 Pods</div>
+          <div class="node-bar-wrap">
+            <div class="node-bar-label"><span>CPU Allocation</span><span>18.0%</span></div>
+            <div class="node-progress"><div class="node-progress-fill warn" style="width: 18%;"></div></div>
+          </div>
+          <div class="node-bar-wrap">
+            <div class="node-bar-label"><span>Memory Allocation</span><span>14.0%</span></div>
+            <div class="node-progress"><div class="node-progress-fill warn" style="width: 14%;"></div></div>
+          </div>
+          <div style="font-family: var(--ks-mono); font-size: 0.6875rem; color: var(--ks-patina);" id="node-sub-4">Consolidate -> 10-0-14-102 (+$395/mo)</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ScaleOps Parity: OOM Shield & Predictive Rightsizing Radar -->
+    <div class="table-container">
+      <div class="table-header-bar">
+        <div class="table-title">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          Continuous OOM Protection & Predictive Surge Shield
+        </div>
+        <div style="font-family: var(--ks-mono); font-size: 0.75rem; color: var(--ks-patina);">
+          3 OOMKills Prevented • 0 Application Outages
+        </div>
+      </div>
+
+      <div class="oom-grid">
+        <div class="oom-card">
+          <div style="display: flex; justify-content: space-between; align-items: baseline;">
+            <span style="font-weight: 600; color: var(--ks-champagne);">payment-service</span>
+            <span class="oom-badge safe">SHIELD ACTIVE</span>
+          </div>
+          <div style="font-family: var(--ks-mono); font-size: 0.75rem; color: var(--ks-text-muted);">
+            Memory Velocity: <span style="color: var(--ks-patina);">+1.2 MiB/min</span> • Headroom: 48.8%
+          </div>
+          <div class="node-progress"><div class="node-progress-fill" style="width: 51.2%;"></div></div>
+          <div style="font-size: 0.6875rem; color: var(--ks-text-muted);">Limits right-sized in-place. Zero OOM risk detected.</div>
+        </div>
+
+        <div class="oom-card">
+          <div style="display: flex; justify-content: space-between; align-items: baseline;">
+            <span style="font-weight: 600; color: var(--ks-champagne);">checkout-api</span>
+            <span class="oom-badge safe">PREDICTIVE PRE-WARM</span>
+          </div>
+          <div style="font-family: var(--ks-mono); font-size: 0.75rem; color: var(--ks-text-muted);">
+            Surge Forecast: <span style="color: var(--ks-kinpaku);">+35% in 120s</span> (Diurnal Cycle)
+          </div>
+          <div class="node-progress"><div class="node-progress-fill warn" style="width: 72.4%;"></div></div>
+          <div style="font-size: 0.6875rem; color: var(--ks-text-muted);">Replicas scaled 4 -> 6 ahead of anticipated rush hour.</div>
+        </div>
+
+        <div class="oom-card" style="border-color: var(--ks-kinpaku-rich);">
+          <div style="display: flex; justify-content: space-between; align-items: baseline;">
+            <span style="font-weight: 600; color: var(--ks-champagne);">catalog-worker</span>
+            <span class="oom-badge critical">AUTO-BALLOONED</span>
+          </div>
+          <div style="font-family: var(--ks-mono); font-size: 0.75rem; color: var(--ks-text-muted);">
+            Rapid Leak Velocity: <span style="color: #ff6b6b;">+48 MiB/min</span> (Shield Fired)
+          </div>
+          <div class="node-progress"><div class="node-progress-fill danger" style="width: 89.1%;"></div></div>
+          <div style="font-size: 0.6875rem; color: var(--ks-patina);">Shield expanded memory cgroup 2GiB -> 3.5GiB. OOMKill averted!</div>
+        </div>
+      </div>
     </div>
 
     <!-- Live Telemetry Audit Terminal -->
@@ -1137,6 +1379,52 @@
         isSimulating = false;
         logToTerminal('COOLDOWN', 'Surge passed. Workloads gracefully contracted in-place to optimal cost baseline ($0.00014/req).');
       }, 6000);
+    }
+
+    let isConsolidated = false;
+
+    function executeBinPackingConsolidation() {
+      if (isConsolidated) {
+        logToTerminal('BINPACK', 'Resetting cluster bin-packing topology simulation to default state.');
+        document.getElementById('node-card-2').classList.remove('consolidated');
+        document.getElementById('node-card-4').classList.remove('consolidated');
+        document.getElementById('badge-node-2').textContent = 'DRAIN TARGET';
+        document.getElementById('badge-node-4').textContent = 'DRAIN TARGET';
+        document.getElementById('node-bar-1').style.width = '82.5%';
+        document.getElementById('node-cpu-1').textContent = '82.5%';
+        document.getElementById('node-bar-3').style.width = '88.0%';
+        document.getElementById('node-cpu-3').textContent = '88.0%';
+        document.getElementById('bp-density').textContent = '74.2%';
+        document.getElementById('bp-savings').textContent = '+$675.00 / mo';
+        document.getElementById('btn-binpack').innerHTML = `
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
+          Execute Consolidation (Drain 2 Nodes)
+        `;
+        isConsolidated = false;
+        return;
+      }
+
+      logToTerminal('BINPACK', 'ScaleOps Algorithm: Evaluating node fragmentation and pod affinity constraints...');
+
+      setTimeout(() => {
+        logToTerminal('DRAIN', 'Cordoned ip-10-0-12-88 & ip-10-0-14-109. Evicting 5 non-critical pods to dense nodes...', true);
+        document.getElementById('node-card-2').classList.add('consolidated');
+        document.getElementById('node-card-4').classList.add('consolidated');
+        document.getElementById('badge-node-2').textContent = 'DRAINED & TERMINATED';
+        document.getElementById('badge-node-4').textContent = 'DRAINED & TERMINATED';
+        document.getElementById('node-bar-1').style.width = '94.2%';
+        document.getElementById('node-cpu-1').textContent = '94.2%';
+        document.getElementById('node-bar-3').style.width = '92.5%';
+        document.getElementById('node-cpu-3').textContent = '92.5%';
+        document.getElementById('bp-density').textContent = '93.4%';
+        document.getElementById('bp-savings').textContent = 'VERIFIED: +$675.00 / mo';
+        document.getElementById('btn-binpack').innerHTML = `
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+          Consolidation Active (Click to Reset)
+        `;
+        isConsolidated = true;
+        logToTerminal('SAVINGS', 'Consolidation successful: 2 nodes reclaimed. Annualized savings: +$8,100.00 USD. Zero downtime.', true);
+      }, 1200);
     }
 
     window.addEventListener('DOMContentLoaded', probeEngineConnection);

@@ -11,8 +11,11 @@ import ssl
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from .binpacking import ConsolidationResult, NodeBinPacker, NodeState, PodPlacement
 from .economics import cost_per_request_from_pod
 from .guardrails import BudgetGuardrail
+from .oom_shield import OOMProtectionShield, OOMShieldDecision
+from .predictive import ForecastResult, PredictiveAutoscaler
 from .scaling import recommend_memory, recommend_replicas, recommend_resize
 from .spot import SpotCandidate, is_spot_eligible
 
@@ -118,6 +121,68 @@ def evaluate(req: dict) -> dict:
 
     after = cost_per_request_from_pod(new_cpu / 1000, mem_gib, rps, cpu_price, mem_price)
     _count(action)
+
+    # ScaleOps Parity: Predictive Autoscaling forecast
+    predictive_out = None
+    if req.get("predictive"):
+        p = req["predictive"]
+        pa = PredictiveAutoscaler(
+            min_replicas=int(r.get("min", 2)) if r else 2,
+            max_replicas=int(r.get("max", 50)) if r else 50,
+            warmup_lead_time_seconds=int(p.get("warmup_lead_time_seconds", 120)),
+        )
+        p_res = pa.forecast_demand(
+            current_replicas=int(r["current"]) if r else 1,
+            current_rps=rps,
+            rps_history=p.get("rps_history"),
+            target_rps_per_pod=float(p.get("target_rps_per_pod", 50.0)),
+            hour_of_day_utc=p.get("hour_of_day_utc"),
+        )
+        predictive_out = {
+            "predicted_replicas": p_res.predicted_replicas,
+            "reactive_replicas": p_res.reactive_replicas,
+            "recommended_replicas": p_res.recommended_replicas,
+            "is_prewarming": p_res.is_prewarming,
+            "confidence_score": p_res.confidence_score,
+            "reason": p_res.reason,
+        }
+        if p_res.is_prewarming and not frozen and rep_out:
+            rep_out["target"] = max(rep_out["target"], p_res.recommended_replicas)
+            rep_out["reason"] = f"{rep_out['reason']} (Prewarmed by {p_res.reason})"
+
+    # ScaleOps Parity: OOM Protection Shield
+    oom_out = None
+    if req.get("oom_protection") or (m and m.get("limit_mib")):
+        oom_cfg = req.get("oom_protection") or {}
+        shield = OOMProtectionShield(
+            critical_threshold=float(oom_cfg.get("critical_threshold", 0.88)),
+            warning_threshold=float(oom_cfg.get("warning_threshold", 0.78)),
+        )
+        cur_limit = int(m.get("limit_mib") or m.get("max_mib", 4096)) if m else 4096
+        cur_req = int(m.get("request_mib", 1024)) if m else 1024
+        cur_usage = float(m.get("usage_mib", 512.0)) if m else 512.0
+        oom_dec = shield.evaluate_memory_risk(
+            current_usage_mib=cur_usage,
+            current_request_mib=cur_req,
+            current_limit_mib=cur_limit,
+            usage_history_mib=oom_cfg.get("usage_history_mib"),
+            max_allowed_limit_mib=int(oom_cfg.get("max_allowed_limit_mib", 16384)),
+        )
+        oom_out = {
+            "is_at_risk": oom_dec.is_at_risk,
+            "risk_level": oom_dec.risk_level,
+            "recommended_limit_mib": oom_dec.recommended_limit_mib,
+            "recommended_request_mib": oom_dec.recommended_request_mib,
+            "headroom_percentage": oom_dec.headroom_percentage,
+            "estimated_seconds_to_oom": oom_dec.estimated_seconds_to_oom,
+            "action": oom_dec.action,
+            "reason": oom_dec.reason,
+        }
+        if oom_dec.is_at_risk and mem_out:
+            mem_out["action"] = "grow"
+            mem_out["mib"] = oom_dec.recommended_request_mib
+            mem_out["reason"] = oom_dec.reason
+
     return {
         "action": action,
         "cpu_millicores": new_cpu,
@@ -128,6 +193,8 @@ def evaluate(req: dict) -> dict:
         "spot_eligible": spot,
         "memory": mem_out,
         "replicas": rep_out,
+        "predictive": predictive_out,
+        "oom_protection": oom_out,
     }
 
 
@@ -215,6 +282,66 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, '{"status":"ok"}')
         elif path_only == "/metrics":
             self._send(200, render_metrics(), "text/plain; version=0.0.4")
+        elif path_only == "/v1/cluster/topology":
+            # ScaleOps Parity: Sample Cluster Topology & Bin-Packing State
+            sample_topology = {
+                "cluster_name": "eks-prod-us-east-1",
+                "total_nodes": 6,
+                "cluster_efficiency_pct": 74.2,
+                "projected_efficiency_after_binpack_pct": 91.8,
+                "monthly_waste_cost_usd": 1280.00,
+                "nodes": [
+                    {
+                        "name": "ip-10-0-12-42.ec2.internal",
+                        "instance_type": "m6i.2xlarge",
+                        "zone": "us-east-1a",
+                        "cpu_capacity_cores": 8,
+                        "mem_capacity_gib": 32,
+                        "cpu_utilization_pct": 82.5,
+                        "mem_utilization_pct": 78.0,
+                        "pods_count": 18,
+                        "drain_candidate": False,
+                    },
+                    {
+                        "name": "ip-10-0-12-88.ec2.internal",
+                        "instance_type": "m6i.2xlarge",
+                        "zone": "us-east-1a",
+                        "cpu_capacity_cores": 8,
+                        "mem_capacity_gib": 32,
+                        "cpu_utilization_pct": 21.0,
+                        "mem_utilization_pct": 19.5,
+                        "pods_count": 3,
+                        "drain_candidate": True,
+                        "can_consolidate_to": "ip-10-0-12-42.ec2.internal",
+                        "potential_monthly_savings_usd": 280.00,
+                    },
+                    {
+                        "name": "ip-10-0-14-102.ec2.internal",
+                        "instance_type": "c6i.4xlarge",
+                        "zone": "us-east-1b",
+                        "cpu_capacity_cores": 16,
+                        "mem_capacity_gib": 32,
+                        "cpu_utilization_pct": 88.0,
+                        "mem_utilization_pct": 64.0,
+                        "pods_count": 26,
+                        "drain_candidate": False,
+                    },
+                    {
+                        "name": "ip-10-0-14-109.ec2.internal",
+                        "instance_type": "c6i.4xlarge",
+                        "zone": "us-east-1b",
+                        "cpu_capacity_cores": 16,
+                        "mem_capacity_gib": 32,
+                        "cpu_utilization_pct": 18.0,
+                        "mem_utilization_pct": 14.0,
+                        "pods_count": 2,
+                        "drain_candidate": True,
+                        "can_consolidate_to": "ip-10-0-14-102.ec2.internal",
+                        "potential_monthly_savings_usd": 395.00,
+                    },
+                ],
+            }
+            self._send(200, json.dumps(sample_topology))
         else:
             # Check for static file in web directory
             web_dir = _get_web_dir()
@@ -238,6 +365,63 @@ class Handler(BaseHTTPRequestHandler):
             self._send(404, '{"error":"not found"}')
 
     def do_POST(self):  # noqa: N802
+        if self.path == "/v1/cluster/binpack":
+            if not self._authorized():
+                return self._send(401, '{"error":"unauthorized"}')
+            try:
+                n = int(self.headers.get("Content-Length", 0))
+                payload = json.loads(self.rfile.read(n), parse_constant=_reject_constant)
+                raw_nodes = payload.get("nodes", [])
+                nodes = []
+                for rn in raw_nodes:
+                    pods = [
+                        PodPlacement(
+                            name=p["name"],
+                            namespace=p.get("namespace", "default"),
+                            cpu_request_millicores=int(p["cpu_request_millicores"]),
+                            memory_request_mib=int(p["memory_request_mib"]),
+                            can_evict=bool(p.get("can_evict", True)),
+                        )
+                        for p in rn.get("pods", [])
+                    ]
+                    nodes.append(
+                        NodeState(
+                            name=rn["name"],
+                            instance_type=rn.get("instance_type", "m6i.xlarge"),
+                            zone=rn.get("zone", "us-east-1a"),
+                            monthly_cost_usd=float(rn.get("monthly_cost_usd", 140.0)),
+                            total_cpu_millicores=int(rn["total_cpu_millicores"]),
+                            total_memory_mib=int(rn["total_memory_mib"]),
+                            allocated_cpu_millicores=int(rn.get("allocated_cpu_millicores", 0)),
+                            allocated_memory_mib=int(rn.get("allocated_memory_mib", 0)),
+                            pods=pods,
+                        )
+                    )
+                bp = NodeBinPacker()
+                res = bp.optimize_cluster(nodes)
+                out = {
+                    "cluster_efficiency_before_pct": res.cluster_efficiency_before_pct,
+                    "cluster_efficiency_after_pct": res.cluster_efficiency_after_pct,
+                    "total_nodes": res.total_nodes,
+                    "nodes_can_drain": res.nodes_can_drain,
+                    "monthly_savings_usd": res.monthly_savings_usd,
+                    "relocation_plans": [
+                        {
+                            "pod_name": rp.pod_name,
+                            "namespace": rp.namespace,
+                            "from_node": rp.from_node,
+                            "to_node": rp.to_node,
+                            "cpu_millicores": rp.cpu_millicores,
+                            "memory_mib": rp.memory_mib,
+                        }
+                        for rp in res.relocation_plans
+                    ],
+                    "reason": res.reason,
+                }
+                return self._send(200, json.dumps(out))
+            except Exception as e:
+                return self._send(400, json.dumps({"error": str(e)}))
+
         if self.path != "/v1/evaluate":
             return self._send(404, '{"error":"not found"}')
         if not self._authorized():
