@@ -1,6 +1,6 @@
 # Root Makefile for KubeCost Auto-HPA
 
-.PHONY: all test test-engine test-operator lint helm-lint build roi help
+.PHONY: all test test-engine test-operator lint helm-lint build roi load-test help
 
 all: test lint
 
@@ -13,6 +13,7 @@ help:
 	@echo "  make helm-lint     - Run helm lint on deploy/helm/kubecost-auto-hpa"
 	@echo "  make build         - Build the operator binary"
 	@echo "  make roi           - Run the FinOps ROI calculator CLI"
+	@echo "  make load-test     - Run the 500-concurrent-user load and stability simulation"
 
 test: test-engine test-operator
 
@@ -33,3 +34,6 @@ build:
 
 roi:
 	python scripts/calculate_roi.py --nodes 100 --avg-cpu-util 0.20
+
+load-test:
+	python scripts/simulate_500_concurrent_users.py --users 500 --requests 4

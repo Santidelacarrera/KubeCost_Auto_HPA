@@ -2,6 +2,7 @@
 
 stdlib only. Endpoints: GET /healthz, GET /metrics, POST /v1/evaluate.
 """
+import concurrent.futures
 import hmac
 import json
 import math
@@ -184,9 +185,38 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 
-def make_server(host: str = "0.0.0.0", port: int = 8000) -> ThreadingHTTPServer:
+class HighConcurrencyHTTPServer(ThreadingHTTPServer):
+    """High-performance HTTP server utilizing a warm thread pool and high-backlog listen queue."""
+    request_queue_size = 2048
+    daemon_threads = True
+    allow_reuse_address = True
+
+    def __init__(self, server_address, RequestHandlerClass, bind_and_activate=True, max_workers=128):
+        self.executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=max_workers, thread_name_prefix="engine-worker"
+        )
+        super().__init__(server_address, RequestHandlerClass, bind_and_activate=bind_and_activate)
+
+    def process_request(self, request, client_address):
+        """Submit request handling to the pre-warmed thread pool instead of spawning new OS threads."""
+        self.executor.submit(self.process_request_thread, request, client_address)
+
+    def server_bind(self):
+        super().server_bind()
+        try:
+            import socket
+            self.socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        except (AttributeError, OSError):
+            pass
+
+    def server_close(self):
+        super().server_close()
+        self.executor.shutdown(wait=False)
+
+
+def make_server(host: str = "0.0.0.0", port: int = 8000) -> HighConcurrencyHTTPServer:
     """TLS is enabled with TLS_CERT/TLS_KEY; adding TLS_CLIENT_CA requires client certs (mTLS)."""
-    srv = ThreadingHTTPServer((host, port), Handler)
+    srv = HighConcurrencyHTTPServer((host, port), Handler)
     cert, key = os.environ.get("TLS_CERT"), os.environ.get("TLS_KEY")
     if cert and key:
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
