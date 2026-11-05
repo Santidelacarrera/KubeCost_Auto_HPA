@@ -12,12 +12,14 @@ spec:
     metadata:
       labels: {{- include "kch.selector" (dict "ctx" . "component" "redis") | nindent 8 }}
     spec:
+      securityContext: {runAsNonRoot: true, runAsUser: 999, runAsGroup: 999, fsGroup: 999, seccompProfile: {type: RuntimeDefault}}
       containers:
       - name: redis
         image: {{ .Values.redis.image }}
         args: ["--save", "", "--appendonly", "no", "--maxmemory", {{ .Values.redis.maxmemory | quote }}, "--maxmemory-policy", "allkeys-lru"]
         ports: [{name: redis, containerPort: 6379}]
         readinessProbe: {exec: {command: [redis-cli, ping]}}
+        securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
 ---
 apiVersion: v1
 kind: Service

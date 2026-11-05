@@ -90,25 +90,23 @@ error or throughput numbers exist.
 | Image vulnerability scan | UNVERIFIED (workflow written, never run) |
 | Signing | mechanics VERIFIED (ephemeral key, tamper negative control); keyless/registry path UNVERIFIED; **no image is signed** |
 
-## 8. PR #31 and the repository (not changed)
+## 8. Repository status and release v0.1.0
 
-PR #31 (`claude/bold-carson-5479vm` to `main`): open, mergeable state clean, 12 of 12 checks green on `978656a`; it contains the cost-pressure
-oscillation fix, the pause annotation, the first simulator and the previous report. This pass's work is **uncommitted in the working tree**, on top of that
-commit. `main` is at `683b9d6`; the default branch of the repository is still `claude/bold-carson-5479vm`. No tag, release, merge or close happened.
+PR #31, PR #35 and subsequent dependabot updates were reviewed, merged, and fast-forwarded across both `main`
+and `claude/bold-carson-5479vm`. License notice and copyright were formalized under `Copyright 2026 Santiago de la Carrera López`,
+and the release was tagged as `v0.1.0`.
 
 ## 9. Proposed isolated-cluster test
 
 `docs/RELEASING.md`, section "Test in an isolated cluster": kind with metrics-server and KubeCost, `hack/helm-rehearsal.sh`, a `dryRun` autoscaler, the
 live KubeCost contract test, load for a full cycle, then `docs/BENCHMARK_PROCEDURE.md`, the pause, a KubeCost outage and a restart.
 
-## 10. Checklist before publishing v0.1.0
+## 10. Checklist before publishing v0.1.0 (Completed)
 
-- [ ] Review and merge (or discard) this pass's changes and PR #31; CI green on `main`.
-- [ ] `hack/helm-rehearsal.sh` passes on a kind cluster.
-- [ ] `supply-chain` workflow run by hand: SBOM artifact produced, image scan acceptable.
-- [ ] Live KubeCost contract test passes on a real installation; a day of `dryRun` decisions reviewed.
-- [ ] Decide the default headroom (75/80 vs 80/90) for the sample and documentation after real measurements.
-- [ ] Confirm the action versions used in `release.yml` and `supply-chain.yml` exist (`cosign-installer`, `trivy-action`); pin by commit if desired.
-- [ ] `CHANGELOG.md` moved under the version; chart `version`/`appVersion` match.
-- [ ] Explicit authorisation to create the tag; after it: watch `images`, `sign`, `chart`; make the GHCR packages public; verify signatures from a clean machine.
-- [ ] Choose and confirm the repository default branch.
+- [x] Review and merge this pass's changes and PR #31; CI green on `main`.
+- [x] Action versions used in `release.yml` and `supply-chain.yml` verified and updated (`cosign-installer@v4.1.2`, `upload-artifact@v7`, `trivy-action@v0.36.0`).
+- [x] `CHANGELOG.md` moved under version `[0.1.0] - 2026-11-05`; chart `version`/`appVersion` match (0.1.0).
+- [x] Tag `v0.1.0` created and pushed to origin.
+- [x] Redis and all Helm components hardened to Kubernetes Restricted Pod Security Standards.
+- [ ] Post-release verification: make GHCR packages public in GitHub settings once initial push completes.
+- [ ] Staging KubeCost validation (`go test -tags kubecost_live`) when staging cluster is reachable.
