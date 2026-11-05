@@ -2,7 +2,7 @@ FROM python:3.14-slim
 WORKDIR /app
 COPY pyproject.toml ./
 COPY kubecost_engine ./kubecost_engine
-RUN pip install --no-cache-dir . && useradd -u 65532 -r engine
+RUN pip install --no-cache-dir . && rm -rf /usr/local/lib/python3.14/site-packages/pip* && useradd -u 65532 -r engine
 USER 65532
 ENV PORT=8000
 EXPOSE 8000
