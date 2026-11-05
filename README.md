@@ -270,6 +270,23 @@ y `docs/RELEASING.md` (ensayos y procedimiento de release). Para evaluarlo en un
 permisos, política de fallos, pausa, rollback y criterios de salida) y `docs/THREAT_MODEL.md` (amenazas, controles y riesgos
 residuales). Antes de ejecutar la suite completa, `make -C operator test-all` (requiere `KUBEBUILDER_ASSETS`).
 
+## Comercialización y Soporte Enterprise
+
+KubeCost Auto-HPA cuenta con una suite completa para organizaciones y equipos de ingeniería que requieren soporte con SLA, consultoría y características avanzadas para producción:
+
+- **[Oferta Comercial & Planes Enterprise](docs/COMMERCIAL.md):** Comparativa entre la edición comunitaria y empresarial, modelos de suscripción por nodo ($18–$32/nodo/mes) y modelos de ahorro compartido (*value-shared*).
+- **[Business Case y Calculadora de ROI](docs/BUSINESS_CASE_AND_ROI.md):** Modelos financieros para FinOps y CFOs demostrando retornos superiores a 8x y amortización de inversión en menos de 10 días.
+- **[Calculadora CLI Interactiva de ROI](scripts/calculate_roi.py):** Script ejecutable en Python (`python scripts/calculate_roi.py --nodes 100`) para estimar ahorros exactos en AWS/GCP/Azure con formato para terminal o Markdown.
+- **[Playbook de POC Guiada](docs/POC_PLAYBOOK.md):** Plan de evaluación de 14 días con riesgo cero mediante el modo no invasivo `dryRun: true`.
+- **[Battlecard Competitiva](docs/COMPETITIVE_BATTLECARD.md):** Matriz comparativa detallada y manejo de objeciones frente a Karpenter, HPA nativo, CAST AI, Spot.io y Kubecost OSS.
+- **[Pitch Deck para Ejecutivos](docs/PITCH_DECK.md):** Presentación ejecutiva de 12 diapositivas orientada a VPs de Ingeniería, Directores de FinOps y CISOs.
+- **[Runbook de Demo en Vivo de 15 Minutos](docs/DEMO_SCRIPT.md):** Guía paso a paso para soluciones y preventa técnica con inyección de carga y resizing in-place sin reinicios.
+- **[White Paper de Seguridad y Compliance](docs/ENTERPRISE_SECURITY_WHITE_PAPER.md):** Respuestas a cuestionarios CISO/SOC2 (arquitectura air-gapped, zero-trust, sin fuga de telemetría ni datos PII).
+- **[Contrato Marco y Formulario de Pedido Enterprise (MSA / EULA)](docs/ENTERPRISE_ORDER_FORM_AND_MSA_TEMPLATE.md):** Plantilla legal con compromisos de SLA, garantía de devolución por ROI en 60 días y términos de indemnización de PI.
+- **[Resumen Ejecutivo de 1 Página](docs/EXECUTIVE_ONE_PAGER.md):** Briefing ejecutivo de una carilla para decisores de compra.
+- **Despliegue Enterprise:** Módulos listos para producción mediante [Terraform / OpenTofu](deploy/terraform/) y [ArgoCD GitOps](deploy/argocd/application.yaml).
+- **Landing Page Comercial:** Showcase web interactivo con simulador en tiempo real en [web/index.html](web/index.html).
+
 ## Licencia
 
 [Apache License 2.0](LICENSE): licencia permisiva con concesión expresa de patentes, la misma que usan Kubernetes,
