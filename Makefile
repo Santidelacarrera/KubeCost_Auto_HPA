@@ -1,6 +1,6 @@
 # Root Makefile for KubeCost Auto-HPA
 
-.PHONY: all test test-engine test-operator lint helm-lint build roi load-test help
+.PHONY: all test test-engine test-operator lint helm-lint build roi load-test stripe-catalog help
 
 all: test lint
 
@@ -14,6 +14,7 @@ help:
 	@echo "  make build         - Build the operator binary"
 	@echo "  make roi           - Run the FinOps ROI calculator CLI"
 	@echo "  make load-test     - Run the 500-concurrent-user load and stability simulation"
+	@echo "  make stripe-catalog - Generate Stripe billing products and prices in dry-run mode"
 
 test: test-engine test-operator
 
@@ -37,3 +38,6 @@ roi:
 
 load-test:
 	python scripts/simulate_500_concurrent_users.py --users 500 --requests 4
+
+stripe-catalog:
+	python scripts/setup_stripe_billing.py --dry-run --output web/stripe-config.json
