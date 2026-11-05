@@ -1,0 +1,909 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KubeCost Auto-HPA // Enterprise Console</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Albert+Sans:wght@300;400;500;600;700&family=Alumni+Sans:wght@200;300;400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles/impeccable-tokens.css">
+  <link rel="stylesheet" href="styles/impeccable-kit.css">
+  <style>
+    :root {
+      /* Impeccable Neo Kinpaku Core Tokens */
+      --ks-kinpaku: oklch(84% 0.19 80.46);
+      --ks-kinpaku-vivid: oklch(87% 0.20 85);
+      --ks-kinpaku-pale: oklch(86% 0.07 84);
+      --ks-kinpaku-rich: oklch(77% 0.13 82);
+      --ks-kinpaku-deep: oklch(61% 0.085 78);
+      --ks-on-gold: oklch(14% 0.018 95);
+
+      --ks-patina: oklch(70% 0.12 188);
+      --ks-patina-pale: oklch(82% 0.07 188);
+      --ks-patina-deep: oklch(46% 0.08 188);
+      --ks-patina-ink: oklch(38% 0.08 188);
+
+      --ks-vermilion: oklch(52% 0.16 35);
+
+      /* Dark Lacquer System Ground */
+      --ks-lacquer-black: oklch(7% 0.006 95);
+      --ks-lacquer-deep: oklch(4% 0.004 95);
+      --ks-raised-lacquer: oklch(11% 0.006 95);
+      --ks-graphite: oklch(15% 0.008 95);
+      --ks-graphite-2: oklch(19% 0.008 95);
+
+      --ks-champagne: oklch(91% 0 0);
+      --ks-text-warm: oklch(88% 0 0);
+      --ks-text-muted: oklch(68% 0 0);
+      --ks-text-faint: oklch(52% 0 0);
+
+      --ks-gold-hairline: oklch(78% 0 0 / 0.14);
+      --ks-gold-hairline-strong: oklch(74% 0.09 82 / 0.5);
+
+      --ks-font: "Albert Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --ks-font-wordmark: "Alumni Sans", "Albert Sans", sans-serif;
+      --ks-mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background-color: var(--ks-lacquer-black);
+      color: var(--ks-text-warm);
+      font-family: var(--ks-font);
+      font-size: 0.9375rem;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Top Console Navigation Bar */
+    header.console-header {
+      background: var(--ks-lacquer-deep);
+      border-bottom: 1px solid var(--ks-gold-hairline);
+      padding: 0.85rem 2.5rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .brand-lockup {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      text-decoration: none;
+      color: var(--ks-champagne);
+    }
+
+    .brand-glyph {
+      width: 32px;
+      height: 32px;
+      background: var(--ks-kinpaku);
+      position: relative;
+      clip-path: polygon(0 0, 100% 0, 100% 70%, 70% 100%, 0 100%);
+    }
+
+    .brand-glyph::after {
+      content: '';
+      position: absolute;
+      top: 4px; left: 4px; right: 4px; bottom: 4px;
+      border: 1px solid var(--ks-on-gold);
+    }
+
+    .brand-wordmark {
+      font-family: var(--ks-font-wordmark);
+      font-size: 1.45rem;
+      letter-spacing: 0.16em;
+      font-weight: 400;
+      text-transform: uppercase;
+      color: var(--ks-champagne);
+      display: flex;
+      align-items: baseline;
+      gap: 0.5rem;
+    }
+
+    .brand-wordmark span.sub {
+      font-family: var(--ks-mono);
+      font-size: 0.6875rem;
+      letter-spacing: 0.22em;
+      color: var(--ks-kinpaku);
+      padding: 2px 6px;
+      border: 1px solid var(--ks-kinpaku-rich);
+      border-radius: 2px;
+    }
+
+    /* Instrument Segmented Cluster Switcher */
+    .cluster-selector {
+      display: flex;
+      background: var(--ks-raised-lacquer);
+      border: 1px solid var(--ks-gold-hairline);
+      border-radius: 4px;
+      padding: 3px;
+      gap: 3px;
+    }
+
+    .cluster-tab {
+      background: transparent;
+      border: none;
+      color: var(--ks-text-muted);
+      font-family: var(--ks-mono);
+      font-size: 0.75rem;
+      padding: 5px 12px;
+      border-radius: 2px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 120ms ease;
+    }
+
+    .cluster-tab.active {
+      background: var(--ks-graphite-2);
+      color: var(--ks-champagne);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    }
+
+    .cluster-tab span.dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--ks-text-faint);
+    }
+
+    .cluster-tab.active span.dot {
+      background: var(--ks-patina);
+      box-shadow: 0 0 6px var(--ks-patina);
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 1.25rem;
+    }
+
+    .airgap-pill {
+      font-family: var(--ks-mono);
+      font-size: 0.6875rem;
+      letter-spacing: 0.14em;
+      color: var(--ks-patina);
+      border: 1px solid oklch(70% 0.12 188 / 0.3);
+      background: oklch(70% 0.12 188 / 0.08);
+      padding: 4px 10px;
+      border-radius: 2px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .airgap-pill::before {
+      content: '';
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--ks-patina);
+      box-shadow: 0 0 6px var(--ks-patina);
+    }
+
+    /* Main Console Layout */
+    main.console-main {
+      padding: 2.5rem;
+      max-width: 1440px;
+      width: 100%;
+      margin: 0 auto;
+      flex-grow: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 2rem;
+    }
+
+    /* Bento Grid for Fleet Financial Telemetry */
+    .bento-fleet {
+      display: grid;
+      grid-template-columns: repeat(12, 1fr);
+      gap: 1.25rem;
+    }
+
+    .tile {
+      background: var(--ks-raised-lacquer);
+      border: 1px solid var(--ks-gold-hairline);
+      border-radius: 4px;
+      padding: 1.5rem;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+
+    .tile-span-4 { grid-column: span 4; }
+    .tile-span-8 { grid-column: span 8; }
+    .tile-span-12 { grid-column: span 12; }
+
+    .tile-eyebrow {
+      font-family: var(--ks-mono);
+      font-size: 0.6875rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--ks-text-muted);
+      margin-bottom: 0.5rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .tile-eyebrow span.accent-num {
+      color: var(--ks-kinpaku);
+    }
+
+    .metric-value {
+      font-family: var(--ks-mono);
+      font-size: 2.4rem;
+      font-weight: 500;
+      color: var(--ks-champagne);
+      letter-spacing: -0.02em;
+      margin: 0.25rem 0;
+    }
+
+    .metric-value.patina {
+      color: var(--ks-patina);
+    }
+
+    .metric-sub {
+      color: var(--ks-text-muted);
+      font-size: 0.8125rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .patina-tag {
+      font-family: var(--ks-mono);
+      font-size: 0.6875rem;
+      color: var(--ks-patina);
+      background: oklch(70% 0.12 188 / 0.12);
+      border: 1px solid oklch(70% 0.12 188 / 0.35);
+      padding: 2px 6px;
+      border-radius: 2px;
+    }
+
+    /* Simulation & Global Control Strip */
+    .control-strip {
+      background: var(--ks-lacquer-deep);
+      border: 1px solid var(--ks-gold-hairline);
+      border-radius: 4px;
+      padding: 1.25rem 1.75rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1.5rem;
+    }
+
+    .strip-label {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+
+    .strip-title {
+      font-size: 1.05rem;
+      font-weight: 600;
+      color: var(--ks-champagne);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .strip-desc {
+      font-size: 0.8125rem;
+      color: var(--ks-text-muted);
+    }
+
+    .strip-buttons {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    /* Hardware Button Primitives */
+    .btn-kinpaku {
+      background: var(--ks-kinpaku);
+      color: var(--ks-on-gold);
+      border: 1px solid var(--ks-kinpaku-rich);
+      font-family: var(--ks-font);
+      font-weight: 600;
+      font-size: 0.875rem;
+      padding: 0.6rem 1.25rem;
+      border-radius: 2px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      transition: all 120ms ease;
+    }
+
+    .btn-kinpaku:hover {
+      background: var(--ks-kinpaku-vivid);
+      box-shadow: 0 0 12px oklch(84% 0.19 80 / 0.35);
+    }
+
+    .btn-instrument {
+      background: var(--ks-raised-lacquer);
+      color: var(--ks-champagne);
+      border: 1px solid var(--ks-gold-hairline);
+      font-family: var(--ks-font);
+      font-weight: 500;
+      font-size: 0.875rem;
+      padding: 0.6rem 1.25rem;
+      border-radius: 2px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      transition: all 120ms ease;
+    }
+
+    .btn-instrument:hover {
+      border-color: var(--ks-kinpaku-rich);
+      color: var(--ks-kinpaku);
+    }
+
+    /* Hardware Toggle Switch */
+    .hw-toggle-wrapper {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .hw-toggle {
+      width: 44px;
+      height: 22px;
+      background: var(--ks-lacquer-deep);
+      border: 1px solid var(--ks-gold-hairline-strong);
+      border-radius: 11px;
+      position: relative;
+      transition: background 120ms ease;
+    }
+
+    .hw-toggle.on {
+      background: oklch(70% 0.12 188 / 0.2);
+      border-color: var(--ks-patina);
+    }
+
+    .hw-toggle-thumb {
+      width: 16px;
+      height: 16px;
+      background: var(--ks-text-muted);
+      border-radius: 50%;
+      position: absolute;
+      top: 2px;
+      left: 3px;
+      transition: transform 120ms ease, background 120ms ease;
+    }
+
+    .hw-toggle.on .hw-toggle-thumb {
+      transform: translateX(22px);
+      background: var(--ks-patina);
+      box-shadow: 0 0 8px var(--ks-patina);
+    }
+
+    /* Workloads High-Density Architecture Table */
+    .table-container {
+      background: var(--ks-raised-lacquer);
+      border: 1px solid var(--ks-gold-hairline);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .table-header-bar {
+      padding: 1rem 1.5rem;
+      border-bottom: 1px solid var(--ks-gold-hairline);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: var(--ks-lacquer-deep);
+    }
+
+    .table-title {
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--ks-champagne);
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    table.data-grid {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+    }
+
+    table.data-grid th {
+      background: var(--ks-lacquer-deep);
+      font-family: var(--ks-mono);
+      font-size: 0.6875rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--ks-text-muted);
+      padding: 0.75rem 1.25rem;
+      border-bottom: 1px solid var(--ks-gold-hairline);
+    }
+
+    table.data-grid td {
+      padding: 1rem 1.25rem;
+      border-bottom: 1px solid var(--ks-gold-hairline);
+      font-size: 0.875rem;
+      vertical-align: middle;
+    }
+
+    table.data-grid tr:hover {
+      background: oklch(14% 0.008 95);
+    }
+
+    .workload-name {
+      font-weight: 600;
+      color: var(--ks-champagne);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .workload-ns {
+      font-family: var(--ks-mono);
+      font-size: 0.6875rem;
+      color: var(--ks-text-muted);
+    }
+
+    .mono-cell {
+      font-family: var(--ks-mono);
+      font-size: 0.8125rem;
+    }
+
+    .badge-status {
+      font-family: var(--ks-mono);
+      font-size: 0.6875rem;
+      padding: 2px 8px;
+      border-radius: 2px;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .badge-status.active {
+      color: var(--ks-patina);
+      background: oklch(70% 0.12 188 / 0.12);
+      border: 1px solid oklch(70% 0.12 188 / 0.35);
+    }
+
+    .badge-status.dryrun {
+      color: var(--ks-kinpaku);
+      background: oklch(84% 0.19 80 / 0.12);
+      border: 1px solid oklch(84% 0.19 80 / 0.35);
+    }
+
+    .badge-status.spot {
+      color: #93c5fd;
+      background: rgba(59, 130, 246, 0.12);
+      border: 1px solid rgba(59, 130, 246, 0.35);
+    }
+
+    /* Live Terminal Console Log */
+    .terminal-tile {
+      background: var(--ks-lacquer-deep);
+      border: 1px solid var(--ks-gold-hairline);
+      border-radius: 4px;
+      font-family: var(--ks-mono);
+      font-size: 0.75rem;
+      overflow: hidden;
+    }
+
+    .terminal-topbar {
+      background: var(--ks-raised-lacquer);
+      padding: 0.5rem 1rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--ks-gold-hairline);
+    }
+
+    .window-dots {
+      display: flex;
+      gap: 6px;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+    }
+
+    .dot-red { background: #ff5f56; }
+    .dot-yellow { background: #ffbd2e; }
+    .dot-green { background: #27c93f; }
+
+    .terminal-content {
+      padding: 1rem 1.25rem;
+      height: 160px;
+      overflow-y: auto;
+      color: var(--ks-text-warm);
+      line-height: 1.7;
+    }
+
+    .term-line {
+      display: flex;
+      gap: 1rem;
+    }
+
+    .term-time { color: var(--ks-text-muted); }
+    .term-action { color: var(--ks-kinpaku); }
+    .term-success { color: var(--ks-patina); }
+
+    /* Interactive Simulation Flash Notification */
+    .sim-alert {
+      display: none;
+      background: oklch(84% 0.19 80 / 0.15);
+      border: 1px solid var(--ks-kinpaku-rich);
+      color: var(--ks-champagne);
+      padding: 0.75rem 1.25rem;
+      border-radius: 4px;
+      font-family: var(--ks-mono);
+      font-size: 0.8125rem;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .sim-alert.active {
+      display: flex;
+      animation: pulseAlert 1.5s infinite;
+    }
+
+    @keyframes pulseAlert {
+      0%, 100% { border-color: var(--ks-kinpaku-rich); }
+      50% { border-color: var(--ks-patina); }
+    }
+
+    /* Print View for Executive PDF Export */
+    @media print {
+      body { background: #fff !important; color: #000 !important; }
+      header.console-header, .control-strip, .strip-buttons, .terminal-tile { display: none !important; }
+      .tile, .table-container { border: 1px solid #ccc !important; background: #fff !important; color: #000 !important; }
+      .metric-value { color: #000 !important; }
+      .patina-tag, .badge-status { border: 1px solid #666 !important; color: #000 !important; background: #eee !important; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Console Header Bar -->
+  <header class="console-header">
+    <div style="display: flex; align-items: center; gap: 2rem;">
+      <a href="index.html" class="brand-lockup">
+        <div class="brand-glyph"></div>
+        <div class="brand-wordmark">
+          KubeCost Auto-HPA <span class="sub">ENTERPRISE CONSOLE</span>
+        </div>
+      </a>
+
+      <!-- Cluster Selector -->
+      <div class="cluster-selector">
+        <button class="cluster-tab active" onclick="switchCluster(this, 'eks-prod-us-east-1')">
+          <span class="dot"></span> eks-prod-us-east-1 (AWS)
+        </button>
+        <button class="cluster-tab" onclick="switchCluster(this, 'gke-staging-eu-west1')">
+          <span class="dot"></span> gke-staging-eu-west1 (GCP)
+        </button>
+        <button class="cluster-tab" onclick="switchCluster(this, 'aks-finops-centralus')">
+          <span class="dot"></span> aks-finops-centralus (Azure)
+        </button>
+      </div>
+    </div>
+
+    <div class="header-actions">
+      <div class="airgap-pill">100% AIR-GAPPED // ZERO EGRESS</div>
+      <button class="btn-instrument" onclick="window.print()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V2h12v7M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><path d="M6 14h12v8H6z"/></svg>
+        Export PDF Report
+      </button>
+      <a href="index.html" class="btn-instrument">Exit to Site</a>
+    </div>
+  </header>
+
+  <!-- Main Console Work Area -->
+  <main class="console-main">
+
+    <!-- Active Simulation Indicator Banner -->
+    <div class="sim-alert" id="sim-alert">
+      <div style="display: flex; align-items: center; gap: 0.75rem;">
+        <span style="color: var(--ks-kinpaku); font-weight: 700;">[SIMULATION IN PROGRESS]</span>
+        <span>Injecting 500 concurrent synthetic users into cluster workloads...</span>
+      </div>
+      <span class="patina-tag">In-Place Scaling: ACTIVE</span>
+    </div>
+
+    <!-- Fleet KPIs Bento Grid -->
+    <div class="bento-fleet">
+      <div class="tile tile-span-4">
+        <div class="tile-eyebrow">
+          <span>Fleet Baseline Spend</span>
+          <span class="accent-num">120 NODES</span>
+        </div>
+        <div class="metric-value">$312,400<span style="font-size: 1.25rem; color: var(--ks-text-muted);"> / yr</span></div>
+        <div class="metric-sub">Across 14 production Kubernetes deployments</div>
+      </div>
+
+      <div class="tile tile-span-4">
+        <div class="tile-eyebrow">
+          <span>Realized Cloud Reduction</span>
+          <span class="patina-tag">-34.8% NET SAVINGS</span>
+        </div>
+        <div class="metric-value patina" id="kpi-savings">-$108,720<span style="font-size: 1.25rem; color: var(--ks-text-muted);"> / yr</span></div>
+        <div class="metric-sub">
+          <span style="color: var(--ks-patina); font-weight: 600;">3.8x Annualized ROI</span> • 12.4 Days Payback
+        </div>
+      </div>
+
+      <div class="tile tile-span-4">
+        <div class="tile-eyebrow">
+          <span>P99 Latency SLO Compliance</span>
+          <span class="patina-tag">100% HEALTHY</span>
+        </div>
+        <div class="metric-value patina" id="kpi-sla">100.0%</div>
+        <div class="metric-sub">0 SLA breaches • 0 restart thrashing events</div>
+      </div>
+    </div>
+
+    <!-- Control Strip & Live 500-User Surge Simulator -->
+    <div class="control-strip">
+      <div class="strip-label">
+        <div class="strip-title">
+          <span>Fleet Autonomous Scaling Mode</span>
+          <span class="badge-status active" id="mode-badge">LIVE ACTUATION ENABLED</span>
+        </div>
+        <div class="strip-desc">
+          When active, the operator resizes pod cgroups in-place and adjusts replicas. Toggle to shadow mode (dryRun) for non-invasive audit.
+        </div>
+      </div>
+
+      <div class="strip-buttons">
+        <div class="hw-toggle-wrapper" onclick="toggleGlobalDryRun()">
+          <div class="hw-toggle on" id="dryrun-toggle">
+            <div class="hw-toggle-thumb"></div>
+          </div>
+          <span style="font-family: var(--ks-mono); font-size: 0.75rem;" id="toggle-label">ACTUATION: LIVE</span>
+        </div>
+
+        <button class="btn-kinpaku" onclick="trigger500UserSimulation()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+          Simulate 500 Concurrent Users Spike
+        </button>
+      </div>
+    </div>
+
+    <!-- High-Density Workloads Table -->
+    <div class="table-container">
+      <div class="table-header-bar">
+        <div class="table-title">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+          Active Workloads Managed by KubeCost Auto-HPA
+        </div>
+        <div style="font-family: var(--ks-mono); font-size: 0.75rem; color: var(--ks-text-muted);">
+          4 Workloads Active • Sub-50ms Reconciliation Loop
+        </div>
+      </div>
+
+      <table class="data-grid">
+        <thead>
+          <tr>
+            <th>Deployment / Namespace</th>
+            <th>Replicas (Cur / Max)</th>
+            <th>Pod CPU Request</th>
+            <th>P99 Latency / Target SLO</th>
+            <th>Cost per Request</th>
+            <th>Infrastructure / Spot</th>
+            <th>Mode</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="workloads-body">
+          <tr id="row-payment">
+            <td>
+              <div class="workload-name">payment-service</div>
+              <div class="workload-ns">production / default</div>
+            </td>
+            <td class="mono-cell"><span id="rep-payment" style="font-weight: 600; color: var(--ks-champagne);">4</span> / 15</td>
+            <td class="mono-cell"><span id="cpu-payment" style="color: var(--ks-patina); font-weight: 600;">1200m</span> <span style="font-size: 0.6875rem; color: var(--ks-text-muted);">(In-Place)</span></td>
+            <td class="mono-cell"><span id="lat-payment" style="color: var(--ks-patina);">46ms</span> / 150ms</td>
+            <td class="mono-cell" style="color: var(--ks-champagne);">$0.00014 / req</td>
+            <td><span class="badge-status" style="color: var(--ks-text-muted); border: 1px solid var(--ks-gold-hairline);">On-Demand Only</span></td>
+            <td><span class="badge-status active">ACTIVE</span></td>
+            <td><button class="btn-instrument" style="padding: 3px 10px; font-size: 0.75rem;" onclick="tuneWorkload('payment-service')">Tune Policy</button></td>
+          </tr>
+
+          <tr id="row-checkout">
+            <td>
+              <div class="workload-name">checkout-api</div>
+              <div class="workload-ns">production / commerce</div>
+            </td>
+            <td class="mono-cell"><span id="rep-checkout" style="font-weight: 600; color: var(--ks-champagne);">6</span> / 25</td>
+            <td class="mono-cell"><span id="cpu-checkout" style="color: var(--ks-patina); font-weight: 600;">1800m</span> <span style="font-size: 0.6875rem; color: var(--ks-text-muted);">(In-Place)</span></td>
+            <td class="mono-cell"><span id="lat-checkout" style="color: var(--ks-patina);">68ms</span> / 120ms</td>
+            <td class="mono-cell" style="color: var(--ks-champagne);">$0.00019 / req</td>
+            <td><span class="badge-status active">SPOT BLENDED (40%)</span></td>
+            <td><span class="badge-status active">ACTIVE</span></td>
+            <td><button class="btn-instrument" style="padding: 3px 10px; font-size: 0.75rem;" onclick="tuneWorkload('checkout-api')">Tune Policy</button></td>
+          </tr>
+
+          <tr id="row-catalog">
+            <td>
+              <div class="workload-name">catalog-worker</div>
+              <div class="workload-ns">batch / search</div>
+            </td>
+            <td class="mono-cell"><span id="rep-catalog" style="font-weight: 600; color: var(--ks-champagne);">8</span> / 30</td>
+            <td class="mono-cell"><span id="cpu-catalog" style="color: var(--ks-patina); font-weight: 600;">850m</span> <span style="font-size: 0.6875rem; color: var(--ks-text-muted);">(In-Place)</span></td>
+            <td class="mono-cell"><span id="lat-catalog" style="color: var(--ks-patina);">110ms</span> / 200ms</td>
+            <td class="mono-cell" style="color: var(--ks-champagne);">$0.00008 / req</td>
+            <td><span class="badge-status spot">SPOT DRAIN ARMED (85%)</span></td>
+            <td><span class="badge-status active">ACTIVE</span></td>
+            <td><button class="btn-instrument" style="padding: 3px 10px; font-size: 0.75rem;" onclick="tuneWorkload('catalog-worker')">Tune Policy</button></td>
+          </tr>
+
+          <tr id="row-auth">
+            <td>
+              <div class="workload-name">auth-gateway</div>
+              <div class="workload-ns">security / ingress</div>
+            </td>
+            <td class="mono-cell"><span style="font-weight: 600; color: var(--ks-champagne);">3</span> / 10</td>
+            <td class="mono-cell">1500m <span style="font-size: 0.6875rem; color: var(--ks-kinpaku);">(Target: 800m)</span></td>
+            <td class="mono-cell"><span style="color: var(--ks-patina);">22ms</span> / 80ms</td>
+            <td class="mono-cell" style="color: var(--ks-champagne);">$0.00012 / req</td>
+            <td><span class="badge-status" style="color: var(--ks-text-muted); border: 1px solid var(--ks-gold-hairline);">On-Demand Only</span></td>
+            <td><span class="badge-status dryrun">SHADOW (dryRun)</span></td>
+            <td><button class="btn-instrument" style="padding: 3px 10px; font-size: 0.75rem;" onclick="tuneWorkload('auth-gateway')">Tune Policy</button></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Live Telemetry Audit Terminal -->
+    <div class="terminal-tile">
+      <div class="terminal-topbar">
+        <div style="display: flex; align-items: center; gap: 0.75rem;">
+          <div class="window-dots">
+            <span class="dot dot-red"></span>
+            <span class="dot dot-yellow"></span>
+            <span class="dot dot-green"></span>
+          </div>
+          <span style="color: var(--ks-text-muted); font-size: 0.7rem;">KubeCost Auto-HPA Operator Log Stream (In-Cluster Stream)</span>
+        </div>
+        <span class="patina-tag">Reconcile Rate: 30s</span>
+      </div>
+      <div class="terminal-content" id="term-logs">
+        <div class="term-line">
+          <span class="term-time">[18:14:02.100]</span>
+          <span class="term-action">[INIT]</span>
+          <span>Controller manager initialized. mTLS enabled with FastAPI unit economics engine.</span>
+        </div>
+        <div class="term-line">
+          <span class="term-time">[18:14:05.215]</span>
+          <span class="term-action">[RECONCILE]</span>
+          <span>default/payment-service: P99 46ms well within 150ms SLO. Unit cost: $0.00014/req.</span>
+        </div>
+        <div class="term-line">
+          <span class="term-time">[18:14:08.432]</span>
+          <span class="term-action">[IN-PLACE]</span>
+          <span class="term-success">Resized pod cgroups CPU limit 1500m -> 1200m without restarting container. Zero dropped connections.</span>
+        </div>
+        <div class="term-line">
+          <span class="term-time">[18:14:20.002]</span>
+          <span class="term-action">[SPOT DRAIN]</span>
+          <span class="term-success">Spot preemption monitor armed. Interception buffer set to 120s lookahead for batch/catalog-worker.</span>
+        </div>
+        <div class="term-line">
+          <span class="term-time">[18:14:35.882]</span>
+          <span class="term-action">[SAVINGS]</span>
+          <span class="term-success">Fleet verified cloud reduction: $108,720.00 USD annualized (-34.8%). All SLOs preserved.</span>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <script>
+    let isDryRun = false;
+    let isSimulating = false;
+
+    function logToTerminal(action, message, isSuccess = false) {
+      const logs = document.getElementById('term-logs');
+      const now = new Date();
+      const timeStr = now.toTimeString().split(' ')[0] + '.' + String(now.getMilliseconds()).padStart(3, '0');
+      const line = document.createElement('div');
+      line.className = 'term-line';
+      line.innerHTML = `
+        <span class="term-time">[${timeStr}]</span>
+        <span class="term-action">[${action}]</span>
+        <span class="${isSuccess ? 'term-success' : ''}">${message}</span>
+      `;
+      logs.appendChild(line);
+      logs.scrollTop = logs.scrollHeight;
+    }
+
+    function switchCluster(btn, clusterName) {
+      document.querySelectorAll('.cluster-tab').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      logToTerminal('CLUSTER', `Switched active management view to ${clusterName}. Synced CRD state.`);
+    }
+
+    function toggleGlobalDryRun() {
+      isDryRun = !isDryRun;
+      const toggle = document.getElementById('dryrun-toggle');
+      const badge = document.getElementById('mode-badge');
+      const label = document.getElementById('toggle-label');
+
+      if (isDryRun) {
+        toggle.classList.remove('on');
+        badge.className = 'badge-status dryrun';
+        badge.textContent = 'SHADOW EVALUATION (dryRun: true)';
+        label.textContent = 'ACTUATION: SHADOW';
+        logToTerminal('POLICY', 'Global actuation mode toggled to dryRun: true. Workload modifications paused.');
+      } else {
+        toggle.classList.add('on');
+        badge.className = 'badge-status active';
+        badge.textContent = 'LIVE ACTUATION ENABLED';
+        label.textContent = 'ACTUATION: LIVE';
+        logToTerminal('POLICY', 'Global actuation mode toggled to live. In-place pod resizing and scale active.', true);
+      }
+    }
+
+    function trigger500UserSimulation() {
+      if (isSimulating) return;
+      isSimulating = true;
+
+      const simAlert = document.getElementById('sim-alert');
+      simAlert.classList.add('active');
+
+      logToTerminal('SURGE', 'Simulating 500 concurrent users browsing checkout services...');
+
+      // Dynamic visual scaling simulation
+      setTimeout(() => {
+        document.getElementById('rep-payment').textContent = '9';
+        document.getElementById('cpu-payment').textContent = '2400m';
+        document.getElementById('lat-payment').textContent = '92ms';
+        document.getElementById('rep-checkout').textContent = '14';
+        document.getElementById('cpu-checkout').textContent = '3200m';
+        document.getElementById('lat-checkout').textContent = '84ms';
+        logToTerminal('SCALE-UP', 'Traffic spike detected (RPS surged to 850/s). Scaled payment-service: 4 -> 9 replicas, CPU in-place resized to 2400m.', true);
+        logToTerminal('SLO', 'P99 Latency maintained at 92ms (Ceiling: 150ms). Zero SLA violations recorded.', true);
+      }, 1000);
+
+      setTimeout(() => {
+        logToTerminal('BENCHMARK', 'Simulated 500 concurrent users finished: 2,000 transactions, 0 errors (0.00% failure rate).', true);
+      }, 3500);
+
+      setTimeout(() => {
+        document.getElementById('rep-payment').textContent = '4';
+        document.getElementById('cpu-payment').textContent = '1200m';
+        document.getElementById('lat-payment').textContent = '46ms';
+        document.getElementById('rep-checkout').textContent = '6';
+        document.getElementById('cpu-checkout').textContent = '1800m';
+        document.getElementById('lat-checkout').textContent = '68ms';
+        simAlert.classList.remove('active');
+        isSimulating = false;
+        logToTerminal('COOLDOWN', 'Surge passed. Workloads gracefully contracted in-place to optimal cost baseline ($0.00014/req).');
+      }, 6000);
+    }
+
+    function tuneWorkload(name) {
+      const newSlo = prompt(`Tuning policy for ${name}.\nEnter target P99 Latency SLO in milliseconds:`, "120");
+      if (newSlo) {
+        logToTerminal('UPDATE', `Updated ${name} spec.metrics.maxP99LatencyMs to ${newSlo}ms. Reconciled CRD.`, true);
+      }
+    }
+  </script>
+</body>
+</html>

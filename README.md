@@ -291,6 +291,7 @@ KubeCost Auto-HPA cuenta con una suite completa para organizaciones y equipos de
 - **[Resumen Ejecutivo de 1 Página](docs/EXECUTIVE_ONE_PAGER.md):** Briefing ejecutivo de una carilla para decisores de compra.
 - **[Manifiestos y Ejemplos de Producción](examples/):** Plantillas YAML listas para desplegar (`dryRun`, microservicios con latencia crítica, flotas Spot y límites de presupuesto mensual).
 - **Despliegue Enterprise:** Módulos listos para producción mediante [Terraform / OpenTofu](deploy/terraform/) y [ArgoCD GitOps](deploy/argocd/application.yaml).
+- **Consola Web Enterprise (Frontend):** Panel de control y telemetría multi-clúster con simulación de 500 usuarios en vivo y diseño Impeccable Neo Kinpaku en [web/app.html](web/app.html).
 - **Landing Page Comercial:** Showcase web interactivo con simulador en tiempo real en [web/index.html](web/index.html).
 
 ## Licencia

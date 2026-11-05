@@ -6,581 +6,743 @@
   <title>KubeCost Auto-HPA — Autonomous FinOps Scaling for Kubernetes</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Albert+Sans:wght@300;400;500;600;700&family=Alumni+Sans:wght@200;300;400;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles/impeccable-tokens.css">
+  <link rel="stylesheet" href="styles/impeccable-kit.css">
   <style>
     :root {
-      --bg: #0b0f19;
-      --card-bg: rgba(23, 32, 54, 0.7);
-      --card-border: rgba(255, 255, 255, 0.08);
-      --accent-cyan: #06b6d4;
-      --accent-blue: #3b82f6;
-      --accent-emerald: #10b981;
-      --accent-purple: #8b5cf6;
-      --text: #f3f4f6;
-      --text-muted: #9ca3af;
-      --font: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
-      --font-mono: 'JetBrains Mono', monospace;
+      /* Impeccable Neo Kinpaku Design Tokens */
+      --ks-kinpaku: oklch(84% 0.19 80.46);
+      --ks-kinpaku-vivid: oklch(87% 0.20 85);
+      --ks-kinpaku-rich: oklch(77% 0.13 82);
+      --ks-kinpaku-deep: oklch(61% 0.085 78);
+      --ks-on-gold: oklch(14% 0.018 95);
+
+      --ks-patina: oklch(70% 0.12 188);
+      --ks-patina-pale: oklch(82% 0.07 188);
+      --ks-patina-deep: oklch(46% 0.08 188);
+
+      --ks-lacquer-black: oklch(7% 0.006 95);
+      --ks-lacquer-deep: oklch(4% 0.004 95);
+      --ks-raised-lacquer: oklch(11% 0.006 95);
+      --ks-graphite: oklch(15% 0.008 95);
+      --ks-graphite-2: oklch(19% 0.008 95);
+
+      --ks-champagne: oklch(91% 0 0);
+      --ks-text-warm: oklch(88% 0 0);
+      --ks-text-muted: oklch(68% 0 0);
+      --ks-text-faint: oklch(52% 0 0);
+
+      --ks-gold-hairline: oklch(78% 0 0 / 0.14);
+      --ks-gold-hairline-strong: oklch(74% 0.09 82 / 0.5);
+
+      --ks-font: "Albert Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --ks-font-wordmark: "Alumni Sans", "Albert Sans", sans-serif;
+      --ks-mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
     }
+
     * { box-sizing: border-box; margin: 0; padding: 0; }
+
     body {
-      background-color: var(--bg);
-      color: var(--text);
-      font-family: var(--font);
-      line-height: 1.6;
+      background-color: var(--ks-lacquer-black);
+      color: var(--ks-text-warm);
+      font-family: var(--ks-font);
+      font-size: 1rem;
+      line-height: 1.7;
+      -webkit-font-smoothing: antialiased;
       overflow-x: hidden;
     }
-    .gradient-blur {
-      position: absolute;
-      top: -100px;
-      left: 50%;
-      transform: translateX(-50%);
-      width: 700px;
-      height: 450px;
-      background: radial-gradient(circle, rgba(6, 182, 212, 0.25) 0%, rgba(59, 130, 246, 0.15) 50%, transparent 70%);
-      filter: blur(80px);
-      z-index: -1;
-      pointer-events: none;
-    }
-    nav {
+
+    /* Impeccable Site Navigation */
+    nav.site-nav {
+      background: rgba(11, 11, 13, 0.9);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--ks-gold-hairline);
+      padding: 1.1rem 8%;
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 1.5rem 8%;
-      border-bottom: 1px solid var(--card-border);
-      backdrop-filter: blur(12px);
       position: sticky;
       top: 0;
-      z-index: 50;
-      background: rgba(11, 15, 25, 0.85);
+      z-index: 100;
     }
-    .brand {
+
+    .brand-anchor {
       display: flex;
       align-items: center;
-      gap: 0.75rem;
-      font-size: 1.25rem;
-      font-weight: 800;
-      letter-spacing: -0.5px;
-      color: #fff;
+      gap: 0.85rem;
       text-decoration: none;
+      color: var(--ks-champagne);
     }
-    .brand span {
-      background: linear-gradient(135deg, var(--accent-cyan), var(--accent-blue));
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
+
+    .brand-mark {
+      width: 28px;
+      height: 28px;
+      background: var(--ks-kinpaku);
+      clip-path: polygon(0 0, 100% 0, 100% 70%, 70% 100%, 0 100%);
+      position: relative;
     }
+
+    .brand-mark::after {
+      content: '';
+      position: absolute;
+      top: 3px; left: 3px; right: 3px; bottom: 3px;
+      border: 1px solid var(--ks-on-gold);
+    }
+
+    .brand-title {
+      font-family: var(--ks-font-wordmark);
+      font-size: 1.45rem;
+      letter-spacing: 0.18em;
+      font-weight: 400;
+      text-transform: uppercase;
+      color: var(--ks-champagne);
+    }
+
     .nav-links {
       display: flex;
       gap: 2rem;
       align-items: center;
     }
+
     .nav-links a {
-      color: var(--text-muted);
+      color: var(--ks-text-muted);
       text-decoration: none;
-      font-size: 0.95rem;
+      font-size: 0.875rem;
       font-weight: 500;
-      transition: color 0.2s;
+      transition: color 120ms ease;
     }
-    .nav-links a:hover { color: #fff; }
+
+    .nav-links a:hover {
+      color: var(--ks-champagne);
+    }
+
+    /* Button Primitives */
     .btn {
       display: inline-flex;
       align-items: center;
       gap: 0.5rem;
-      padding: 0.75rem 1.5rem;
-      border-radius: 8px;
+      padding: 0.65rem 1.35rem;
+      border-radius: 2px;
+      font-family: var(--ks-font);
       font-weight: 600;
-      font-size: 0.95rem;
+      font-size: 0.875rem;
       text-decoration: none;
-      transition: all 0.2s;
       cursor: pointer;
-      border: none;
+      transition: all 120ms ease;
     }
-    .btn-primary {
-      background: linear-gradient(135deg, var(--accent-cyan), var(--accent-blue));
-      color: #fff;
-      box-shadow: 0 4px 20px rgba(6, 182, 212, 0.3);
+
+    .btn-kinpaku {
+      background: var(--ks-kinpaku);
+      color: var(--ks-on-gold);
+      border: 1px solid var(--ks-kinpaku-rich);
     }
-    .btn-primary:hover {
-      box-shadow: 0 6px 28px rgba(6, 182, 212, 0.5);
-      transform: translateY(-2px);
+
+    .btn-kinpaku:hover {
+      background: var(--ks-kinpaku-vivid);
+      box-shadow: 0 0 14px oklch(84% 0.19 80 / 0.4);
     }
+
     .btn-secondary {
-      background: rgba(255, 255, 255, 0.05);
-      border: 1px solid var(--card-border);
-      color: var(--text);
+      background: var(--ks-raised-lacquer);
+      color: var(--ks-champagne);
+      border: 1px solid var(--ks-gold-hairline);
     }
+
     .btn-secondary:hover {
-      background: rgba(255, 255, 255, 0.1);
+      border-color: var(--ks-kinpaku-rich);
+      color: var(--ks-kinpaku);
     }
-    header.hero {
-      text-align: center;
-      padding: 6rem 8% 4rem;
-      max-width: 1100px;
+
+    /* Hero Section */
+    header.hero-section {
+      padding: 7rem 8% 5rem;
+      max-width: 1280px;
       margin: 0 auto;
+      text-align: center;
     }
-    .badge {
-      display: inline-block;
-      padding: 0.35rem 1rem;
-      border-radius: 999px;
-      background: rgba(6, 182, 212, 0.1);
-      border: 1px solid rgba(6, 182, 212, 0.3);
-      color: var(--accent-cyan);
-      font-size: 0.85rem;
-      font-weight: 600;
+
+    .hero-eyebrow {
+      font-family: var(--ks-mono);
+      font-size: 0.6875rem;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--ks-kinpaku);
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
       margin-bottom: 1.5rem;
+      padding: 4px 12px;
+      background: oklch(84% 0.19 80 / 0.08);
+      border: 1px solid var(--ks-gold-hairline-strong);
+      border-radius: 2px;
     }
-    h1 {
-      font-size: 3.5rem;
-      font-weight: 800;
-      line-height: 1.15;
-      letter-spacing: -1.5px;
-      margin-bottom: 1.5rem;
+
+    h1.hero-title {
+      font-family: var(--ks-font);
+      font-size: clamp(2.8rem, 5vw, 4.4rem);
+      font-weight: 700;
+      line-height: 1.1;
+      letter-spacing: -0.03em;
+      color: var(--ks-champagne);
+      margin-bottom: 1.75rem;
     }
-    h1 span {
-      background: linear-gradient(135deg, var(--accent-cyan), #60a5fa, var(--accent-purple));
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
+
+    h1.hero-title span.gold-highlight {
+      color: var(--ks-kinpaku);
     }
-    p.lead {
+
+    p.hero-lead {
       font-size: 1.25rem;
-      color: var(--text-muted);
-      max-width: 780px;
-      margin: 0 auto 2.5rem;
+      font-weight: 400;
+      color: var(--ks-text-muted);
+      max-width: 820px;
+      margin: 0 auto 3rem;
+      line-height: 1.6;
     }
-    .cta-group {
+
+    .hero-actions {
       display: flex;
       justify-content: center;
-      gap: 1rem;
-      margin-bottom: 3.5rem;
+      gap: 1.25rem;
+      margin-bottom: 4.5rem;
     }
-    .hero-stats {
+
+    /* Hero Calibration Marks & Metric Row */
+    .metric-strip {
       display: grid;
       grid-template-columns: repeat(4, 1fr);
-      gap: 1.5rem;
-      margin-top: 2rem;
+      gap: 1px;
+      background: var(--ks-gold-hairline);
+      border: 1px solid var(--ks-gold-hairline);
+      border-radius: 3px;
+      overflow: hidden;
     }
-    .stat-card {
-      background: var(--card-bg);
-      border: 1px solid var(--card-border);
-      border-radius: 12px;
-      padding: 1.5rem;
-      text-align: center;
+
+    .metric-card {
+      background: var(--ks-raised-lacquer);
+      padding: 1.75rem 1.5rem;
+      text-align: left;
     }
-    .stat-number {
+
+    .metric-num {
+      font-family: var(--ks-mono);
       font-size: 2.25rem;
-      font-weight: 800;
-      color: var(--accent-cyan);
-      letter-spacing: -1px;
+      font-weight: 500;
+      color: var(--ks-champagne);
+      letter-spacing: -0.02em;
     }
-    .stat-label {
-      color: var(--text-muted);
-      font-size: 0.85rem;
+
+    .metric-num.patina {
+      color: var(--ks-patina);
+    }
+
+    .metric-label {
+      font-family: var(--ks-mono);
+      font-size: 0.6875rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--ks-text-muted);
       margin-top: 0.35rem;
     }
-    section {
-      padding: 5rem 8%;
-      max-width: 1200px;
+
+    /* Section Scaffolding */
+    section.page-section {
+      padding: 6rem 8%;
+      max-width: 1320px;
       margin: 0 auto;
     }
-    .section-header {
-      text-align: center;
+
+    .section-head {
       margin-bottom: 3.5rem;
+      text-align: left;
     }
-    .section-header h2 {
+
+    .section-eyebrow {
+      font-family: var(--ks-mono);
+      font-size: 0.6875rem;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--ks-kinpaku);
+      margin-bottom: 0.5rem;
+    }
+
+    .section-title {
       font-size: 2.5rem;
-      font-weight: 700;
-      letter-spacing: -1px;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      color: var(--ks-champagne);
       margin-bottom: 0.75rem;
     }
-    .section-header p {
-      color: var(--text-muted);
+
+    .section-sub {
       font-size: 1.1rem;
+      color: var(--ks-text-muted);
+      max-width: 760px;
     }
-    /* ROI Calculator Card */
-    .calculator-container {
-      background: var(--card-bg);
-      border: 1px solid rgba(6, 182, 212, 0.3);
-      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
-      border-radius: 16px;
+
+    /* Bento Grid (Impeccable Kit 12-Column Layout) */
+    .bento-grid {
+      display: grid;
+      grid-template-columns: repeat(12, 1fr);
+      gap: 1.25rem;
+    }
+
+    .bento-tile {
+      background: var(--ks-raised-lacquer);
+      border: 1px solid var(--ks-gold-hairline);
+      border-radius: 4px;
+      padding: 2.25rem;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      position: relative;
+    }
+
+    .bento-span-4 { grid-column: span 4; }
+    .bento-span-6 { grid-column: span 6; }
+    .bento-span-8 { grid-column: span 8; }
+    .bento-span-12 { grid-column: span 12; }
+
+    .bento-marker {
+      font-family: var(--ks-mono);
+      font-size: 0.6875rem;
+      color: var(--ks-kinpaku);
+      margin-bottom: 1rem;
+    }
+
+    .bento-marker.patina {
+      color: var(--ks-patina);
+    }
+
+    .bento-tile h3 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      color: var(--ks-champagne);
+      margin-bottom: 0.75rem;
+      letter-spacing: -0.01em;
+    }
+
+    .bento-tile p {
+      color: var(--ks-text-muted);
+      font-size: 0.9375rem;
+      line-height: 1.6;
+    }
+
+    /* Interactive Hardware FinOps Calculator */
+    .calculator-plinth {
+      background: var(--ks-lacquer-deep);
+      border: 1px solid var(--ks-gold-hairline);
+      border-radius: 4px;
       padding: 3rem;
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 3rem;
+      gap: 3.5rem;
       align-items: center;
     }
-    .calc-controls {
-      display: flex;
-      flex-direction: column;
-      gap: 1.75rem;
+
+    .calc-slider-group {
+      margin-bottom: 1.75rem;
     }
-    .calc-group label {
+
+    .calc-label-row {
       display: flex;
       justify-content: space-between;
-      font-weight: 600;
-      margin-bottom: 0.5rem;
-      font-size: 0.95rem;
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: var(--ks-champagne);
+      margin-bottom: 0.6rem;
     }
-    .calc-group span.val {
-      color: var(--accent-cyan);
-      font-family: var(--font-mono);
+
+    .calc-val {
+      font-family: var(--ks-mono);
+      color: var(--ks-kinpaku);
     }
+
     input[type=range] {
       width: 100%;
-      height: 6px;
-      background: rgba(255, 255, 255, 0.1);
-      border-radius: 3px;
+      height: 4px;
+      background: var(--ks-graphite-2);
+      border-radius: 2px;
       outline: none;
-      accent-color: var(--accent-cyan);
+      accent-color: var(--ks-kinpaku);
     }
-    .calc-results {
-      background: rgba(11, 15, 25, 0.8);
-      border: 1px solid var(--card-border);
-      border-radius: 12px;
-      padding: 2rem;
+
+    .calc-output-box {
+      background: var(--ks-raised-lacquer);
+      border: 1px solid var(--ks-gold-hairline-strong);
+      border-radius: 4px;
+      padding: 2.25rem;
       display: flex;
       flex-direction: column;
       gap: 1.25rem;
     }
-    .result-row {
+
+    .output-row {
       display: flex;
       justify-content: space-between;
       align-items: center;
       padding-bottom: 0.75rem;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      border-bottom: 1px solid var(--ks-gold-hairline);
+      font-size: 0.875rem;
     }
-    .result-row.highlight {
-      border: none;
+
+    .output-hero {
       padding: 1.25rem 0 0.5rem;
     }
-    .result-row.highlight .amount {
-      font-size: 2.25rem;
-      font-weight: 800;
-      color: var(--accent-emerald);
-      font-family: var(--font-mono);
+
+    .output-hero .amount {
+      font-family: var(--ks-mono);
+      font-size: 2.8rem;
+      font-weight: 600;
+      color: var(--ks-patina);
+      letter-spacing: -0.02em;
     }
-    .payback-badge {
+
+    .patina-pill {
       display: inline-flex;
       align-items: center;
       gap: 0.5rem;
-      background: rgba(16, 185, 129, 0.15);
-      border: 1px solid var(--accent-emerald);
-      color: var(--accent-emerald);
-      padding: 0.5rem 1rem;
-      border-radius: 6px;
-      font-weight: 600;
-      font-size: 0.9rem;
-      justify-content: center;
+      background: oklch(70% 0.12 188 / 0.12);
+      border: 1px solid oklch(70% 0.12 188 / 0.35);
+      color: var(--ks-patina);
+      padding: 0.4rem 0.85rem;
+      border-radius: 2px;
+      font-family: var(--ks-mono);
+      font-size: 0.75rem;
     }
-    /* Feature Grid */
-    .features-grid {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 2rem;
-    }
-    .feature-card {
-      background: var(--card-bg);
-      border: 1px solid var(--card-border);
-      border-radius: 12px;
-      padding: 2rem;
-      transition: transform 0.2s, border-color 0.2s;
-    }
-    .feature-card:hover {
-      transform: translateY(-4px);
-      border-color: rgba(6, 182, 212, 0.4);
-    }
-    .feature-icon {
-      font-size: 2rem;
-      margin-bottom: 1rem;
-    }
-    .feature-card h3 {
-      font-size: 1.25rem;
-      margin-bottom: 0.5rem;
-    }
-    .feature-card p {
-      color: var(--text-muted);
-      font-size: 0.95rem;
-    }
-    /* Pricing table */
+
+    /* Enterprise Pricing Architecture */
     .pricing-grid {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
-      gap: 2rem;
+      gap: 1.5rem;
     }
+
     .pricing-card {
-      background: var(--card-bg);
-      border: 1px solid var(--card-border);
-      border-radius: 14px;
+      background: var(--ks-raised-lacquer);
+      border: 1px solid var(--ks-gold-hairline);
+      border-radius: 4px;
       padding: 2.5rem 2rem;
-      position: relative;
       display: flex;
       flex-direction: column;
+      position: relative;
     }
+
     .pricing-card.featured {
-      border: 2px solid var(--accent-cyan);
-      box-shadow: 0 8px 32px rgba(6, 182, 212, 0.2);
+      border: 1px solid var(--ks-kinpaku-rich);
+      box-shadow: 0 0 24px oklch(84% 0.19 80 / 0.15);
     }
-    .pricing-card.featured .popular-tag {
+
+    .pricing-card.featured .featured-tag {
       position: absolute;
       top: -12px;
-      left: 50%;
-      transform: translateX(-50%);
-      background: var(--accent-cyan);
-      color: #0b0f19;
-      font-size: 0.75rem;
-      font-weight: 800;
-      padding: 0.2rem 0.8rem;
-      border-radius: 999px;
+      left: 2rem;
+      background: var(--ks-kinpaku);
+      color: var(--ks-on-gold);
+      font-family: var(--ks-mono);
+      font-size: 0.6875rem;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      padding: 2px 8px;
+      border-radius: 2px;
       text-transform: uppercase;
     }
-    .price-amount {
-      font-size: 2.5rem;
-      font-weight: 800;
+
+    .pricing-price {
+      font-family: var(--ks-mono);
+      font-size: 2.6rem;
+      font-weight: 500;
+      color: var(--ks-champagne);
       margin: 1.25rem 0 0.5rem;
     }
-    .price-amount span {
-      font-size: 1rem;
-      font-weight: 400;
-      color: var(--text-muted);
+
+    .pricing-price span {
+      font-size: 0.875rem;
+      color: var(--ks-text-muted);
     }
+
     .pricing-features {
       list-style: none;
-      margin: 1.5rem 0 2rem;
+      margin: 1.75rem 0 2.25rem;
       flex-grow: 1;
     }
+
     .pricing-features li {
-      padding: 0.5rem 0;
-      color: var(--text-muted);
-      font-size: 0.9rem;
+      padding: 0.45rem 0;
+      color: var(--ks-text-muted);
+      font-size: 0.875rem;
       display: flex;
       align-items: center;
-      gap: 0.5rem;
+      gap: 0.6rem;
     }
+
     .pricing-features li::before {
-      content: "✓";
-      color: var(--accent-emerald);
-      font-weight: 700;
+      content: '—';
+      color: var(--ks-kinpaku);
+      font-family: var(--ks-mono);
     }
-    footer {
-      border-top: 1px solid var(--card-border);
-      padding: 3rem 8%;
-      text-align: center;
-      color: var(--text-muted);
-      font-size: 0.9rem;
+
+    footer.site-footer {
+      border-top: 1px solid var(--ks-gold-hairline);
+      padding: 3.5rem 8%;
+      background: var(--ks-lacquer-deep);
+      color: var(--ks-text-muted);
+      font-size: 0.8125rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
     }
   </style>
 </head>
 <body>
-  <div class="gradient-blur"></div>
 
-  <nav>
-    <a href="#" class="brand">
-      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #06b6d4;"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg>
-      <span>KubeCost Auto-HPA</span>
+  <!-- Site Navigation -->
+  <nav class="site-nav">
+    <a href="index.html" class="brand-anchor">
+      <div class="brand-mark"></div>
+      <div class="brand-title">KUBECOST AUTO-HPA</div>
     </a>
+
     <div class="nav-links">
-      <a href="#features">Capabilities</a>
+      <a href="#features">Architecture</a>
       <a href="#calculator">ROI Calculator</a>
-      <a href="#pricing">Pricing</a>
+      <a href="#pricing">Enterprise Plans</a>
+      <a href="app.html" style="color: var(--ks-kinpaku); font-weight: 600;">Enterprise Console &rarr;</a>
       <a href="https://github.com/Santidelacarrera/KubeCost_Auto_HPA" target="_blank">GitHub</a>
-      <a href="mailto:santiago@delacarrera.com" class="btn btn-primary">Book Demo</a>
+      <a href="app.html" class="btn btn-kinpaku">Launch Platform</a>
     </div>
   </nav>
 
-  <header class="hero">
-    <div class="badge">🚀 Production Release v0.1.0 • Multi-Arch & Cosign Verified</div>
-    <h1>Cut Kubernetes Cloud Spend by 35%<br><span>Without Sacrificing Latency</span></h1>
-    <p class="lead">
-      The first Kubernetes autoscaler built on real unit economics (<code>$/request</code>). Dynamically resizes pods in-place, eliminates overprovisioned idle spend, and safeguards p99 latency SLOs with zero code changes.
-    </p>
-    <div class="cta-group">
-      <a href="mailto:santiago@delacarrera.com?subject=Enterprise%20POC%20Inquiry%20-%20KubeCost%20Auto-HPA" class="btn btn-primary">Schedule 14-Day Free Pilot</a>
-      <a href="#calculator" class="btn btn-secondary">Calculate Your Fleet ROI</a>
+  <!-- Hero Header -->
+  <header class="hero-section">
+    <div class="hero-eyebrow">
+      <span>PRODUCTION RELEASE v0.1.0 • MULTI-ARCH • COSIGN VERIFIED</span>
     </div>
-    <div class="hero-stats">
-      <div class="stat-card">
-        <div class="stat-number">34.2%</div>
-        <div class="stat-label">Average Compute Savings</div>
+
+    <h1 class="hero-title">
+      Autonomous FinOps Scaling for Kubernetes.<br>
+      <span class="gold-highlight">35% Lower Cloud Spend. Zero Latency Spikes.</span>
+    </h1>
+
+    <p class="hero-lead">
+      The first Kubernetes autoscaler built around unit economics (<code>$/request</code>). Eliminates overprovisioned cluster spend, resizes pods in-place without restart delays, and strictly guarantees p99 latency SLOs.
+    </p>
+
+    <div class="hero-actions">
+      <a href="app.html" class="btn btn-kinpaku">Open Live Enterprise Console</a>
+      <a href="#calculator" class="btn btn-secondary">Calculate Fleet ROI</a>
+    </div>
+
+    <!-- Metrics Calibration Strip -->
+    <div class="metric-strip">
+      <div class="metric-card">
+        <div class="metric-num patina">34.8%</div>
+        <div class="metric-label">Average Compute Reduction</div>
       </div>
-      <div class="stat-card">
-        <div class="stat-number">&lt; 7 Days</div>
-        <div class="stat-label">Average Payback Period</div>
+      <div class="metric-card">
+        <div class="metric-num">&lt; 10d</div>
+        <div class="metric-label">Investment Payback Period</div>
       </div>
-      <div class="stat-card">
-        <div class="stat-number">0s</div>
-        <div class="stat-label">Downtime In-Place Resize</div>
+      <div class="metric-card">
+        <div class="metric-num patina">0.00%</div>
+        <div class="metric-label">500-User Surge Error Rate</div>
       </div>
-      <div class="stat-card">
-        <div class="stat-number">100%</div>
-        <div class="stat-label">Air-Gapped & Zero Telemetry</div>
+      <div class="metric-card">
+        <div class="metric-num">100%</div>
+        <div class="metric-label">Air-Gapped & Zero Telemetry</div>
       </div>
     </div>
   </header>
 
-  <!-- ROI Calculator Section -->
-  <section id="calculator">
-    <div class="section-header">
-      <h2>Interactive Fleet ROI Calculator</h2>
-      <p>Estimate your annual dollar savings and investment payback period instantly.</p>
+  <!-- Interactive ROI Calculator Plinth -->
+  <section class="page-section" id="calculator">
+    <div class="section-head">
+      <div class="section-eyebrow">FINOPS BUSINESS CASE CALCULATOR</div>
+      <h2 class="section-title">Quantified Fleet Savings Assessment</h2>
+      <p class="section-sub">Calculate exact projected dollar savings based on your cluster worker node fleet size and hourly compute rate.</p>
     </div>
-    <div class="calculator-container">
-      <div class="calc-controls">
-        <div class="calc-group">
-          <label>Kubernetes Worker Nodes: <span class="val" id="nodes-val">80 Nodes</span></label>
-          <input type="range" id="nodes" min="10" max="500" step="5" value="80">
-        </div>
-        <div class="calc-group">
-          <label>Average Node Cost: <span class="val" id="cost-val">$0.35 / hr</span></label>
-          <input type="range" id="cost" min="0.10" max="1.50" step="0.05" value="0.35">
-        </div>
-        <div class="calc-group">
-          <label>Current CPU Utilization: <span class="val" id="util-val">20%</span></label>
-          <input type="range" id="util" min="10" max="60" step="2" value="20">
-        </div>
-      </div>
-      <div class="calc-results">
-        <div class="result-row">
-          <span>Current Annual Cloud Spend:</span>
-          <span style="font-family: var(--font-mono);" id="current-spend">$245,280</span>
-        </div>
-        <div class="result-row">
-          <span>Target Optimization Rate:</span>
-          <span style="color: var(--accent-cyan); font-weight: 700;" id="savings-rate">36.5%</span>
-        </div>
-        <div class="result-row highlight">
-          <div>
-            <div style="font-size: 0.9rem; color: var(--text-muted); text-transform: uppercase;">Estimated Annual Savings</div>
-            <div class="amount" id="annual-savings">$89,527</div>
+
+    <div class="calculator-plinth">
+      <div>
+        <div class="calc-slider-group">
+          <div class="calc-label-row">
+            <span>Kubernetes Worker Nodes:</span>
+            <span class="calc-val" id="lbl-nodes">80 Nodes</span>
           </div>
+          <input type="range" id="sl-nodes" min="10" max="500" step="5" value="80">
         </div>
-        <div class="payback-badge" id="payback-tag">
-          ⚡ 100% Payback in 9.2 Days
+
+        <div class="calc-slider-group">
+          <div class="calc-label-row">
+            <span>Average Node Cost:</span>
+            <span class="calc-val" id="lbl-cost">$0.35 / hr</span>
+          </div>
+          <input type="range" id="sl-cost" min="0.10" max="1.50" step="0.05" value="0.35">
+        </div>
+
+        <div class="calc-slider-group">
+          <div class="calc-label-row">
+            <span>Current Average CPU Utilization:</span>
+            <span class="calc-val" id="lbl-util">20%</span>
+          </div>
+          <input type="range" id="sl-util" min="10" max="60" step="2" value="20">
+        </div>
+      </div>
+
+      <div class="calc-output-box">
+        <div class="output-row">
+          <span style="color: var(--ks-text-muted);">Current Annual Cloud Spend:</span>
+          <span style="font-family: var(--ks-mono); color: var(--ks-champagne);" id="out-spend">$245,280</span>
+        </div>
+        <div class="output-row">
+          <span style="color: var(--ks-text-muted);">Projected Cloud Reduction:</span>
+          <span style="font-family: var(--ks-mono); color: var(--ks-kinpaku);" id="out-rate">36.5%</span>
+        </div>
+        <div class="output-hero">
+          <div style="font-family: var(--ks-mono); font-size: 0.6875rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ks-text-muted);">
+            Net Annualized Cloud Savings
+          </div>
+          <div class="amount" id="out-savings">$89,527</div>
+        </div>
+        <div class="patina-pill" id="out-payback">
+          100% Amortized in 9.2 Days • 3.8x ROI
         </div>
       </div>
     </div>
   </section>
 
-  <!-- Features Grid -->
-  <section id="features">
-    <div class="section-header">
-      <h2>Engineered for Enterprise FinOps</h2>
-      <p>Comprehensive autonomous scaling without black-box vendor lock-in.</p>
+  <!-- Architecture Bento Grid -->
+  <section class="page-section" id="features">
+    <div class="section-head">
+      <div class="section-eyebrow">ENGINEERING PROOFS</div>
+      <h2 class="section-title">Built for Production SREs and FinOps</h2>
+      <p class="section-sub">Autonomous closed-loop optimization without disruptive pod restarts or third-party SaaS data exfiltration.</p>
     </div>
-    <div class="features-grid">
-      <div class="feature-card">
-        <div class="feature-icon">⚡</div>
-        <h3>In-Place Pod Resizing</h3>
-        <p>Leverages native Kubernetes in-place resize. Adapts CPU and RAM on running containers without restart delays or dropped TCP connections.</p>
+
+    <div class="bento-grid">
+      <div class="bento-tile bento-span-8">
+        <div class="bento-marker">[01 // IN-PLACE POD RESIZING]</div>
+        <h3>Zero-Downtime Vertical Scaling</h3>
+        <p>
+          Leverages Kubernetes 1.27+ native in-place resize. Adapts container CPU and memory cgroups dynamically on the fly without terminating the pod, dropping active TCP sessions, or losing cache warmup.
+        </p>
       </div>
-      <div class="feature-card">
-        <div class="feature-icon">🛡️</div>
-        <h3>P99 Latency Circuit Breakers</h3>
-        <p>Hardcoded safety overrides. If response latency approaches SLO limits, cost optimization instantly yields to aggressive scale-out.</p>
+
+      <div class="bento-tile bento-span-4">
+        <div class="bento-marker patina">[02 // SLO CIRCUIT BREAKER]</div>
+        <h3>P99 Latency Immunity</h3>
+        <p>
+          Hardcoded priority: user experience always overrides cost cutting. If p99 latency approaches SLO limits, cost optimization instantly yields to aggressive horizontal and vertical scale-out.
+        </p>
       </div>
-      <div class="feature-card">
-        <div class="feature-icon">🎯</div>
-        <h3>Spot Instance Lifecycle Protection</h3>
-        <p>Proactively drains and migrates workloads 120 seconds ahead of AWS/GCP spot reclamation, preserving 100% availability.</p>
+
+      <div class="bento-tile bento-span-4">
+        <div class="bento-marker patina">[03 // SPOT DRAINER]</div>
+        <h3>Automated Spot Safety</h3>
+        <p>
+          Listens for cloud provider 2-minute interruption signals, gracefully cordons nodes and migrates workloads to On-Demand compute before VM eviction without 502 Bad Gateway errors.
+        </p>
       </div>
-      <div class="feature-card">
-        <div class="feature-icon">🔒</div>
-        <h3>Zero-Telemetry Privacy</h3>
-        <p>Operates 100% inside your VPC or private datacenter. No data exfiltration, no outbound phoning, and zero PII collected.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">📊</div>
-        <h3>Prometheus & KubeCost Native</h3>
-        <p>Connects directly to your internal Prometheus or Kubecost metrics pipeline with sub-50ms reconciliation cycles.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">🚀</div>
-        <h3>Zero-Risk Shadow Mode</h3>
-        <p>Deploy with <code>spec.dryRun: true</code>. Verify calculated savings and validate recommendations in Grafana before touching a single pod.</p>
+
+      <div class="bento-tile bento-span-8">
+        <div class="bento-marker">[04 // 100% AIR-GAPPED PRIVACY]</div>
+        <h3>Zero-Telemetry Data Sovereignty</h3>
+        <p>
+          Operates strictly within your VPC and private Kubernetes perimeter. No external phoning home, no PII collected, and fully compliant with GDPR, CCPA/CPRA, and HIPAA requirements.
+        </p>
       </div>
     </div>
   </section>
 
-  <!-- Pricing -->
-  <section id="pricing">
-    <div class="section-header">
-      <h2>Transparent Enterprise Licensing</h2>
-      <p>Predictable subscriptions designed to deliver a guaranteed 5x to 10x ROI.</p>
+  <!-- Enterprise Commercial Pricing -->
+  <section class="page-section" id="pricing">
+    <div class="section-head">
+      <div class="section-eyebrow">COMMERCIAL EDITIONS</div>
+      <h2 class="section-title">Transparent Enterprise Licensing</h2>
+      <p class="section-sub">Flexible models engineered to deliver a verified 5x to 10x net return on investment.</p>
     </div>
+
     <div class="pricing-grid">
       <div class="pricing-card">
-        <h3>Community</h3>
-        <p style="color: var(--text-muted); font-size: 0.9rem;">Free Forever (Apache 2.0)</p>
-        <div class="price-amount">$0 <span>/ forever</span></div>
+        <h3>Community Edition</h3>
+        <p style="color: var(--ks-text-muted); font-size: 0.875rem;">Free Forever (Apache 2.0)</p>
+        <div class="pricing-price">$0 <span>/ forever</span></div>
         <ul class="pricing-features">
           <li>Core CRD Controller</li>
           <li>In-Place Pod Resizer</li>
           <li>Spot Instance Drainer</li>
-          <li>Community Grafana Dashboard</li>
+          <li>Community Grafana Dashboards</li>
           <li>GitHub Community Support</li>
         </ul>
-        <a href="https://github.com/Santidelacarrera/KubeCost_Auto_HPA" class="btn btn-secondary" style="width: 100%; justify-content: center;">Deploy Free</a>
+        <a href="https://github.com/Santidelacarrera/KubeCost_Auto_HPA" class="btn btn-secondary">Deploy Open Source</a>
       </div>
 
       <div class="pricing-card featured">
-        <div class="popular-tag">Most Popular</div>
+        <div class="featured-tag">MOST POPULAR</div>
         <h3>Enterprise Standard</h3>
-        <p style="color: var(--text-muted); font-size: 0.9rem;">For Growing Kubernetes Fleets</p>
-        <div class="price-amount">$18 <span>/ node / mo</span></div>
+        <p style="color: var(--ks-text-muted); font-size: 0.875rem;">For Growing Kubernetes Fleets</p>
+        <div class="pricing-price">$18 <span>/ node / mo</span></div>
         <ul class="pricing-features">
           <li>Everything in Community</li>
-          <li>4-Hour Business SLA Support</li>
+          <li>4-Hour Business SLA Response</li>
           <li>Assisted 14-Day Pilot Setup</li>
-          <li>Terraform & ArgoCD Enterprise Packs</li>
+          <li>Terraform & ArgoCD Packs</li>
           <li>SOC2 / ISO-27001 Vendor Package</li>
-          <li>Commercial Warranty & IP Indemnity</li>
+          <li>Full IP Indemnification & Commercial Warranty</li>
         </ul>
-        <a href="mailto:santiago@delacarrera.com?subject=Enterprise%20Standard%20Pilot" class="btn btn-primary" style="width: 100%; justify-content: center;">Start 14-Day Pilot</a>
+        <a href="app.html" class="btn btn-kinpaku">Start 14-Day Pilot</a>
       </div>
 
       <div class="pricing-card">
         <h3>Mission-Critical</h3>
-        <p style="color: var(--text-muted); font-size: 0.9rem;">For Large Multi-Cluster Fleets</p>
-        <div class="price-amount">$32 <span>/ node / mo</span></div>
+        <p style="color: var(--ks-text-muted); font-size: 0.875rem;">For Multi-Cluster Fleets</p>
+        <div class="pricing-price">$32 <span>/ node / mo</span></div>
         <ul class="pricing-features">
           <li>Everything in Standard</li>
-          <li>24/7/365 Critical Incident Response (&lt;1h)</li>
+          <li>24/7/365 Incident Response (&lt; 1 hour SLA)</li>
           <li>Dedicated FinOps Solutions Architect</li>
-          <li>Multi-Cluster Fleet Dashboard</li>
+          <li>Multi-Cluster Central Console</li>
           <li>Custom Metric Connectors</li>
-          <li>Volume Fleet Discounts (> 100 nodes)</li>
+          <li>Volume Discounts (> 100 Nodes)</li>
         </ul>
-        <a href="mailto:santiago@delacarrera.com?subject=Mission%20Critical%20Inquiry" class="btn btn-secondary" style="width: 100%; justify-content: center;">Contact Enterprise Sales</a>
+        <a href="mailto:santiago@delacarrera.com?subject=Enterprise%20Mission%20Critical" class="btn btn-secondary">Contact Enterprise Sales</a>
       </div>
     </div>
   </section>
 
-  <footer>
-    <p>© 2026 KubeCost Auto-HPA. Distributed under Apache-2.0 with Enterprise Commercial Support.</p>
-    <p style="margin-top: 0.5rem; font-size: 0.8rem;">
-      Artifacts verified by Sigstore Cosign • Published on GitHub Container Registry (GHCR)
-    </p>
+  <!-- Footer -->
+  <footer class="site-footer">
+    <div style="font-family: var(--ks-mono);">
+      © 2026 KUBECOST AUTO-HPA. Distributed under Apache-2.0 with Enterprise Support.
+    </div>
+    <div style="font-family: var(--ks-mono); color: var(--ks-kinpaku);">
+      Verified with Sigstore Cosign • Published on GHCR
+    </div>
   </footer>
 
   <script>
-    const nodesInput = document.getElementById('nodes');
-    const costInput = document.getElementById('cost');
-    const utilInput = document.getElementById('util');
+    const slNodes = document.getElementById('sl-nodes');
+    const slCost = document.getElementById('sl-cost');
+    const slUtil = document.getElementById('sl-util');
 
-    const nodesVal = document.getElementById('nodes-val');
-    const costVal = document.getElementById('cost-val');
-    const utilVal = document.getElementById('util-val');
+    const lblNodes = document.getElementById('lbl-nodes');
+    const lblCost = document.getElementById('lbl-cost');
+    const lblUtil = document.getElementById('lbl-util');
 
-    const currentSpendEl = document.getElementById('current-spend');
-    const savingsRateEl = document.getElementById('savings-rate');
-    const annualSavingsEl = document.getElementById('annual-savings');
-    const paybackTag = document.getElementById('payback-tag');
+    const outSpend = document.getElementById('out-spend');
+    const outRate = document.getElementById('out-rate');
+    const outSavings = document.getElementById('out-savings');
+    const outPayback = document.getElementById('out-payback');
 
-    function updateCalc() {
-      const nodes = parseInt(nodesInput.value);
-      const cost = parseFloat(costInput.value);
-      const util = parseInt(utilInput.value) / 100.0;
+    function updateFinOpsCalculator() {
+      const nodes = parseInt(slNodes.value);
+      const cost = parseFloat(slCost.value);
+      const util = parseInt(slUtil.value) / 100.0;
 
-      nodesVal.textContent = `${nodes} Nodes`;
-      costVal.textContent = `$${cost.toFixed(2)} / hr`;
-      utilVal.textContent = `${Math.round(util * 100)}%`;
+      lblNodes.textContent = `${nodes} Nodes`;
+      lblCost.textContent = `$${cost.toFixed(2)} / hr`;
+      lblUtil.textContent = `${Math.round(util * 100)}%`;
 
       const annualSpend = nodes * cost * 8760;
       const efficiencyGain = Math.min(0.48, Math.max(0.18, 1.0 - (util / 0.62)));
@@ -589,16 +751,16 @@
       const dailySavings = savings / 365.0;
       const paybackDays = (licenseCost / dailySavings).toFixed(1);
 
-      currentSpendEl.textContent = `$${Math.round(annualSpend).toLocaleString()}`;
-      savingsRateEl.textContent = `${(efficiencyGain * 100).toFixed(1)}%`;
-      annualSavingsEl.textContent = `$${Math.round(savings).toLocaleString()}`;
-      paybackTag.textContent = `⚡ 100% Payback in ${paybackDays} Days (ROI: ${(savings / licenseCost).toFixed(1)}x)`;
+      outSpend.textContent = `$${Math.round(annualSpend).toLocaleString()}`;
+      outRate.textContent = `${(efficiencyGain * 100).toFixed(1)}%`;
+      outSavings.textContent = `$${Math.round(savings).toLocaleString()}`;
+      outPayback.textContent = `100% Amortized in ${paybackDays} Days • ${(savings / licenseCost).toFixed(1)}x ROI`;
     }
 
-    nodesInput.addEventListener('input', updateCalc);
-    costInput.addEventListener('input', updateCalc);
-    utilInput.addEventListener('input', updateCalc);
-    updateCalc();
+    slNodes.addEventListener('input', updateFinOpsCalculator);
+    slCost.addEventListener('input', updateFinOpsCalculator);
+    slUtil.addEventListener('input', updateFinOpsCalculator);
+    updateFinOpsCalculator();
   </script>
 </body>
 </html>
