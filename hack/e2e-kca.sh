@@ -6,7 +6,7 @@
 set -euo pipefail
 
 CLUSTER=${CLUSTER:-kca-e2e}
-NODE_IMAGE=${NODE_IMAGE:-kindest/node:v1.33.1}
+NODE_IMAGE=${NODE_IMAGE:-kindest/node:v1.33.4}
 METRICS_SERVER=${METRICS_SERVER:-https://github.com/kubernetes-sigs/metrics-server/releases/download/v0.7.2/components.yaml}
 KEEP=${KEEP:-0}
 

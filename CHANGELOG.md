@@ -4,6 +4,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-05
+
 ### Fixed
 - `operator/cmd/version_test.go`: append `.exe` binary extension on Windows (`runtime.GOOS == "windows"`) so that link-time version injection test runs portably across Windows, Linux and macOS.
 - `hack/helm-rehearsal.sh`: `grep -q` at the end of a pipe under `pipefail` could report a false failure (exit 141); output is now captured first. The script also checks for docker, kind, kubectl and helm before starting.

@@ -10,7 +10,7 @@ for tool in docker kind kubectl helm; do
   command -v "$tool" >/dev/null || { echo "missing required tool: $tool (see docs/PILOT.md section 12)" >&2; exit 2; }
 done
 CLUSTER=${CLUSTER:-kch-helm-rehearsal}
-NODE_IMAGE=${NODE_IMAGE:-kindest/node:v1.33.1}
+NODE_IMAGE=${NODE_IMAGE:-kindest/node:v1.33.4}
 REL=rehearsal
 NS=kubecost-auto-hpa-system
 KEEP=${KEEP:-0}

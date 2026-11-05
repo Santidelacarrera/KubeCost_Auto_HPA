@@ -5,7 +5,7 @@
 set -euo pipefail
 
 CLUSTER=${CLUSTER:-kch-e2e}
-NODE_IMAGE=${NODE_IMAGE:-kindest/node:v1.33.1}
+NODE_IMAGE=${NODE_IMAGE:-kindest/node:v1.33.4}
 KEEP=${KEEP:-0}
 
 cleanup() { [ "$KEEP" = 1 ] || kind delete cluster --name "$CLUSTER" >/dev/null 2>&1 || true; }
