@@ -15,6 +15,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from .auth_billing import MultiTenantAuthManager, generate_stripe_billing_invoice
 from .binpacking import ConsolidationResult, NodeBinPacker, NodeState, PodPlacement
 from .economics import cost_per_request_from_pod
+from .gameday import run_autonomous_gameday
+from .gpu_optimizer import evaluate_gpu_workload
+from .greenops_guardrail import evaluate_finops_budget_guardrail, evaluate_greenops_carbon
 from .guardrails import BudgetGuardrail
 from .oom_shield import OOMProtectionShield, OOMShieldDecision
 from .predictive import ForecastResult, PredictiveAutoscaler
@@ -366,6 +369,40 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(401, '{"error":"unauthorized"}')
             client_id = qs.get("client_id", ["default-tenant"])[0]
             return self._send(200, json.dumps({"keys": _auth_manager.list_client_keys(client_id)}))
+        elif path_only == "/v1/gpu/optimize":
+            workload = qs.get("workload", ["llm-gateway-vllm"])[0]
+            gpu_model = qs.get("gpu_model", ["A100-80GB"])[0]
+            sm_pct = float(qs.get("sm_utilization_pct", ["22.0"])[0])
+            vram_gib = float(qs.get("vram_used_gib", ["13.5"])[0])
+            tokens_s = float(qs.get("tokens_per_second", ["540.0"])[0])
+            plan = evaluate_gpu_workload(
+                workload=workload,
+                current_gpu_model=gpu_model,
+                sm_utilization_pct=sm_pct,
+                vram_used_gib=vram_gib,
+                tokens_per_second=tokens_s,
+            )
+            return self._send(200, json.dumps(plan.to_dict()))
+        elif path_only == "/v1/greenops/report":
+            reg = qs.get("region", ["us-east-1"])[0]
+            rep = evaluate_greenops_carbon(current_region=reg)
+            return self._send(200, json.dumps(rep.to_dict()))
+        elif path_only == "/v1/finops/guardrail":
+            tenant_id = qs.get("tenant_id", ["org-prod-01"])[0]
+            budget = float(qs.get("monthly_budget_usd", ["15000.0"])[0])
+            mtd = float(qs.get("mtd_spend_usd", ["9200.0"])[0])
+            day = int(qs.get("day_of_month", ["20"])[0])
+            dec = evaluate_finops_budget_guardrail(
+                tenant_id=tenant_id,
+                monthly_budget_usd=budget,
+                mtd_spend_usd=mtd,
+                day_of_month=day,
+            )
+            return self._send(200, json.dumps(dec.to_dict()))
+        elif path_only == "/v1/gameday/simulate":
+            cluster_id = qs.get("cluster_id", ["prod-us-east-1"])[0]
+            scorecard = run_autonomous_gameday(cluster_id=cluster_id)
+            return self._send(200, json.dumps(scorecard.to_dict()))
         elif path_only == "/v1/cluster/topology":
             # ScaleOps Parity: Sample Cluster Topology & Bin-Packing State
             sample_topology = {
@@ -518,6 +555,31 @@ class Handler(BaseHTTPRequestHandler):
                 client_id=str(payload.get("client_id") or tenant_header or "default-tenant"),
                 scopes=payload.get("scopes"),
             ),
+            "/v1/gpu/optimize": lambda payload, tenant_header=None: evaluate_gpu_workload(
+                workload=str(payload.get("workload", "llm-gateway-vllm")),
+                current_gpu_model=str(payload.get("current_gpu_model", "A100-80GB")),
+                requested_gpus=int(payload.get("requested_gpus", 1)),
+                sm_utilization_pct=float(payload.get("sm_utilization_pct", 22.0)),
+                vram_used_gib=float(payload.get("vram_used_gib", 13.5)),
+                tokens_per_second=float(payload.get("tokens_per_second", 540.0)),
+                inference_rps=float(payload.get("inference_rps", 18.0)),
+                spot_tolerant=bool(payload.get("spot_tolerant", True)),
+                latency_p99_ms=float(payload.get("latency_p99_ms", 185.0)),
+                latency_slo_ms=float(payload.get("latency_slo_ms", 350.0)),
+            ).to_dict(),
+            "/v1/finops/guardrail": lambda payload, tenant_header=None: evaluate_finops_budget_guardrail(
+                tenant_id=str(payload.get("tenant_id") or tenant_header or "org-prod-01"),
+                monthly_budget_usd=float(payload.get("monthly_budget_usd", 15000.0)),
+                mtd_spend_usd=float(payload.get("mtd_spend_usd", 9200.0)),
+                day_of_month=int(payload.get("day_of_month", 20)),
+                days_in_month=int(payload.get("days_in_month", 30)),
+                slo_critical_breach=bool(payload.get("slo_critical_breach", False)),
+            ).to_dict(),
+            "/v1/gameday/simulate": lambda payload, tenant_header=None: run_autonomous_gameday(
+                cluster_id=str(payload.get("cluster_id", "prod-us-east-1")),
+                baseline_rps=float(payload.get("baseline_rps", 840.0)),
+                node_count=int(payload.get("node_count", 12)),
+            ).to_dict(),
         }
         if self.path in saas_post_routes:
             if not self._authorized():
