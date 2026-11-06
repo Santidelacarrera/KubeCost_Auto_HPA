@@ -340,10 +340,22 @@ func (r *KubeCostHPAReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			parts = append(parts, fmt.Sprintf("memory %dMi->%dMi (%s)", desiredMem, newMem, reason))
 		}
 		if repChange {
-			parts = append(parts, fmt.Sprintf("replicas %d->%d (%s)", curReplicas, newReplicas, dec.Replicas.Reason))
+			repReason := "scaling"
+			if dec.Replicas != nil && dec.Replicas.Reason != "" {
+				repReason = dec.Replicas.Reason
+			} else if dec.Predictive != nil && dec.Predictive.IsPrewarming {
+				repReason = dec.Predictive.Reason
+			}
+			parts = append(parts, fmt.Sprintf("replicas %d->%d (%s)", curReplicas, newReplicas, repReason))
 		}
 		summary := strings.Join(parts, "; ")
-		isGrow := (cpuChange && dec.Action == "grow") || (memChange && dec.Memory.Action == "grow") || newReplicas > curReplicas
+		memAction := "hold"
+		if dec.Memory != nil {
+			memAction = dec.Memory.Action
+		} else if dec.OOMProtection != nil {
+			memAction = dec.OOMProtection.Action
+		}
+		isGrow := (cpuChange && dec.Action == "grow") || (memChange && (memAction == "grow" || memAction == "inflate")) || newReplicas > curReplicas
 		switch {
 		case hpa.Spec.DryRun:
 			hpa.Status.LastReason = "dry-run: would " + summary
@@ -358,7 +370,7 @@ func (r *KubeCostHPAReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			if memChange {
 				desiredMem = newMem
 				hpa.Status.DesiredMemoryMiB = desiredMem
-				cResizes.WithLabelValues(hpa.Namespace, hpa.Name, "memory-"+dec.Memory.Action).Inc()
+				cResizes.WithLabelValues(hpa.Namespace, hpa.Name, "memory-"+memAction).Inc()
 			}
 			if repChange {
 				if err := r.Resizer.SetReplicas(ctx, hpa.Namespace, dep.Name, newReplicas); err != nil {
@@ -479,7 +491,7 @@ func (r *KubeCostHPAReconciler) converge(ctx context.Context, h *v1alpha1.KubeCo
 }
 
 func memBytes(m *v1alpha1.MemorySpec, mib int64) int64 {
-	if m == nil {
+	if m == nil && mib == 0 {
 		return 0 // memory resizing not enabled: leave memory alone
 	}
 	return mib << 20

@@ -538,4 +538,3 @@ func TestScaleOpsPredictiveAndOOMProtectionActuation(t *testing.T) {
 		t.Fatalf("expected pre-warmed replicas 5, got %d", sc.Spec.Replicas)
 	}
 }
-
