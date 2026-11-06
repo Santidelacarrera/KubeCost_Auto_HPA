@@ -11,9 +11,15 @@ patches:
     - {op: replace, path: /spec/template/spec/containers/0/args, value: []}
     - {op: replace, path: /spec/template/spec/containers/0/env/0/value, value: "http://fake-prometheus:9090"}
     - {op: replace, path: /spec/template/spec/containers/0/env/1/value, value: ""}
+    - {op: replace, path: /spec/template/spec/containers/0/resources/requests/cpu, value: 10m}
 - target: {kind: Deployment, name: kubecost-auto-hpa-engine}
   patch: |-
     - {op: replace, path: /spec/replicas, value: 1}
+    - {op: replace, path: /spec/template/spec/containers/0/imagePullPolicy, value: IfNotPresent}
+    - {op: replace, path: /spec/template/spec/containers/0/resources/requests/cpu, value: 10m}
+- target: {kind: Deployment, name: kubecost-auto-hpa-redis}
+  patch: |-
+    - {op: replace, path: /spec/template/spec/containers/0/resources/requests/cpu, value: 10m}
 images:
 - name: ghcr.io/santidelacarrera/kubecost-auto-hpa-operator
   newName: kubecost-auto-hpa-operator

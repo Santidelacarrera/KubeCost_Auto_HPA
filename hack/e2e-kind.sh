@@ -9,14 +9,25 @@ NODE_IMAGE=${NODE_IMAGE:-kindest/node:v1.33.4}
 KEEP=${KEEP:-0}
 
 cleanup() { [ "$KEEP" = 1 ] || kind delete cluster --name "$CLUSTER" >/dev/null 2>&1 || true; }
-trap cleanup EXIT
+dump() {
+  echo "--- diagnostics ---"
+  kubectl get nodes,deploy,pods -A -o wide || true
+  kubectl -n kubecost-auto-hpa-system describe pod -l app.kubernetes.io/component=operator || true
+  kubectl -n kubecost-auto-hpa-system logs deploy/kubecost-auto-hpa-operator --tail=80 || true
+  kubectl -n kubecost-auto-hpa-system logs deploy/kubecost-auto-hpa-engine --tail=80 || true
+}
+trap 'rc=$?; [ $rc -eq 0 ] || dump; cleanup' EXIT
 
 kind create cluster --name "$CLUSTER" --image "$NODE_IMAGE" --wait 120s
 docker build -t kubecost-auto-hpa-operator:dev operator
 docker build -t kubecost-auto-hpa-engine:dev engine
 kind load docker-image --name "$CLUSTER" kubecost-auto-hpa-operator:dev kubecost-auto-hpa-engine:dev
 
-# The CRD must be established before the CR in the same kustomization is accepted.
+# Establish CRDs first so the overlay applies cleanly on the first pass.
+kubectl apply -k operator/config/crd
+kubectl wait --for=condition=Established --timeout=60s \
+  crd/kubecosthpas.autoscaling.kubecost.io \
+  crd/kubecostautoscalers.autoscaling.kubecost.io
 kubectl apply -k operator/config/overlays/e2e || { sleep 5; kubectl apply -k operator/config/overlays/e2e; }
 for d in kubecost-auto-hpa-operator kubecost-auto-hpa-engine kubecost-auto-hpa-redis fake-prometheus; do
   kubectl -n kubecost-auto-hpa-system rollout status "deploy/$d" --timeout=180s
