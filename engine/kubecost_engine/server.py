@@ -183,7 +183,7 @@ def evaluate(req: dict) -> dict:
             mem_out["mib"] = oom_dec.recommended_request_mib
             mem_out["reason"] = oom_dec.reason
 
-    return {
+    decision_res = {
         "action": action,
         "cpu_millicores": new_cpu,
         "reason": reason,
@@ -196,6 +196,16 @@ def evaluate(req: dict) -> dict:
         "predictive": predictive_out,
         "oom_protection": oom_out,
     }
+
+    if os.environ.get("NEXUS_TELEMETRY_ENABLED", "").lower() in ("1", "true", "yes"):
+        try:
+            from .telemetry import get_telemetry_client
+
+            get_telemetry_client().publish_scaling_decision(decision_res, request_context=req)
+        except Exception:
+            pass
+
+    return decision_res
 
 
 def render_metrics() -> str:
