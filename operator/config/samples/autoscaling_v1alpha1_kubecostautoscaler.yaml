@@ -48,20 +48,5 @@ spec:
     onDemandMultiplier: "1.0"
     spotInterruptionBufferPercent: 20   # a Spot replica counts as 80% of a replica
     # spotNodeLabels:              # override the built-in provider label rules
-
-  # ScaleOps Parity Capabilities (Optional):
-  predictive:
-    enabled: true                  # Pre-warm replicas ahead of traffic surges
-    warmupLeadTimeSeconds: 120
-    targetRPSPerPod: 50
-
-  oomProtection:
-    enabled: true                  # Prevent container crash exit 137 by dynamic limit inflation
-    criticalThresholdPercent: 88
-    maxLimitMiB: 8192
-
-  nodeBinPacking:
-    enabled: false                 # Enable workload density compaction for node termination savings
-    consolidationThresholdPercent: 35
     #   - key: lifecycle
     #     values: [spot]
