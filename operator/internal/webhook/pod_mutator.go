@@ -5,7 +5,9 @@
 package webhook
 
 import (
+	"encoding/json"
 	"fmt"
+	"net/http"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -135,4 +137,25 @@ func MutatePodOnAdmission(
 			c.Name, target.RequestCPUMillicores, target.RequestMemoryMiB,
 		),
 	}
+}
+
+// PodMutator implements http.Handler for the /mutate-v1-pod AdmissionWebhook endpoint.
+type PodMutator struct {
+	DefaultExecutionMode execution.Mode
+	DefaultTarget        ContainerRightSizeTarget
+}
+
+func (pm *PodMutator) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var pod corev1.Pod
+	if err := json.NewDecoder(r.Body).Decode(&pod); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	res := MutatePodOnAdmission(&pod, pm.DefaultTarget, pm.DefaultExecutionMode)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(res)
 }

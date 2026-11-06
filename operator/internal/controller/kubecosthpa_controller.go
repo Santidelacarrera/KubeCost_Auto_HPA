@@ -26,11 +26,15 @@ import (
 
 	v1alpha1 "github.com/santidelacarrera/kubecost_auto_hpa/operator/api/v1alpha1"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/actuator"
+	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/arbitrator"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/cache"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/config"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/engine"
+	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/execution"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/metrics"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/ownership"
+	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/pricing"
+	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/stability"
 )
 
 // Finalizer makes the operator restore the original pod resources before a
@@ -53,14 +57,15 @@ const (
 // its pods in place.
 type KubeCostHPAReconciler struct {
 	client.Client
-	Resizer  *actuator.Resizer
-	Metrics  metrics.Source
-	Spend    metrics.SpendSource // optional
-	Engine   engine.Evaluator
-	Store    cache.Store
-	Recorder record.EventRecorder
-	Defaults config.Defaults
-	Now      func() time.Time
+	Resizer   *actuator.Resizer
+	Metrics   metrics.Source
+	Spend     metrics.SpendSource // optional
+	Engine    engine.Evaluator
+	Store     cache.Store
+	Recorder  record.EventRecorder
+	Defaults  config.Defaults
+	Stability *stability.Controller
+	Now       func() time.Time
 }
 
 // storedDecision is the temporary scaling state kept in the cache.
@@ -186,8 +191,22 @@ func (r *KubeCostHPAReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return fail("InvalidSpec", "replicas: require 1 <= min <= max")
 	}
 
+	// --- resolve dynamic cloud instance pricing when node labels are available and spec uses defaults ---
+	if hpa.Spec.UnitEconomics.CPUPricePerCoreHour == "" && len(pods) > 0 && pods[0].Spec.NodeName != "" {
+		var node corev1.Node
+		if nerr := r.Get(ctx, types.NamespacedName{Name: pods[0].Spec.NodeName}, &node); nerr == nil {
+			prices.cpu, prices.mem, _ = pricing.ResolveNodePricing(&node, prices.cpu, prices.mem)
+		}
+	}
+
+	execMode := execution.ParseMode(
+		hpa.Annotations["autoscaling.kubecost.io/execution-mode"],
+		hpa.Spec.DryRun,
+		hpa.Annotations["autoscaling.kubecost.io/emergency-stop"] == "true",
+	)
+
 	// --- converge existing/new pods to the desired values ---
-	if !hpa.Spec.DryRun && (hpa.Status.DesiredCPUMillicores != 0 || (hpa.Spec.Memory != nil && hpa.Status.DesiredMemoryMiB != 0)) {
+	if execMode.AllowsKubernetesWrites() && (hpa.Status.DesiredCPUMillicores != 0 || (hpa.Spec.Memory != nil && hpa.Status.DesiredMemoryMiB != 0)) {
 		r.converge(ctx, &hpa, pods, cname, actuator.Target{CPUMillis: desired, MemoryBytes: memBytes(hpa.Spec.Memory, desiredMem)})
 	}
 
@@ -357,9 +376,29 @@ func (r *KubeCostHPAReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			memAction = dec.OOMProtection.Action
 		}
 		isGrow := (cpuChange && dec.Action == "grow") || (memChange && (memAction == "grow" || memAction == "inflate")) || newReplicas > curReplicas
+		arb := arbitrator.NewArbitrator().Evaluate(arbitrator.WorkloadTelemetry{
+			SampleCount:           5,
+			CurrentReplicas:       curReplicas,
+			MinReplicas:           1,
+			MaxReplicas:           max(curReplicas, newReplicas),
+			CurrentCPUMillicores:  desired,
+			CPUUsageMillicores:    int64(snap.CPUUsageMillicores),
+			MinCPUMillicores:      minCPU,
+			MaxCPUMillicores:      maxCPU,
+			CurrentMemoryMiB:      desiredMem,
+			MemoryUsageMiB:        int64(snap.MemUsageMiB),
+			CurrentRPS:            snap.RPS,
+			P99LatencyMs:          snap.P99Ms,
+			SLOP99LatencyMs:       float64(hpa.Spec.SLO.P99LatencyMs),
+			CPUCoreHourPriceUSD:   prices.cpu,
+			MemoryGiBHourPriceUSD: prices.mem,
+		})
+		_ = arb
 		switch {
 		case hpa.Spec.DryRun:
 			hpa.Status.LastReason = "dry-run: would " + summary
+		case !execMode.AllowsKubernetesWrites():
+			hpa.Status.LastReason = strings.ToLower(string(execMode)) + ": would " + summary
 		case r.inCooldown(ctx, key, &hpa, isGrow):
 			hpa.Status.LastReason = "suppressed by cooldown: " + summary
 		default:

@@ -24,11 +24,14 @@ import (
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/config"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/controller"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/engine"
+	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/execution"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/httpx"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/kubecost"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/metrics"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/ownership"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/resmetrics"
+	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/stability"
+	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/webhook"
 )
 
 var scheme = runtime.NewScheme()
@@ -40,14 +43,15 @@ func init() {
 
 func main() {
 	var (
-		metricsAddr, probeAddr, promURL, kubecostURL, engineURL, redisAddr, redisPass string
-		redisDB                                                                       int
-		leaderElect, spotDrain                                                        bool
-		cpuPrice, memPrice                                                            float64
-		drainTimeout                                                                  time.Duration
+		metricsAddr, probeAddr, webhookAddr, promURL, kubecostURL, engineURL, redisAddr, redisPass string
+		redisDB                                                                                    int
+		leaderElect, spotDrain                                                                     bool
+		cpuPrice, memPrice                                                                         float64
+		drainTimeout                                                                               time.Duration
 	)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "Address of the metrics endpoint.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "Address of the probe endpoint.")
+	flag.StringVar(&webhookAddr, "webhook-bind-address", envOr("WEBHOOK_BIND_ADDRESS", ""), "Optional bind address for the Pod MutatingAdmissionWebhook (/mutate-v1-pod).")
 	flag.BoolVar(&leaderElect, "leader-elect", false, "Enable leader election.")
 	flag.StringVar(&promURL, "prometheus-url", envOr("PROMETHEUS_URL", "http://prometheus:9090"), "Prometheus base URL.")
 	flag.StringVar(&kubecostURL, "kubecost-url", envOr("KUBECOST_URL", ""), "KubeCost API base URL (empty disables budget guardrails).")
@@ -143,14 +147,15 @@ func main() {
 	}
 
 	if err := (&controller.KubeCostHPAReconciler{
-		Client:   mgr.GetClient(),
-		Resizer:  &actuator.Resizer{Client: cs},
-		Metrics:  prom,
-		Spend:    spend,
-		Engine:   eng,
-		Store:    store,
-		Recorder: mgr.GetEventRecorderFor("kubecost-auto-hpa"),
-		Defaults: config.Defaults{CPUPricePerCoreHour: cpuPrice, MemPricePerGiBHour: memPrice},
+		Client:    mgr.GetClient(),
+		Resizer:   &actuator.Resizer{Client: cs},
+		Metrics:   prom,
+		Spend:     spend,
+		Engine:    eng,
+		Store:     store,
+		Recorder:  mgr.GetEventRecorderFor("kubecost-auto-hpa"),
+		Defaults:  config.Defaults{CPUPricePerCoreHour: cpuPrice, MemPricePerGiBHour: memPrice},
+		Stability: stability.NewController(stability.DefaultConfig()),
 	}).SetupWithManager(mgr); err != nil {
 		log.Error(err, "unable to create KubeCostHPA controller")
 		os.Exit(1)
@@ -196,6 +201,18 @@ func main() {
 	}
 	_ = mgr.AddHealthzCheck("healthz", healthz.Ping)
 	_ = mgr.AddReadyzCheck("readyz", healthz.Ping)
+
+	if webhookAddr != "" {
+		mux := http.NewServeMux()
+		mux.Handle("/mutate-v1-pod", &webhook.PodMutator{DefaultExecutionMode: execution.ModeActive})
+		whSrv := &http.Server{Addr: webhookAddr, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+		go func() {
+			log.Info("starting pod mutating admission webhook server", "addr", webhookAddr)
+			if werr := whSrv.ListenAndServe(); werr != nil && werr != http.ErrServerClosed {
+				log.Error(werr, "webhook server exited")
+			}
+		}()
+	}
 
 	log.Info("starting manager", "version", version, "commit", buildCommit())
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {

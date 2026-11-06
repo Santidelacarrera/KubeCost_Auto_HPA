@@ -12,14 +12,18 @@ import threading
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from .auth_billing import MultiTenantAuthManager, generate_stripe_billing_invoice
 from .binpacking import ConsolidationResult, NodeBinPacker, NodeState, PodPlacement
 from .economics import cost_per_request_from_pod
 from .guardrails import BudgetGuardrail
 from .oom_shield import OOMProtectionShield, OOMShieldDecision
 from .predictive import ForecastResult, PredictiveAutoscaler
+from .pricing import lookup_instance_pricing
 from .saas import get_control_plane
 from .scaling import recommend_memory, recommend_replicas, recommend_resize
 from .spot import SpotCandidate, is_spot_eligible
+
+_auth_manager = MultiTenantAuthManager()
 
 _counters: dict[str, int] = {}
 _lock = threading.Lock()
@@ -339,6 +343,29 @@ class Handler(BaseHTTPRequestHandler):
             cluster_id = qs.get("cluster_id", ["eks-prod-us-east-1"])[0]
             res = get_control_plane().get_cast_dashboard(client_id=client_id, cluster_id=cluster_id)
             return self._send(200, json.dumps(res))
+        elif path_only == "/v1/pricing/lookup":
+            inst = qs.get("instance_type", ["m6i.2xlarge"])[0]
+            reg = qs.get("region", ["us-east-1"])[0]
+            return self._send(200, json.dumps(lookup_instance_pricing(inst, reg)))
+        elif path_only == "/v1/billing/invoice":
+            client_id = qs.get("client_id", ["default-tenant"])[0]
+            cluster_id = qs.get("cluster_id", ["eks-prod-us-east-1"])[0]
+            savings = float(qs.get("savings_usd", ["3420"])[0])
+            nodes = int(qs.get("nodes", ["6"])[0])
+            model = qs.get("model", ["VALUE_SHARED"])[0]
+            inv = generate_stripe_billing_invoice(
+                client_id=client_id,
+                cluster_id=cluster_id,
+                verified_monthly_savings_usd=savings,
+                managed_nodes_count=nodes,
+                billing_model=model,
+            )
+            return self._send(200, json.dumps(inv))
+        elif path_only == "/v1/auth/keys":
+            if not self._authorized():
+                return self._send(401, '{"error":"unauthorized"}')
+            client_id = qs.get("client_id", ["default-tenant"])[0]
+            return self._send(200, json.dumps({"keys": _auth_manager.list_client_keys(client_id)}))
         elif path_only == "/v1/cluster/topology":
             # ScaleOps Parity: Sample Cluster Topology & Bin-Packing State
             sample_topology = {
@@ -487,6 +514,10 @@ class Handler(BaseHTTPRequestHandler):
             "/v1/commands/ack": get_control_plane().acknowledge_command,
             "/v1/audit/decisions": get_control_plane().record_audit_decision,
             "/v1/ui/recommendations/execute": get_control_plane().execute_ui_recommendation,
+            "/v1/auth/keys": lambda payload, tenant_header=None: _auth_manager.issue_api_key(
+                client_id=str(payload.get("client_id") or tenant_header or "default-tenant"),
+                scopes=payload.get("scopes"),
+            ),
         }
         if self.path in saas_post_routes:
             if not self._authorized():

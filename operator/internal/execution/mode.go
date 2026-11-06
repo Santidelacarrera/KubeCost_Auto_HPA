@@ -27,6 +27,11 @@ const AnnotationExecutionMode = "autoscaling.kubecost.io/execution-mode"
 // AnnotationEmergencyStop is an explicit kill-switch annotation.
 const AnnotationEmergencyStop = "autoscaling.kubecost.io/emergency-stop"
 
+// AllowsKubernetesWrites returns true only when the mode permits mutating cluster state.
+func (m Mode) AllowsKubernetesWrites() bool {
+	return m == ModeActive || m == ModeCanary
+}
+
 // ParseMode normalizes and validates an execution mode string.
 func ParseMode(raw string, dryRunFlag bool, pausedFlag bool) Mode {
 	if pausedFlag {

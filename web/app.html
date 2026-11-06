@@ -1441,6 +1441,8 @@
     async function probeEngineConnection() {
       const candidates = [
         window.location.origin,
+        'http://127.0.0.1:8088',
+        'http://localhost:8088',
         'http://127.0.0.1:8000',
         'http://localhost:8000',
         'http://127.0.0.1:8999'
@@ -1460,6 +1462,7 @@
             dot.className = 'engine-dot live';
             label.textContent = `ENGINE: LIVE (${base.replace(/^https?:\/\//, '')})`;
             logToTerminal('ENGINE', `Connected to KubeCost Engine at ${base}. CORS & mTLS ready.`, true);
+            syncLiveSaaSTelemetry(base);
             return;
           }
         } catch (e) {
@@ -1669,6 +1672,30 @@
           true
         );
       }, 450);
+    }
+
+    async function syncLiveSaaSTelemetry(base) {
+      try {
+        const [dashRes, priceRes, billRes] = await Promise.all([
+          fetch(`${base}/v1/ui/cast-dashboard`),
+          fetch(`${base}/v1/pricing/lookup?instance_type=m6i.2xlarge&region=us-east-1`),
+          fetch(`${base}/v1/billing/invoice?savings_usd=3420&nodes=6&model=VALUE_SHARED`)
+        ]);
+        if (dashRes.ok) {
+          const dash = await dashRes.json();
+          logToTerminal('SAAS-SYNC', `Synced Cast AI + Tremor telemetry: Projected $${dash.summary_cards.projected_monthly_spend_usd.toLocaleString()}/mo | Potential Savings $${dash.summary_cards.potential_monthly_savings_usd.toLocaleString()}/mo (${dash.summary_cards.savings_percentage}%).`, true);
+        }
+        if (priceRes.ok) {
+          const pr = await priceRes.json();
+          logToTerminal('CLOUD-PRICING', `Live ${pr.provider} Catalog (${pr.instance_type} @ ${pr.region}): On-Demand $${pr.ondemand_hourly_usd}/h vs Spot $${pr.spot_hourly_usd}/h (-${pr.spot_discount_pct}% Spot discount).`, true);
+        }
+        if (billRes.ok) {
+          const bill = await billRes.json();
+          logToTerminal('STRIPE-FINOPS', `Commercial Billing Ready (${bill.billing_model}): Customer Net Savings +$${bill.customer_net_savings_usd.toLocaleString()}/mo | ROI ${bill.customer_roi_multiple}x.`, true);
+        }
+      } catch (e) {
+        // non-blocking telemetry sync
+      }
     }
 
     window.addEventListener('DOMContentLoaded', probeEngineConnection);
