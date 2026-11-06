@@ -37,15 +37,15 @@ const (
 
 // SpotSignal represents an normalized interruption or rebalance signal from any provider.
 type SpotSignal struct {
-	Provider        CloudProvider
-	NodeName        string
-	InstanceType    string
-	Region          string
+	Provider         CloudProvider
+	NodeName         string
+	InstanceType     string
+	Region           string
 	AvailabilityZone string
-	Signal          SignalType
-	TerminateAt     *time.Time
-	ObservedAt      time.Time
-	Source          string // e.g., "aws-imds-v2", "aws-eventbridge", "gcp-metadata", "azure-scheduled-events"
+	Signal           SignalType
+	TerminateAt      *time.Time
+	ObservedAt       time.Time
+	Source           string // e.g., "aws-imds-v2", "aws-eventbridge", "gcp-metadata", "azure-scheduled-events"
 }
 
 // CloudSpotSignalProvider is the decoupled interface for polling or receiving cloud Spot signals.
@@ -143,11 +143,11 @@ type SpotRiskInput struct {
 
 // SpotRiskAssessment outputs a probabilistic risk score and migration action.
 type SpotRiskAssessment struct {
-	RiskScore              float64 // [0.0, 1.0]
-	RiskTier               string  // "LOW" | "MODERATE" | "HIGH" | "IMMINENT"
-	RecommendedAction      string  // "HOLD" | "PREPARE_REPLACEMENT" | "PROACTIVE_CORDON_AND_DRAIN" | "EMERGENCY_DRAIN"
-	IsDeterministicNotice  bool
-	Reason                 string
+	RiskScore             float64 // [0.0, 1.0]
+	RiskTier              string  // "LOW" | "MODERATE" | "HIGH" | "IMMINENT"
+	RecommendedAction     string  // "HOLD" | "PREPARE_REPLACEMENT" | "PROACTIVE_CORDON_AND_DRAIN" | "EMERGENCY_DRAIN"
+	IsDeterministicNotice bool
+	Reason                string
 }
 
 // EvaluateSpotRisk computes the composite interruption risk and migration action.

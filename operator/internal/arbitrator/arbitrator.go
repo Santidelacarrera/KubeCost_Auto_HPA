@@ -57,28 +57,28 @@ func (o OwnershipContext) VerticalBlocked() (bool, string) {
 
 // WorkloadTelemetry provides the runtime observation inputs for arbitration.
 type WorkloadTelemetry struct {
-	SampleCount             int
-	CurrentReplicas         int32
-	MinReplicas             int32
-	MaxReplicas             int32
-	CurrentCPUMillicores    int64
-	CPUUsageMillicores      int64
-	MinCPUMillicores        int64
-	MaxCPUMillicores        int64
-	CurrentMemoryMiB        int64
-	MemoryUsageMiB          int64
-	MinMemoryMiB            int64
-	MaxMemoryMiB            int64
-	CurrentRPS              float64
-	BaselineRPS             float64
-	P99LatencyMs            float64
-	SLOP99LatencyMs         float64
-	ErrorRate               float64
-	NodeAvailableCPUMilli   int64 // -1 if unknown
-	NodeAvailableMemoryMiB  int64 // -1 if unknown
-	CPUCoreHourPriceUSD     float64
-	MemoryGiBHourPriceUSD   float64
-	Ownership               OwnershipContext
+	SampleCount            int
+	CurrentReplicas        int32
+	MinReplicas            int32
+	MaxReplicas            int32
+	CurrentCPUMillicores   int64
+	CPUUsageMillicores     int64
+	MinCPUMillicores       int64
+	MaxCPUMillicores       int64
+	CurrentMemoryMiB       int64
+	MemoryUsageMiB         int64
+	MinMemoryMiB           int64
+	MaxMemoryMiB           int64
+	CurrentRPS             float64
+	BaselineRPS            float64
+	P99LatencyMs           float64
+	SLOP99LatencyMs        float64
+	ErrorRate              float64
+	NodeAvailableCPUMilli  int64 // -1 if unknown
+	NodeAvailableMemoryMiB int64 // -1 if unknown
+	CPUCoreHourPriceUSD    float64
+	MemoryGiBHourPriceUSD  float64
+	Ownership              OwnershipContext
 }
 
 // Decision represents a justified, auditable arbitration outcome.
@@ -341,7 +341,7 @@ func (a *Arbitrator) Evaluate(in WorkloadTelemetry) Decision {
 
 		// Only scale in horizontally once vertical resources are already at minimum floor
 		if !horizBlocked && curReplicas > minReplicas && curCPU <= minCPU {
-			projectedCPUUtil := ( float64(in.CPUUsageMillicores) * float64(curReplicas) / float64(curReplicas-1) ) / float64(curCPU)
+			projectedCPUUtil := (float64(in.CPUUsageMillicores) * float64(curReplicas) / float64(curReplicas-1)) / float64(curCPU)
 			if projectedCPUUtil <= targetUtil {
 				desiredReplicas := curReplicas - 1
 				impact := calcHourlyCost(desiredReplicas, curCPU, curMem) - currentHourlyCost

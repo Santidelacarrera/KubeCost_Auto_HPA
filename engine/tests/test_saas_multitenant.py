@@ -81,3 +81,32 @@ def test_prewarm_command_lifecycle_expiry_and_antireplay():
         }
     )
     assert ack2["ack_result"] == "DUPLICATE_IGNORED"
+
+
+def test_sqlite_wal_persistence_survives_restart(tmp_path):
+    db_file = str(tmp_path / "saas_control_plane.db")
+    cp1 = SaaSControlPlane(db_path=db_file)
+    payload = {
+        "event_id": "evt-persistent-001",
+        "client_id": "tenant-sqlite",
+        "cluster_id": "eks-prod-1",
+        "metrics": {
+            "rps": 300.0,
+            "p99_latency_ms": 95.0,
+            "cpu_usage_cores": 1.8,
+            "mem_usage_bytes": 536870912,
+            "current_replicas": 3,
+        },
+        "timestamp": 1711890000,
+    }
+    first = cp1.ingest_telemetry(payload)
+    assert first["status"] == "ingested"
+    cp1._store.close()
+
+    # Simulate control plane restart with a fresh SaaSControlPlane pointing to the same SQLite DB
+    cp2 = SaaSControlPlane(db_path=db_file)
+    replay_after_restart = cp2.ingest_telemetry(payload)
+    assert replay_after_restart["status"] == "duplicate_ignored"
+    assert replay_after_restart["deduplicated"] is True
+    cp2._store.close()
+

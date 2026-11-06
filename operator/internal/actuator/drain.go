@@ -76,11 +76,11 @@ const SafeToEvictAnnotation = "autoscaling.kubecost.io/safe-to-evict"
 
 // DrainSafetyReport details whether a pod can be safely migrated during proactive node consolidation.
 type DrainSafetyReport struct {
-	CanEvict                 bool
-	IsStatefulSet            bool
-	HasLocalStorage          bool
-	TerminationGraceSeconds  int64
-	BlockerReason            string
+	CanEvict                bool
+	IsStatefulSet           bool
+	HasLocalStorage         bool
+	TerminationGraceSeconds int64
+	BlockerReason           string
 }
 
 // InspectPodDrainSafety evaluates whether a pod is safe to evict during Spot or Bin-Packing drains,

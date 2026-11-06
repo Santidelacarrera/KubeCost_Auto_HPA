@@ -20,6 +20,8 @@ import uuid
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional
 
+from .persistence import SQLiteSaaSStore
+
 
 @dataclass
 class AgentRegistration:
@@ -93,8 +95,9 @@ class NormalizedTelemetryRecord:
 class SaaSControlPlane:
     """Thread-safe multi-tenant SaaS Control Plane state and business logic."""
 
-    def __init__(self) -> None:
+    def __init__(self, db_path: Optional[str] = None) -> None:
         self._lock = threading.Lock()
+        self._store = SQLiteSaaSStore(db_path=db_path)
         # Keyed by client_id for strict tenant isolation
         self._agents: Dict[str, Dict[str, AgentRegistration]] = {}
         self._telemetry: Dict[str, List[NormalizedTelemetryRecord]] = {}
@@ -242,7 +245,10 @@ class SaaSControlPlane:
 
         with self._lock:
             seen = self._seen_event_ids.setdefault(client_id, set())
-            if event_id in seen:
+            if event_id in seen or not self._store.save_telemetry_event(
+                client_id, event_id, cluster_id, timestamp, payload
+            ):
+                seen.add(event_id)
                 return {
                     "status": "duplicate_ignored",
                     "event_id": event_id,

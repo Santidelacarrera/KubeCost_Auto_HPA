@@ -406,9 +406,9 @@ func (c *Controller) getOrInit(key string, initialSignal float64) *workloadState
 	st, ok := c.states[key]
 	if !ok {
 		st = &workloadState{
-			emaSignal: initialSignal,
+			emaSignal:  initialSignal,
 			lastAction: DirectionHold,
-			circuit:   CircuitClosed,
+			circuit:    CircuitClosed,
 		}
 		c.states[key] = st
 	}

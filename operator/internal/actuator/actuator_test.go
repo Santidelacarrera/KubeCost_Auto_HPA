@@ -244,7 +244,6 @@ func fakeScale(cs *fake.Clientset) {
 	})
 }
 
-
 func TestDetectResizeCapabilityAcrossK8sVersions(t *testing.T) {
 	cOld := DetectResizeCapability("1", "26", false)
 	if cOld.SupportsInPlace || cOld.Stage != "Unsupported" {

@@ -326,4 +326,3 @@ func ValidatePreWarmCommand(
 		Timestamp: nowUnix,
 	}
 }
-

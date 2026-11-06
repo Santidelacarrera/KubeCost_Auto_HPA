@@ -72,20 +72,20 @@ func ResolveFromAnnotations(annotations map[string]string, dryRunFlag bool) Mode
 
 // Guardrails defines the local safety boundaries that take priority over any SaaS recommendation.
 type Guardrails struct {
-	MaxIncreasePercent        float64 // e.g., 1.00 = max +100% per step
-	MaxDecreasePercent        float64 // e.g., 0.30 = max -30% per step
-	MinCPUMillicores          int64
-	MaxCPUMillicores          int64
-	MinMemoryMiB              int64
-	MaxMemoryMiB              int64
-	MinReplicas               int32
-	MaxReplicas               int32
-	MaxConcurrentOperations   int
-	MaxMigrationsPerWindow    int
-	MaxVoluntaryDisruptions   int
-	MonthlyBudgetUSD          float64
-	CurrentMonthlySpendUSD    float64
-	CanaryAllowedWorkloads    map[string]bool
+	MaxIncreasePercent      float64 // e.g., 1.00 = max +100% per step
+	MaxDecreasePercent      float64 // e.g., 0.30 = max -30% per step
+	MinCPUMillicores        int64
+	MaxCPUMillicores        int64
+	MinMemoryMiB            int64
+	MaxMemoryMiB            int64
+	MinReplicas             int32
+	MaxReplicas             int32
+	MaxConcurrentOperations int
+	MaxMigrationsPerWindow  int
+	MaxVoluntaryDisruptions int
+	MonthlyBudgetUSD        float64
+	CurrentMonthlySpendUSD  float64
+	CanaryAllowedWorkloads  map[string]bool
 }
 
 // DefaultGuardrails returns production-safe local boundaries.
@@ -107,39 +107,39 @@ func DefaultGuardrails() Guardrails {
 
 // Proposal represents a candidate actuation from either the local engine or the SaaS Control Plane.
 type Proposal struct {
-	WorkloadKey       string // namespace/name
-	CurrentCPUMilli   int64
-	ProposedCPUMilli  int64
-	CurrentMemMiB     int64
-	ProposedMemMiB    int64
-	CurrentReplicas   int32
-	ProposedReplicas  int32
-	IsFromSaaS        bool
-	InFlightOps       int
+	WorkloadKey      string // namespace/name
+	CurrentCPUMilli  int64
+	ProposedCPUMilli int64
+	CurrentMemMiB    int64
+	ProposedMemMiB   int64
+	CurrentReplicas  int32
+	ProposedReplicas int32
+	IsFromSaaS       bool
+	InFlightOps      int
 }
 
 // EnforcementResult contains the clamped, safe values and whether execution may proceed.
 type EnforcementResult struct {
-	Mode              Mode
-	ShouldEvaluate    bool
-	ShouldExecute     bool
-	ClampedCPUMilli   int64
-	ClampedMemMiB     int64
-	ClampedReplicas   int32
-	ClampedByLocal    bool
-	BlockedReason     string
-	AuditExplanation  string
+	Mode             Mode
+	ShouldEvaluate   bool
+	ShouldExecute    bool
+	ClampedCPUMilli  int64
+	ClampedMemMiB    int64
+	ClampedReplicas  int32
+	ClampedByLocal   bool
+	BlockedReason    string
+	AuditExplanation string
 }
 
 // Enforce applies operational mode gating and local safety guardrails to a Proposal.
 func Enforce(mode Mode, g Guardrails, p Proposal) EnforcementResult {
 	res := EnforcementResult{
-		Mode:             mode,
-		ShouldEvaluate:   true,
-		ShouldExecute:    false,
-		ClampedCPUMilli:  p.ProposedCPUMilli,
-		ClampedMemMiB:    p.ProposedMemMiB,
-		ClampedReplicas:  p.ProposedReplicas,
+		Mode:            mode,
+		ShouldEvaluate:  true,
+		ShouldExecute:   false,
+		ClampedCPUMilli: p.ProposedCPUMilli,
+		ClampedMemMiB:   p.ProposedMemMiB,
+		ClampedReplicas: p.ProposedReplicas,
 	}
 
 	// 1. Operational Mode Gating
