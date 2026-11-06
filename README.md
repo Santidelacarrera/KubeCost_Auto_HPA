@@ -1,14 +1,16 @@
-# KubeCost Auto-HPA
+# KubeCost Auto-HPA (ScaleOps Parity Edition)
 
 [![ci](https://github.com/Santidelacarrera/KubeCost_Auto_HPA/actions/workflows/ci.yml/badge.svg)](https://github.com/Santidelacarrera/KubeCost_Auto_HPA/actions/workflows/ci.yml)
 [![release](https://github.com/Santidelacarrera/KubeCost_Auto_HPA/actions/workflows/release.yml/badge.svg)](https://github.com/Santidelacarrera/KubeCost_Auto_HPA/actions/workflows/release.yml)
 [![Latest Release](https://img.shields.io/github/v/release/Santidelacarrera/KubeCost_Auto_HPA)](https://github.com/Santidelacarrera/KubeCost_Auto_HPA/releases/tag/v0.1.0)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Kubernetes](https://img.shields.io/badge/kubernetes-1.33-326ce5.svg)](https://kubernetes.io)
+[![Live Demo](https://img.shields.io/badge/Live_Console-GitHub_Pages-2ea44f.svg)](https://santidelacarrera.github.io/KubeCost_Auto_HPA/app.html)
 
-Operador nativo de Kubernetes que reemplaza el escalado por CPU/RAM con **Unit Economics Scaling**: ajusta
-el tamaño de los Pods y migra cargas tolerantes a fallos a instancias Spot (AWS/GCP) evaluando la latencia
-p99 y el costo financiero por petición servida.
+Operador autónomo de Kubernetes de alta disponibilidad con **Unit Economics Scaling** y **paridad funcional total con ScaleOps**: ajusta réplicas de forma predictiva, redimensiona contenedores en caliente (*in-place resize*) sin reinicios, previene caídas por OOM y consolida el clúster (*node bin-packing*) para maximizar el ahorro en AWS/GCP sin violar los SLOs de latencia p99.
+
+🌐 **Consola Enterprise en Vivo:** [https://santidelacarrera.github.io/KubeCost_Auto_HPA/app.html](https://santidelacarrera.github.io/KubeCost_Auto_HPA/app.html)  
+🏢 **Landing Comercial y ROI:** [https://santidelacarrera.github.io/KubeCost_Auto_HPA/](https://santidelacarrera.github.io/KubeCost_Auto_HPA/)
 
 ```
  Prometheus / KubeCost / Spot API
@@ -26,22 +28,27 @@ p99 y el costo financiero por petición servida.
 
 `C_pod = Costo Instancia / RPS`. Escala según rentabilidad y SLO, no según picos de CPU/RAM.
 
-## Funcionalidades
+## Funcionalidades Clave (Paridad Total con ScaleOps)
 
-1. **Escalado por rentabilidad y SLOs** – reduce límites cuando la latencia p99 está holgada frente al SLA.
-2. **Orquestador Spot** – detecta cargas tolerantes a fallos y gestiona cordon/drain.
-3. **Hot-resizing in-place** – actualiza `requests`/`limits` sin rolling update.
-4. **Guardrails de presupuesto** – congela el auto-escalado al alcanzar el límite mensual (`FinOps Agent`).
+1. **Predictive Horizontal Scaling (Pre-Warming)** – Pronostica subidas de demanda y precalienta réplicas antes de los picos estacionales para mantener la latencia p99 por debajo del SLO.
+2. **OOM Protection Shield** – Monitorea la velocidad de memoria cgroup (`dMem/dt`); infla dinámicamente los límites de memoria en caliente mediante `pods/resize` de K8s 1.33+ sin reiniciar los pods (adiós exit code 137).
+3. **Cluster Optimization & Node Bin-Packing** – Detecta nodos subutilizados (< 35%) y gestiona cordoning/draining respetando PDBs para que Karpenter o Cluster Autoscaler eliminen instancias ociosas.
+4. **Escalado por rentabilidad y SLOs** – Reduce límites cuando la latencia p99 está holgada frente al SLA, calculando el coste unitario por petición.
+5. **Orquestador Spot** – Detecta cargas tolerantes a fallos y gestiona cordon/drain con anticipación ante avisos de interrupción.
+6. **Hot-resizing in-place** – Actualiza `requests`/`limits` sin rolling updates ni reinicios de contenedores.
+7. **Guardrails de presupuesto** – Congela el auto-escalado al alcanzar el límite mensual (`FinOps Agent`).
+8. **Consola Web Enterprise Desacoplada** – Dashboard SPA profesional con simulador de 500 usuarios concurrentes en vivo y calculadora de ROI.
+9. **Bus de Telemetría Nexus Lab** – Publicación de eventos `finops.scaling_decision` hacia Redis Streams (`nexus:telemetry`) con identificadores UUIDv7 para auditoría e integración con `Nexus_Client_Portal`.
 
 ## Componentes
 
 | Ruta | Qué es |
 |---|---|
-| `engine/` | Motor Unit Economics (Python, stdlib). Núcleo + API HTTP `POST /v1/evaluate`, `/healthz`, `/metrics`. |
-| `operator/` | Operador Go (controller-runtime): CRD `KubeCostHPA`, reconciler, actuadores, cliente Prometheus/KubeCost, caché Redis. |
+| `engine/` | Motor Unit Economics & ScaleOps (Python 3.12). Algoritmos de predicción, escudo OOM, bin-packing, productor de telemetría Nexus y API HTTP `POST /v1/evaluate`. |
+| `operator/` | Operador Go (controller-runtime): CRDs `KubeCostAutoscaler` y `KubeCostHPA`, reconciliadores, actuadores in-place, clientes Prometheus/KubeCost. |
 | `operator/internal/{policy,kubecost,money,infra,ownership,resmetrics}` | Motor de decisión puro (Go), cliente KubeCost, dinero exacto, clasificación Spot, propiedad de réplicas y métricas de recursos del `KubeCostAutoscaler`. |
-| `operator/config/` | Kustomize: `default` (CRD, RBAC, operador, motor, Redis) y `overlays/local` (+ workload demo). |
-| `deploy/helm/kubecost-auto-hpa/` | Chart de Helm equivalente. |
+| `frontend/` | Consola web comercial independiente (`index.html`, `app.html`, `pricing.html`) desplegada en GitHub Pages. |
+| `deploy/helm/kubecost-auto-hpa/` | Chart de Helm enterprise versionado, con validación OpenAPI v3 y flags `features.*` y `telemetry.*`. |
 | `docker-compose.yml` | Stack local: Redis, motor, Prometheus, Grafana (+ operador con `--profile operator`). |
 
 ## Flujo de reconciliación

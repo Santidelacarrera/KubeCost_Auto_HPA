@@ -69,6 +69,12 @@ features:
     enabled: true
     consolidationThresholdPercent: 35
 
+telemetry:
+  enabled: false
+  redisUrl: ""
+  stream: "nexus:telemetry"
+  tenantId: ""
+
 networkPolicy:
   enabled: false           # restrict engine/redis ingress to the operator
   # Egress policy for the operator itself. The operator needs: DNS, the Kubernetes API

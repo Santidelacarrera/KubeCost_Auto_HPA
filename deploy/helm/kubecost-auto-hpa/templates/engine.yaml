@@ -16,7 +16,7 @@ spec:
       - name: engine
         image: "{{ .Values.engine.image.repository }}:{{ .Values.engine.image.tag | default .Chart.AppVersion }}"
         imagePullPolicy: {{ .Values.engine.image.pullPolicy }}
-        {{- if or .Values.auth.engine.secretName .Values.tls.engine.secretName }}
+        {{- if or .Values.auth.engine.secretName .Values.tls.engine.secretName .Values.telemetry.enabled }}
         env:
         {{- if .Values.auth.engine.secretName }}
         - name: ENGINE_TOKEN
@@ -27,6 +27,22 @@ spec:
         - {name: TLS_KEY, value: /tls/tls.key}
         {{- if .Values.tls.engine.clientSecretName }}
         - {name: TLS_CLIENT_CA, value: /tls/ca.crt}   # mTLS: only clients signed by this CA are accepted
+        {{- end }}
+        {{- end }}
+        {{- if .Values.telemetry.enabled }}
+        - name: NEXUS_TELEMETRY_ENABLED
+          value: "true"
+        {{- if .Values.telemetry.redisUrl }}
+        - name: REDIS_URL
+          value: {{ .Values.telemetry.redisUrl | quote }}
+        {{- end }}
+        {{- if .Values.telemetry.stream }}
+        - name: NEXUS_TELEMETRY_STREAM
+          value: {{ .Values.telemetry.stream | quote }}
+        {{- end }}
+        {{- if .Values.telemetry.tenantId }}
+        - name: NEXUS_TENANT_ID
+          value: {{ .Values.telemetry.tenantId | quote }}
         {{- end }}
         {{- end }}
         {{- end }}
