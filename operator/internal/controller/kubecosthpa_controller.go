@@ -270,17 +270,17 @@ func (r *KubeCostHPAReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 	if hpa.Spec.Predictive != nil && hpa.Spec.Predictive.Enabled {
 		ereq.Predictive = &engine.PredictiveReq{
-			Enabled:               hpa.Spec.Predictive.Enabled,
-			WarmupLeadTimeSeconds: int(hpa.Spec.Predictive.WarmupLeadTimeSeconds),
+			WarmupLeadTimeSeconds: hpa.Spec.Predictive.WarmupLeadTimeSeconds,
 			TargetRPSPerPod:       float64(hpa.Spec.Predictive.TargetRPSPerPod),
 		}
 	}
 	if hpa.Spec.OOMProtection != nil && hpa.Spec.OOMProtection.Enabled {
+		crit := float64(hpa.Spec.OOMProtection.CriticalThresholdPercent) / 100.0
+		warn := float64(hpa.Spec.OOMProtection.WarningThresholdPercent) / 100.0
 		ereq.OOMProtection = &engine.OOMProtectionReq{
-			Enabled:                  hpa.Spec.OOMProtection.Enabled,
-			CriticalThresholdPercent: float64(hpa.Spec.OOMProtection.CriticalThresholdPercent),
-			WarningThresholdPercent:  float64(hpa.Spec.OOMProtection.WarningThresholdPercent),
-			MaxLimitMiB:              hpa.Spec.OOMProtection.MaxLimitMiB,
+			CriticalThreshold: crit,
+			WarningThreshold:  warn,
+			MaxLimitMiB:       hpa.Spec.OOMProtection.MaxLimitMiB,
 		}
 	}
 	dec, err := r.Engine.Evaluate(ctx, ereq)
@@ -319,8 +319,8 @@ func (r *KubeCostHPAReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if ereq.Replicas != nil && dec.Replicas != nil { // never act on a recommendation that was not requested
 		newReplicas = dec.Replicas.Target
 	}
-	if dec.Predictive != nil && dec.Predictive.Action == "prewarm" && int32(dec.Predictive.RecommendedReplicas) > newReplicas {
-		newReplicas = int32(dec.Predictive.RecommendedReplicas)
+	if dec.Predictive != nil && dec.Predictive.IsPrewarming && dec.Predictive.RecommendedReplicas > newReplicas {
+		newReplicas = dec.Predictive.RecommendedReplicas
 	}
 	cpuChange := dec.Action != "hold" && dec.CPUMillicores != desired
 	memChange := newMem != desiredMem
