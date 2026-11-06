@@ -89,3 +89,46 @@ func TestEvaluatePredictiveAndOOM(t *testing.T) {
 		t.Fatalf("unexpected oom decision: %+v", d.OOMProtection)
 	}
 }
+
+func TestValidatePreWarmCommandExpiryReplayAndCapacity(t *testing.T) {
+	executed := make(map[string]bool)
+	cmd := PreWarmCommand{
+		CommandID:           "cmd-prewarm-001",
+		ClientID:            "tenant-a",
+		ClusterID:           "eks-prod-1",
+		Workload:            "default/checkout-api",
+		Action:              "PRE_WARM",
+		RequestedResources:  map[string]string{"cpu": "1500m", "memory": "2Gi"},
+		RecommendedReplicas: 6,
+		ExecuteAt:           1711890000,
+		ExpiresAt:           1711890900,
+		Confidence:          0.91,
+		Reason:              "Predicted seasonal traffic spike",
+		PolicyVersion:       "2026-11-01.v1",
+	}
+
+	// 1. Expired command rejected
+	ackExp := ValidatePreWarmCommand(cmd, 1711891000, executed, 0.80, true, 10)
+	if ackExp.Status != "REJECTED_EXPIRED" {
+		t.Fatalf("expected REJECTED_EXPIRED, got %s", ackExp.Status)
+	}
+
+	// 2. Insufficient cluster capacity rejected
+	ackCap := ValidatePreWarmCommand(cmd, 1711890100, executed, 0.80, false, 10)
+	if ackCap.Status != "REJECTED_CAPACITY" {
+		t.Fatalf("expected REJECTED_CAPACITY, got %s", ackCap.Status)
+	}
+
+	// 3. Valid command executed
+	ackOk := ValidatePreWarmCommand(cmd, 1711890100, executed, 0.80, true, 10)
+	if ackOk.Status != "EXECUTED" {
+		t.Fatalf("expected EXECUTED, got %s", ackOk.Status)
+	}
+
+	// 4. Duplicate command anti-replay protection
+	ackDup := ValidatePreWarmCommand(cmd, 1711890150, executed, 0.80, true, 10)
+	if ackDup.Status != "DUPLICATE_IGNORED" {
+		t.Fatalf("expected DUPLICATE_IGNORED on replay, got %s", ackDup.Status)
+	}
+}
+

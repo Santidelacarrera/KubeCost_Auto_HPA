@@ -108,7 +108,10 @@ func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	return ctrl.Result{}, nil
 }
 
-func cResultDrain(result string) { cDrains.WithLabelValues(result).Inc() }
+func cResultDrain(result string) {
+	cDrains.WithLabelValues(result).Inc()
+	aoNodesOptimizedTotal.WithLabelValues(result).Inc()
+}
 
 // SetupWithManager registers the controller.
 func (r *NodeReconciler) SetupWithManager(mgr ctrl.Manager) error {

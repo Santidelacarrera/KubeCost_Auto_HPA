@@ -367,11 +367,13 @@ func (r *KubeCostHPAReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				desired = dec.CPUMillicores
 				hpa.Status.DesiredCPUMillicores = desired
 				cResizes.WithLabelValues(hpa.Namespace, hpa.Name, dec.Action).Inc()
+				aoResizeOpsTotal.WithLabelValues(hpa.Namespace, hpa.Name, dec.Action).Inc()
 			}
 			if memChange {
 				desiredMem = newMem
 				hpa.Status.DesiredMemoryMiB = desiredMem
 				cResizes.WithLabelValues(hpa.Namespace, hpa.Name, "memory-"+memAction).Inc()
+				aoResizeOpsTotal.WithLabelValues(hpa.Namespace, hpa.Name, "memory-"+memAction).Inc()
 			}
 			if repChange {
 				if err := r.Resizer.SetReplicas(ctx, hpa.Namespace, dep.Name, newReplicas); err != nil {
@@ -488,6 +490,7 @@ func (r *KubeCostHPAReconciler) converge(ctx context.Context, h *v1alpha1.KubeCo
 	for i := range pods {
 		if _, err := r.Resizer.Resize(ctx, &pods[i], container, t); err != nil {
 			lg.Info("pod resize skipped", "pod", pods[i].Name, "reason", err.Error())
+			aoResizeFailuresTotal.WithLabelValues(h.Namespace, h.Name, "resize_skipped").Inc()
 			if err == actuator.ErrWouldRestart {
 				r.event(h, corev1.EventTypeWarning, "ResizeRefused", pods[i].Name+": "+err.Error())
 			}
@@ -514,6 +517,7 @@ func (r *KubeCostHPAReconciler) accrueSavings(h *v1alpha1.KubeCostHPA, prev *met
 		return
 	}
 	cSavings.WithLabelValues(h.Namespace, h.Name).Add(rate * hours)
+	aoRealizedSavingsUSD.WithLabelValues(h.Namespace, h.Name).Add(rate * hours)
 }
 
 func (r *KubeCostHPAReconciler) hasPDB(ctx context.Context, dep *appsv1.Deployment) bool {

@@ -118,3 +118,139 @@ def recommend_replicas(
         if projected <= cpu_millicores * target_utilization:
             return replicas - 1, "cpu at minimum with latency slack: scale in"
     return replicas, "replicas unchanged"
+
+
+@dataclass(frozen=True)
+class ArbitrationResult:
+    strategy: str  # "SCALE_HORIZONTALLY" | "RESIZE_VERTICALLY" | "COORDINATED_BOTH" | "NO_OP" | "WAIT_MORE_INFO"
+    recommended_replicas: int
+    recommended_cpu_millicores: int
+    recommended_memory_mib: int
+    expected_hourly_cost_delta_usd: float
+    risk_score: float
+    confidence: float
+    conflict_detected: bool
+    justification: str
+
+
+def arbitrate_scaling_strategy(
+    *,
+    current_replicas: int,
+    min_replicas: int,
+    max_replicas: int,
+    current_cpu_millicores: int,
+    cpu_usage_millicores: float,
+    current_memory_mib: int,
+    memory_usage_mib: float,
+    p99_ms: float,
+    slo_p99_ms: float,
+    current_rps: float = 0.0,
+    baseline_rps: float = 0.0,
+    has_native_hpa: bool = False,
+    has_native_vpa: bool = False,
+    sample_count: int = 5,
+    min_cpu_millicores: int = 100,
+    max_cpu_millicores: int = 8000,
+    min_memory_mib: int = 128,
+    max_memory_mib: int = 16384,
+) -> ArbitrationResult:
+    """Arbitrates between horizontal replica scaling and vertical in-place resizing."""
+    if sample_count < 3 or slo_p99_ms <= 0:
+        return ArbitrationResult(
+            strategy="WAIT_MORE_INFO",
+            recommended_replicas=current_replicas,
+            recommended_cpu_millicores=current_cpu_millicores,
+            recommended_memory_mib=current_memory_mib,
+            expected_hourly_cost_delta_usd=0.0,
+            risk_score=0.15,
+            confidence=0.35,
+            conflict_detected=has_native_hpa or has_native_vpa,
+            justification="Insufficient telemetry samples or invalid SLO target.",
+        )
+
+    slo_ratio = p99_ms / slo_p99_ms
+    cpu_util = cpu_usage_millicores / max(1, current_cpu_millicores)
+    mem_util = memory_usage_mib / max(1, current_memory_mib)
+    rps_ratio = (current_rps / baseline_rps) if baseline_rps > 0 else 1.0
+
+    def _hourly_cost(r: int, cpu_m: int, mem_m: int) -> float:
+        return r * ((cpu_m / 1000.0) * 0.031611 + (mem_m / 1024.0) * 0.004237)
+
+    base_cost = _hourly_cost(current_replicas, current_cpu_millicores, current_memory_mib)
+
+    # Situación A: Traffic surge + p99 degradation -> Horizontal Scale-Out
+    if (rps_ratio >= 1.20 and slo_ratio >= 0.85) or (slo_ratio >= 1.05 and current_replicas < max_replicas):
+        if not has_native_hpa and current_replicas < max_replicas:
+            target_replicas = min(max_replicas, max(current_replicas + 1, int(math.ceil(current_replicas * min(1.5, max(rps_ratio, slo_ratio))))))
+            if not has_native_vpa and (cpu_util >= 0.92 or mem_util >= 0.88):
+                target_cpu = min(max_cpu_millicores, int(round(current_cpu_millicores * 1.20)))
+                target_mem = min(max_memory_mib, int(round(current_memory_mib * 1.25))) if mem_util >= 0.88 else current_memory_mib
+                return ArbitrationResult(
+                    strategy="COORDINATED_BOTH",
+                    recommended_replicas=target_replicas,
+                    recommended_cpu_millicores=target_cpu,
+                    recommended_memory_mib=target_mem,
+                    expected_hourly_cost_delta_usd=round(_hourly_cost(target_replicas, target_cpu, target_mem) - base_cost, 4),
+                    risk_score=0.75,
+                    confidence=0.88,
+                    conflict_detected=has_native_hpa or has_native_vpa,
+                    justification=f"Situación A (Coordinated): Traffic surge ({rps_ratio:.2f}x) + SLO ratio {slo_ratio:.2f} + high pod saturation.",
+                )
+            return ArbitrationResult(
+                strategy="SCALE_HORIZONTALLY",
+                recommended_replicas=target_replicas,
+                recommended_cpu_millicores=current_cpu_millicores,
+                recommended_memory_mib=current_memory_mib,
+                expected_hourly_cost_delta_usd=round(_hourly_cost(target_replicas, current_cpu_millicores, current_memory_mib) - base_cost, 4),
+                risk_score=0.55,
+                confidence=0.90,
+                conflict_detected=has_native_hpa or has_native_vpa,
+                justification=f"Situación A: Sustained traffic surge ({rps_ratio:.2f}x) with p99/SLO={slo_ratio:.2f}; scaling horizontally.",
+            )
+        elif not has_native_vpa:
+            target_cpu = min(max_cpu_millicores, int(round(current_cpu_millicores * 1.25)))
+            return ArbitrationResult(
+                strategy="RESIZE_VERTICALLY",
+                recommended_replicas=current_replicas,
+                recommended_cpu_millicores=target_cpu,
+                recommended_memory_mib=current_memory_mib,
+                expected_hourly_cost_delta_usd=round(_hourly_cost(current_replicas, target_cpu, current_memory_mib) - base_cost, 4),
+                risk_score=0.60,
+                confidence=0.82,
+                conflict_detected=has_native_hpa or has_native_vpa,
+                justification="Horizontal scaling owned by native HPA or at max_replicas; assisting via in-place vertical resize.",
+            )
+
+    # Situación B: Comfortable latency + low per-instance resource utilization -> Vertical Rightsize Down
+    if slo_ratio <= 0.55 and cpu_util <= 0.50 and not has_native_vpa:
+        safe_cpu_floor = max(min_cpu_millicores, int(math.ceil(cpu_usage_millicores / 0.70)))
+        target_cpu = max(safe_cpu_floor, int(round(current_cpu_millicores * 0.80)))
+        target_mem = current_memory_mib
+        if mem_util <= 0.45:
+            safe_mem_floor = max(min_memory_mib, int(math.ceil(memory_usage_mib * 1.30)))
+            target_mem = max(safe_mem_floor, int(round(current_memory_mib * 0.90)))
+        if target_cpu < current_cpu_millicores or target_mem < current_memory_mib:
+            return ArbitrationResult(
+                strategy="RESIZE_VERTICALLY",
+                recommended_replicas=current_replicas,
+                recommended_cpu_millicores=target_cpu,
+                recommended_memory_mib=target_mem,
+                expected_hourly_cost_delta_usd=round(_hourly_cost(current_replicas, target_cpu, target_mem) - base_cost, 4),
+                risk_score=0.20,
+                confidence=0.92,
+                conflict_detected=has_native_hpa or has_native_vpa,
+                justification=f"Situación B: Comfortable latency (p99/SLO={slo_ratio:.2f}) and low CPU util ({cpu_util:.0%}); vertical rightsize down preserving {current_replicas} replicas.",
+            )
+
+    return ArbitrationResult(
+        strategy="NO_OP",
+        recommended_replicas=current_replicas,
+        recommended_cpu_millicores=current_cpu_millicores,
+        recommended_memory_mib=current_memory_mib,
+        expected_hourly_cost_delta_usd=0.0,
+        risk_score=0.10,
+        confidence=0.95,
+        conflict_detected=has_native_hpa or has_native_vpa,
+        justification="Workload operating within target SLO and efficiency band.",
+    )
+

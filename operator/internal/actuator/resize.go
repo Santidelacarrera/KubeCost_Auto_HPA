@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -21,18 +23,133 @@ const (
 	podResizeInProgress corev1.PodConditionType = "PodResizeInProgress"
 )
 
+// ResizeState classifies the real outcome of an in-place pod resize operation.
+type ResizeState string
+
+const (
+	ResizeStatusAccepted   ResizeState = "Accepted"
+	ResizeStatusPending    ResizeState = "Pending"
+	ResizeStatusDeferred   ResizeState = "Deferred"
+	ResizeStatusInfeasible ResizeState = "Infeasible"
+	ResizeStatusInProgress ResizeState = "InProgress"
+	ResizeStatusCompleted  ResizeState = "Completed"
+	ResizeStatusRejected   ResizeState = "Rejected"
+)
+
 var (
-	// ErrWouldRestart is returned when the container's resizePolicy for CPU
-	// requires a restart; the operator never restarts containers.
+	// ErrWouldRestart is returned when the container's resizePolicy requires a restart.
 	ErrWouldRestart = errors.New("container resizePolicy for cpu requires restart")
 	// ErrResizeInFlight is returned while a previous resize is still being applied.
 	ErrResizeInFlight = errors.New("previous resize still in progress")
+	// ErrResizeDeferred wraps ErrResizeInFlight when the kubelet temporarily defers the resize (e.g., node pressure).
+	ErrResizeDeferred = fmt.Errorf("%w: resize deferred by kubelet", ErrResizeInFlight)
+	// ErrResizeInfeasible is returned when the kubelet declares the requested resize impossible on the current node.
+	ErrResizeInfeasible = errors.New("pod resize is infeasible on current node")
 	// ErrContainerNotFound is returned when the pod lacks the target container.
 	ErrContainerNotFound = errors.New("container not found in pod")
 )
 
-// Resizer patches pod CPU through the pods/resize subresource
-// (InPlacePodVerticalScaling), so containers are not restarted.
+// K8sResizeCapability describes the cluster's support for pods/resize.
+type K8sResizeCapability struct {
+	Major                int
+	Minor                int
+	SubresourceAvailable bool
+	Stage                string // "Unsupported", "Alpha", "Beta", "GA"
+	FeatureGateRequired  bool
+	SupportsInPlace      bool
+	Explanation          string
+}
+
+// DetectResizeCapability evaluates Kubernetes API version and subresource presence.
+// In-Place Pod Vertical Scaling is Beta from Kubernetes 1.33 and GA/Stable from 1.35.
+func DetectResizeCapability(majorStr, minorStr string, subresourceAvailable bool) K8sResizeCapability {
+	cleanMinor := strings.TrimRight(minorStr, "+")
+	maj, _ := strconv.Atoi(majorStr)
+	min, _ := strconv.Atoi(cleanMinor)
+
+	cap := K8sResizeCapability{
+		Major:                maj,
+		Minor:                min,
+		SubresourceAvailable: subresourceAvailable,
+	}
+	if maj < 1 || (maj == 1 && min < 27) {
+		cap.Stage = "Unsupported"
+		cap.SupportsInPlace = false
+		cap.Explanation = fmt.Sprintf("Kubernetes %d.%d does not support in-place pod vertical scaling", maj, min)
+		return cap
+	}
+	if maj == 1 && min < 33 {
+		cap.Stage = "Alpha"
+		cap.FeatureGateRequired = true
+		cap.SupportsInPlace = subresourceAvailable
+		cap.Explanation = fmt.Sprintf("Kubernetes %d.%d has Alpha InPlacePodVerticalScaling (requires explicit feature gate)", maj, min)
+		return cap
+	}
+	if maj == 1 && min < 35 {
+		cap.Stage = "Beta"
+		cap.FeatureGateRequired = false
+		cap.SupportsInPlace = subresourceAvailable
+		cap.Explanation = fmt.Sprintf("Kubernetes %d.%d supports Beta InPlacePodVerticalScaling via pods/resize", maj, min)
+		return cap
+	}
+	cap.Stage = "GA"
+	cap.FeatureGateRequired = false
+	cap.SupportsInPlace = subresourceAvailable
+	cap.Explanation = fmt.Sprintf("Kubernetes %d.%d has Stable/GA InPlacePodVerticalScaling support", maj, min)
+	return cap
+}
+
+// InspectResizeStatus inspects the live Pod status conditions and container status resources
+// to verify whether a requested resize was Completed, Deferred, Infeasible, InProgress, or Accepted.
+func InspectResizeStatus(pod *corev1.Pod, container string, desired Target) (ResizeState, string) {
+	for _, cd := range pod.Status.Conditions {
+		if cd.Type == podResizePending && cd.Status == corev1.ConditionTrue {
+			switch strings.ToLower(cd.Reason) {
+			case "infeasible":
+				return ResizeStatusInfeasible, fmt.Sprintf("kubelet rejected resize as Infeasible: %s", cd.Message)
+			case "deferred":
+				return ResizeStatusDeferred, fmt.Sprintf("kubelet deferred resize (temporary capacity constraint): %s", cd.Message)
+			default:
+				return ResizeStatusPending, fmt.Sprintf("resize pending (%s): %s", cd.Reason, cd.Message)
+			}
+		}
+		if cd.Type == podResizeInProgress && cd.Status == corev1.ConditionTrue {
+			if strings.HasPrefix(strings.ToLower(cd.Reason), "error") {
+				return ResizeStatusRejected, fmt.Sprintf("kubelet resize error (%s): %s", cd.Reason, cd.Message)
+			}
+			return ResizeStatusInProgress, fmt.Sprintf("kubelet applying cgroup changes: %s", cd.Message)
+		}
+	}
+
+	// Check containerStatuses to verify if the kubelet has actually applied the desired resources
+	for _, cs := range pod.Status.ContainerStatuses {
+		if cs.Name != container {
+			continue
+		}
+		if cs.Resources == nil {
+			break
+		}
+		cpuOK := true
+		if desired.CPUMillis > 0 {
+			appliedCPU, ok := cs.Resources.Requests[corev1.ResourceCPU]
+			cpuOK = ok && appliedCPU.MilliValue() == desired.CPUMillis
+		}
+		memOK := true
+		if desired.MemoryBytes > 0 {
+			appliedMem, ok := cs.Resources.Requests[corev1.ResourceMemory]
+			memOK = ok && appliedMem.Value() == desired.MemoryBytes
+		}
+		if cpuOK && memOK {
+			return ResizeStatusCompleted, "kubelet verified containerStatuses.resources match desired target"
+		}
+		return ResizeStatusAccepted, "API Server accepted spec update; awaiting kubelet containerStatus actuation"
+	}
+
+	return ResizeStatusAccepted, "API Server accepted spec update; containerStatuses.resources not yet reported"
+}
+
+// Resizer patches pod CPU/Memory through the pods/resize subresource
+// (InPlacePodVerticalScaling), so containers are not restarted when resizePolicy permits.
 type Resizer struct{ Client kubernetes.Interface }
 
 // CurrentCPU returns the CPU request of the container, or zero.
@@ -121,7 +238,16 @@ func (r *Resizer) Resize(ctx context.Context, pod *corev1.Pod, container string,
 		return false, nil
 	}
 	for _, cd := range pod.Status.Conditions {
-		if (cd.Type == podResizePending || cd.Type == podResizeInProgress) && cd.Status == corev1.ConditionTrue {
+		if cd.Type == podResizePending && cd.Status == corev1.ConditionTrue {
+			if strings.EqualFold(cd.Reason, "Infeasible") {
+				return false, fmt.Errorf("%w: %s", ErrResizeInfeasible, cd.Message)
+			}
+			if strings.EqualFold(cd.Reason, "Deferred") {
+				return false, fmt.Errorf("%w: %s", ErrResizeDeferred, cd.Message)
+			}
+			return false, ErrResizeInFlight
+		}
+		if cd.Type == podResizeInProgress && cd.Status == corev1.ConditionTrue {
 			return false, ErrResizeInFlight
 		}
 	}

@@ -171,3 +171,159 @@ func (h *HTTP) Evaluate(ctx context.Context, r Request) (Decision, error) {
 	}
 	return d, nil
 }
+
+// TelemetryMetrics represents the backward-compatible Section 13.1 metrics payload.
+type TelemetryMetrics struct {
+	RPS             float64 `json:"rps"`
+	P99LatencyMs    float64 `json:"p99_latency_ms"`
+	CPUUsageCores   float64 `json:"cpu_usage_cores"`
+	MemUsageBytes   int64   `json:"mem_usage_bytes"`
+	CurrentReplicas int32   `json:"current_replicas"`
+}
+
+// TelemetryPayload supports both Section 13.1 legacy fields and Section 13.2 multi-level fields.
+type TelemetryPayload struct {
+	SchemaVersion      string           `json:"schema_version,omitempty"`
+	EventID            string           `json:"event_id,omitempty"`
+	ClientID           string           `json:"client_id"`
+	ClusterID          string           `json:"cluster_id"`
+	AgentVersion       string           `json:"agent_version,omitempty"`
+	ClusterVersion     string           `json:"cluster_version,omitempty"`
+	NodeName           string           `json:"node_name,omitempty"`
+	NodeInstanceType   string           `json:"node_instance_type,omitempty"`
+	SpotInstanceRisk   float64          `json:"spot_instance_risk,omitempty"`
+	Namespace          string           `json:"namespace,omitempty"`
+	WorkloadName       string           `json:"workload_name,omitempty"`
+	WorkloadKind       string           `json:"workload_kind,omitempty"`
+	PodName            string           `json:"pod_name,omitempty"`
+	ContainerName      string           `json:"container_name,omitempty"`
+	CPURequests        string           `json:"cpu_requests,omitempty"`
+	CPULimits          string           `json:"cpu_limits,omitempty"`
+	MemoryRequests     string           `json:"memory_requests,omitempty"`
+	MemoryLimits       string           `json:"memory_limits,omitempty"`
+	SuccessfulRequests float64          `json:"successful_requests,omitempty"`
+	ErrorRate          float64          `json:"error_rate,omitempty"`
+	P50LatencyMs       float64          `json:"p50_latency_ms,omitempty"`
+	P95LatencyMs       float64          `json:"p95_latency_ms,omitempty"`
+	Metrics            TelemetryMetrics `json:"metrics"`
+	Timestamp          int64            `json:"timestamp"`
+}
+
+// PreWarmCommand mirrors Section 7.5 PRE_WARM command contract from the SaaS control plane.
+type PreWarmCommand struct {
+	CommandID           string            `json:"command_id"`
+	ClientID            string            `json:"client_id"`
+	ClusterID           string            `json:"cluster_id"`
+	Workload            string            `json:"workload"`
+	Action              string            `json:"action"`
+	RequestedResources  map[string]string `json:"requested_resources"`
+	RecommendedReplicas int32             `json:"recommended_replicas"`
+	ExecuteAt           int64             `json:"execute_at"`
+	ExpiresAt           int64             `json:"expires_at"`
+	Confidence          float64           `json:"confidence"`
+	Reason              string            `json:"reason"`
+	PolicyVersion       string            `json:"policy_version"`
+}
+
+// CommandACK reports command execution or rejection back to the SaaS control plane.
+type CommandACK struct {
+	ClientID  string `json:"client_id"`
+	CommandID string `json:"command_id"`
+	Status    string `json:"status"` // EXECUTED | REJECTED_EXPIRED | REJECTED_CAPACITY | REJECTED_GUARDRAIL | DUPLICATE_IGNORED
+	Reason    string `json:"reason"`
+	Timestamp int64  `json:"timestamp"`
+}
+
+// IngestTelemetry sends multi-level telemetry to POST /v1/telemetry/ingest.
+func (h *HTTP) IngestTelemetry(ctx context.Context, payload TelemetryPayload) error {
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, h.BaseURL+"/v1/telemetry/ingest", bytes.NewReader(b))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if payload.ClientID != "" {
+		req.Header.Set("X-Tenant-ID", payload.ClientID)
+	}
+	resp, err := h.Client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return fmt.Errorf("telemetry ingest returned %d: %s", resp.StatusCode, bytes.TrimSpace(body))
+	}
+	return nil
+}
+
+// ValidatePreWarmCommand validates a PRE_WARM command locally before execution,
+// enforcing anti-replay, expiration, confidence floor, and cluster capacity checks.
+func ValidatePreWarmCommand(
+	cmd PreWarmCommand,
+	nowUnix int64,
+	executedIDs map[string]bool,
+	minConfidence float64,
+	clusterHasCapacity bool,
+	maxAllowedReplicas int32,
+) CommandACK {
+	if executedIDs != nil && executedIDs[cmd.CommandID] {
+		return CommandACK{
+			ClientID:  cmd.ClientID,
+			CommandID: cmd.CommandID,
+			Status:    "DUPLICATE_IGNORED",
+			Reason:    "command_id already executed locally (anti-replay)",
+			Timestamp: nowUnix,
+		}
+	}
+	if cmd.ExpiresAt <= nowUnix {
+		return CommandACK{
+			ClientID:  cmd.ClientID,
+			CommandID: cmd.CommandID,
+			Status:    "REJECTED_EXPIRED",
+			Reason:    fmt.Sprintf("command expired at %d (now=%d)", cmd.ExpiresAt, nowUnix),
+			Timestamp: nowUnix,
+		}
+	}
+	if cmd.Confidence < minConfidence {
+		return CommandACK{
+			ClientID:  cmd.ClientID,
+			CommandID: cmd.CommandID,
+			Status:    "REJECTED_GUARDRAIL",
+			Reason:    fmt.Sprintf("confidence %.2f below minimum threshold %.2f", cmd.Confidence, minConfidence),
+			Timestamp: nowUnix,
+		}
+	}
+	if !clusterHasCapacity {
+		return CommandACK{
+			ClientID:  cmd.ClientID,
+			CommandID: cmd.CommandID,
+			Status:    "REJECTED_CAPACITY",
+			Reason:    "cluster lacks allocatable capacity for PRE_WARM expansion",
+			Timestamp: nowUnix,
+		}
+	}
+	if maxAllowedReplicas > 0 && cmd.RecommendedReplicas > maxAllowedReplicas {
+		return CommandACK{
+			ClientID:  cmd.ClientID,
+			CommandID: cmd.CommandID,
+			Status:    "REJECTED_GUARDRAIL",
+			Reason:    fmt.Sprintf("recommended_replicas %d exceeds local guardrail max %d", cmd.RecommendedReplicas, maxAllowedReplicas),
+			Timestamp: nowUnix,
+		}
+	}
+	if executedIDs != nil {
+		executedIDs[cmd.CommandID] = true
+	}
+	return CommandACK{
+		ClientID:  cmd.ClientID,
+		CommandID: cmd.CommandID,
+		Status:    "EXECUTED",
+		Reason:    "PRE_WARM command validated and applied within local guardrails",
+		Timestamp: nowUnix,
+	}
+}
+

@@ -71,6 +71,65 @@ func (d *Drainer) CheckCapacity(ctx context.Context, node string) error {
 	return ErrNoCapacity
 }
 
+// SafeToEvictAnnotation allows pods with local storage or StatefulSets to opt-in/out of automated drain.
+const SafeToEvictAnnotation = "autoscaling.kubecost.io/safe-to-evict"
+
+// DrainSafetyReport details whether a pod can be safely migrated during proactive node consolidation.
+type DrainSafetyReport struct {
+	CanEvict                 bool
+	IsStatefulSet            bool
+	HasLocalStorage          bool
+	TerminationGraceSeconds  int64
+	BlockerReason            string
+}
+
+// InspectPodDrainSafety evaluates whether a pod is safe to evict during Spot or Bin-Packing drains,
+// checking controller ownership, StatefulSet quorum sensitivity, and non-migratable local volumes.
+func InspectPodDrainSafety(p corev1.Pod) DrainSafetyReport {
+	grace := int64(30)
+	if p.Spec.TerminationGracePeriodSeconds != nil {
+		grace = *p.Spec.TerminationGracePeriodSeconds
+	}
+	if p.Annotations[SafeToEvictAnnotation] == "false" || p.Annotations["cluster-autoscaler.kubernetes.io/safe-to-evict"] == "false" {
+		return DrainSafetyReport{
+			CanEvict:                false,
+			TerminationGraceSeconds: grace,
+			BlockerReason:           "annotated with safe-to-evict=false",
+		}
+	}
+	owner := metav1.GetControllerOf(&p)
+	if owner == nil {
+		return DrainSafetyReport{
+			CanEvict:                false,
+			TerminationGraceSeconds: grace,
+			BlockerReason:           "unmanaged pod without controller owner",
+		}
+	}
+	isStateful := owner.Kind == "StatefulSet"
+	hasLocal := false
+	for _, v := range p.Spec.Volumes {
+		if v.HostPath != nil {
+			hasLocal = true
+			break
+		}
+	}
+	if hasLocal && p.Annotations[SafeToEvictAnnotation] != "true" {
+		return DrainSafetyReport{
+			CanEvict:                false,
+			IsStatefulSet:           isStateful,
+			HasLocalStorage:         true,
+			TerminationGraceSeconds: grace,
+			BlockerReason:           "pod uses non-migratable HostPath local volume",
+		}
+	}
+	return DrainSafetyReport{
+		CanEvict:                true,
+		IsStatefulSet:           isStateful,
+		HasLocalStorage:         hasLocal,
+		TerminationGraceSeconds: grace,
+	}
+}
+
 // evictable splits pods on the node into those to evict and those that make a
 // safe drain impossible (unmanaged pods).
 func evictable(pods []corev1.Pod) (evict []corev1.Pod, blockers []string) {

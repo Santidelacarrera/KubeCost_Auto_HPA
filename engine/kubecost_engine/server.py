@@ -9,6 +9,7 @@ import math
 import os
 import ssl
 import threading
+import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from .binpacking import ConsolidationResult, NodeBinPacker, NodeState, PodPlacement
@@ -16,6 +17,7 @@ from .economics import cost_per_request_from_pod
 from .guardrails import BudgetGuardrail
 from .oom_shield import OOMProtectionShield, OOMShieldDecision
 from .predictive import ForecastResult, PredictiveAutoscaler
+from .saas import get_control_plane
 from .scaling import recommend_memory, recommend_replicas, recommend_resize
 from .spot import SpotCandidate, is_spot_eligible
 
@@ -287,11 +289,56 @@ class Handler(BaseHTTPRequestHandler):
             return False
 
     def do_GET(self):  # noqa: N802
-        path_only = self.path.split("?")[0]
+        parsed = urllib.parse.urlparse(self.path)
+        path_only = parsed.path
+        qs = urllib.parse.parse_qs(parsed.query)
+        tenant_hdr = self.headers.get("X-Tenant-ID")
+
         if path_only in ("/healthz", "/health"):
             self._send(200, '{"status":"ok"}')
         elif path_only == "/metrics":
             self._send(200, render_metrics(), "text/plain; version=0.0.4")
+        elif path_only == "/v1/policies":
+            if not self._authorized():
+                return self._send(401, '{"error":"unauthorized"}')
+            try:
+                client_id = qs.get("client_id", [""])[0]
+                cluster_id = qs.get("cluster_id", ["eks-prod-1"])[0]
+                res = get_control_plane().get_policy(client_id, cluster_id, tenant_header=tenant_hdr)
+                return self._send(200, json.dumps(res))
+            except PermissionError as e:
+                return self._send(403, json.dumps({"error": str(e)}))
+            except Exception as e:
+                return self._send(400, json.dumps({"error": str(e)}))
+        elif path_only == "/v1/commands/pending":
+            if not self._authorized():
+                return self._send(401, '{"error":"unauthorized"}')
+            try:
+                client_id = qs.get("client_id", [""])[0]
+                cluster_id = qs.get("cluster_id", ["eks-prod-1"])[0]
+                res = get_control_plane().get_pending_commands(client_id, cluster_id, tenant_header=tenant_hdr)
+                return self._send(200, json.dumps({"commands": res}))
+            except PermissionError as e:
+                return self._send(403, json.dumps({"error": str(e)}))
+            except Exception as e:
+                return self._send(400, json.dumps({"error": str(e)}))
+        elif path_only == "/v1/audit/decisions":
+            if not self._authorized():
+                return self._send(401, '{"error":"unauthorized"}')
+            try:
+                client_id = qs.get("client_id", [""])[0]
+                cluster_id = qs.get("cluster_id", [None])[0]
+                res = get_control_plane().get_audit_decisions(client_id, cluster_id, tenant_header=tenant_hdr)
+                return self._send(200, json.dumps({"decisions": res}))
+            except PermissionError as e:
+                return self._send(403, json.dumps({"error": str(e)}))
+            except Exception as e:
+                return self._send(400, json.dumps({"error": str(e)}))
+        elif path_only == "/v1/ui/cast-dashboard":
+            client_id = qs.get("client_id", ["default-tenant"])[0]
+            cluster_id = qs.get("cluster_id", ["eks-prod-us-east-1"])[0]
+            res = get_control_plane().get_cast_dashboard(client_id=client_id, cluster_id=cluster_id)
+            return self._send(200, json.dumps(res))
         elif path_only == "/v1/cluster/topology":
             # ScaleOps Parity: Sample Cluster Topology & Bin-Packing State
             sample_topology = {
@@ -430,6 +477,31 @@ class Handler(BaseHTTPRequestHandler):
                 }
                 return self._send(200, json.dumps(out))
             except Exception as e:
+                return self._send(400, json.dumps({"error": str(e)}))
+
+        saas_post_routes = {
+            "/v1/agents/register": get_control_plane().register_agent,
+            "/v1/agents/heartbeat": get_control_plane().heartbeat,
+            "/v1/telemetry/ingest": get_control_plane().ingest_telemetry,
+            "/v1/commands/prewarm": get_control_plane().issue_prewarm_command,
+            "/v1/commands/ack": get_control_plane().acknowledge_command,
+            "/v1/audit/decisions": get_control_plane().record_audit_decision,
+            "/v1/ui/recommendations/execute": get_control_plane().execute_ui_recommendation,
+        }
+        if self.path in saas_post_routes:
+            if not self._authorized():
+                return self._send(401, '{"error":"unauthorized"}')
+            try:
+                n = int(self.headers.get("Content-Length", 0))
+                if n > 1 << 20:
+                    return self._send(413, '{"error":"payload too large"}')
+                payload = json.loads(self.rfile.read(n), parse_constant=_reject_constant)
+                tenant_hdr = self.headers.get("X-Tenant-ID")
+                res = saas_post_routes[self.path](payload, tenant_header=tenant_hdr)
+                return self._send(200, json.dumps(res))
+            except PermissionError as e:
+                return self._send(403, json.dumps({"error": str(e)}))
+            except (ValueError, KeyError, TypeError) as e:
                 return self._send(400, json.dumps({"error": str(e)}))
 
         if self.path != "/v1/evaluate":
