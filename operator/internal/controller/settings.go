@@ -27,6 +27,11 @@ type Settings struct {
 	// Paused is the emergency stop (annotation): it forces DryRun and is reported as such.
 	Paused     bool
 	Classifier *infra.Classifier
+
+	// ScaleOps Parity Policies
+	Predictive     *v1alpha1.PredictivePolicy
+	OOMProtection  *v1alpha1.OOMProtectionPolicy
+	NodeBinPacking *v1alpha1.NodeBinPackingPolicy
 }
 
 func dur(d metav1.Duration, def time.Duration) time.Duration {
@@ -155,6 +160,9 @@ func Resolve(spec *v1alpha1.KubeCostAutoscalerSpec) (Settings, error) {
 	if r := spec.InfrastructurePolicy.OnDemandNodeLabels; len(r) > 0 {
 		s.Classifier.OnDemandRules = toRules(r)
 	}
+	s.Predictive = spec.Predictive
+	s.OOMProtection = spec.OOMProtection
+	s.NodeBinPacking = spec.NodeBinPacking
 	return s, nil
 }
 

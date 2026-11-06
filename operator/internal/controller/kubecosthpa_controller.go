@@ -268,6 +268,21 @@ func (r *KubeCostHPAReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			HasPDB: r.hasPDB(ctx, &dep), MinReplicas: int(hpa.Spec.Spot.MinReplicas),
 		}
 	}
+	if hpa.Spec.Predictive != nil && hpa.Spec.Predictive.Enabled {
+		ereq.Predictive = &engine.PredictiveReq{
+			Enabled:               hpa.Spec.Predictive.Enabled,
+			WarmupLeadTimeSeconds: int(hpa.Spec.Predictive.WarmupLeadTimeSeconds),
+			TargetRPSPerPod:       float64(hpa.Spec.Predictive.TargetRPSPerPod),
+		}
+	}
+	if hpa.Spec.OOMProtection != nil && hpa.Spec.OOMProtection.Enabled {
+		ereq.OOMProtection = &engine.OOMProtectionReq{
+			Enabled:                  hpa.Spec.OOMProtection.Enabled,
+			CriticalThresholdPercent: float64(hpa.Spec.OOMProtection.CriticalThresholdPercent),
+			WarningThresholdPercent:  float64(hpa.Spec.OOMProtection.WarningThresholdPercent),
+			MaxLimitMiB:              hpa.Spec.OOMProtection.MaxLimitMiB,
+		}
+	}
 	dec, err := r.Engine.Evaluate(ctx, ereq)
 	if err != nil {
 		r.event(&hpa, corev1.EventTypeWarning, "EngineError", err.Error())
@@ -297,9 +312,15 @@ func (r *KubeCostHPAReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if ereq.Memory != nil && dec.Memory != nil && dec.Memory.Action != "hold" { // only act on what was asked for
 		newMem = dec.Memory.MiB
 	}
+	if dec.OOMProtection != nil && dec.OOMProtection.Action == "inflate" && dec.OOMProtection.RecommendedLimitMiB > newMem {
+		newMem = dec.OOMProtection.RecommendedLimitMiB
+	}
 	newReplicas := curReplicas
 	if ereq.Replicas != nil && dec.Replicas != nil { // never act on a recommendation that was not requested
 		newReplicas = dec.Replicas.Target
+	}
+	if dec.Predictive != nil && dec.Predictive.Action == "prewarm" && int32(dec.Predictive.RecommendedReplicas) > newReplicas {
+		newReplicas = int32(dec.Predictive.RecommendedReplicas)
 	}
 	cpuChange := dec.Action != "hold" && dec.CPUMillicores != desired
 	memChange := newMem != desiredMem
@@ -310,7 +331,13 @@ func (r *KubeCostHPAReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			parts = append(parts, fmt.Sprintf("cpu %dm->%dm (%s)", desired, dec.CPUMillicores, dec.Reason))
 		}
 		if memChange {
-			parts = append(parts, fmt.Sprintf("memory %dMi->%dMi (%s)", desiredMem, newMem, dec.Memory.Reason))
+			reason := "resize"
+			if dec.Memory != nil && dec.Memory.Reason != "" {
+				reason = dec.Memory.Reason
+			} else if dec.OOMProtection != nil && dec.OOMProtection.Action == "inflate" {
+				reason = dec.OOMProtection.Reason
+			}
+			parts = append(parts, fmt.Sprintf("memory %dMi->%dMi (%s)", desiredMem, newMem, reason))
 		}
 		if repChange {
 			parts = append(parts, fmt.Sprintf("replicas %d->%d (%s)", curReplicas, newReplicas, dec.Replicas.Reason))
