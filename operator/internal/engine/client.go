@@ -54,36 +54,78 @@ type ReplicasDec struct {
 	Reason string `json:"reason"`
 }
 
+// PredictiveReq configures proactive scaling ahead of traffic surges (ScaleOps parity).
+type PredictiveReq struct {
+	WarmupLeadTimeSeconds int32     `json:"warmup_lead_time_seconds,omitempty"`
+	TargetRPSPerPod       float64   `json:"target_rps_per_pod,omitempty"`
+	RPSHistory            []float64 `json:"rps_history,omitempty"`
+	HourOfDayUTC          *int      `json:"hour_of_day_utc,omitempty"`
+}
+
+// PredictiveDec is the engine's predictive forecast output.
+type PredictiveDec struct {
+	PredictedReplicas   int32   `json:"predicted_replicas"`
+	ReactiveReplicas    int32   `json:"reactive_replicas"`
+	RecommendedReplicas int32   `json:"recommended_replicas"`
+	IsPrewarming        bool    `json:"is_prewarming"`
+	ConfidenceScore     float64 `json:"confidence_score"`
+	Reason              string  `json:"reason"`
+}
+
+// OOMProtectionReq monitors heap accumulation to prevent 137 exit codes (ScaleOps parity).
+type OOMProtectionReq struct {
+	CriticalThreshold float64   `json:"critical_threshold,omitempty"`
+	WarningThreshold  float64   `json:"warning_threshold,omitempty"`
+	UsageHistoryMiB   []float64 `json:"usage_history_mib,omitempty"`
+	MaxLimitMiB       int64     `json:"max_allowed_limit_mib,omitempty"`
+}
+
+// OOMProtectionDec is the OOM shield intervention output.
+type OOMProtectionDec struct {
+	IsAtRisk              bool     `json:"is_at_risk"`
+	RiskLevel             string   `json:"risk_level"`
+	RecommendedLimitMiB   int64    `json:"recommended_limit_mib"`
+	RecommendedRequestMiB int64    `json:"recommended_request_mib"`
+	HeadroomPercentage    float64  `json:"headroom_percentage"`
+	EstimatedSecondsToOOM *float64 `json:"estimated_seconds_to_oom"`
+	Action                string   `json:"action"`
+	Reason                string   `json:"reason"`
+}
+
 // Request mirrors POST /v1/evaluate.
 type Request struct {
-	CPUMillicores       int64        `json:"cpu_millicores"`
-	P99Ms               float64      `json:"p99_ms"`
-	SLOP99Ms            float64      `json:"slo_p99_ms"`
-	RPS                 float64      `json:"rps"`
-	CPUUsageMillicores  *float64     `json:"cpu_usage_millicores,omitempty"`
-	MinMillicores       int64        `json:"min_millicores"`
-	MaxMillicores       int64        `json:"max_millicores"`
-	MemoryGiB           float64      `json:"memory_gib"`
-	CPUPricePerCoreHour float64      `json:"cpu_price_per_core_hour"`
-	MemPricePerGiBHour  float64      `json:"mem_price_per_gib_hour"`
-	MaxCostPerRequest   float64      `json:"max_cost_per_request"`
-	Budget              *Budget      `json:"budget,omitempty"`
-	Spot                *Spot        `json:"spot,omitempty"`
-	Memory              *MemoryReq   `json:"memory,omitempty"`
-	Replicas            *ReplicasReq `json:"replicas,omitempty"`
+	CPUMillicores       int64             `json:"cpu_millicores"`
+	P99Ms               float64           `json:"p99_ms"`
+	SLOP99Ms            float64           `json:"slo_p99_ms"`
+	RPS                 float64           `json:"rps"`
+	CPUUsageMillicores  *float64          `json:"cpu_usage_millicores,omitempty"`
+	MinMillicores       int64             `json:"min_millicores"`
+	MaxMillicores       int64             `json:"max_millicores"`
+	MemoryGiB           float64           `json:"memory_gib"`
+	CPUPricePerCoreHour float64           `json:"cpu_price_per_core_hour"`
+	MemPricePerGiBHour  float64           `json:"mem_price_per_gib_hour"`
+	MaxCostPerRequest   float64           `json:"max_cost_per_request"`
+	Budget              *Budget           `json:"budget,omitempty"`
+	Spot                *Spot             `json:"spot,omitempty"`
+	Memory              *MemoryReq        `json:"memory,omitempty"`
+	Replicas            *ReplicasReq      `json:"replicas,omitempty"`
+	Predictive          *PredictiveReq    `json:"predictive,omitempty"`
+	OOMProtection       *OOMProtectionReq `json:"oom_protection,omitempty"`
 }
 
 // Decision is the engine's answer.
 type Decision struct {
-	Action              string       `json:"action"` // shrink | grow | hold
-	CPUMillicores       int64        `json:"cpu_millicores"`
-	Reason              string       `json:"reason"`
-	CostPerRequest      *float64     `json:"cost_per_request"`
-	CostPerRequestAfter *float64     `json:"cost_per_request_after"`
-	BudgetFrozen        bool         `json:"budget_frozen"`
-	SpotEligible        *bool        `json:"spot_eligible"`
-	Memory              *MemoryDec   `json:"memory"`
-	Replicas            *ReplicasDec `json:"replicas"`
+	Action              string            `json:"action"` // shrink | grow | hold
+	CPUMillicores       int64             `json:"cpu_millicores"`
+	Reason              string            `json:"reason"`
+	CostPerRequest      *float64          `json:"cost_per_request"`
+	CostPerRequestAfter *float64          `json:"cost_per_request_after"`
+	BudgetFrozen        bool              `json:"budget_frozen"`
+	SpotEligible        *bool             `json:"spot_eligible"`
+	Memory              *MemoryDec        `json:"memory"`
+	Replicas            *ReplicasDec      `json:"replicas"`
+	Predictive          *PredictiveDec    `json:"predictive,omitempty"`
+	OOMProtection       *OOMProtectionDec `json:"oom_protection,omitempty"`
 }
 
 // Evaluator evaluates one workload.

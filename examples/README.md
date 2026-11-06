@@ -12,6 +12,7 @@ This directory provides copy-paste, production-grade custom resource manifests (
 | **[`02-production-cost-autoscaler.yaml`](02-production-cost-autoscaler.yaml)** | High-Traffic Microservice | Active scaling, stabilization anti-flapping, and automated fallback to native HPA. |
 | **[`03-spot-instance-workload.yaml`](03-spot-instance-workload.yaml)** | Spot / Preemptible Fleet | Spot economic weighting (`spotMultiplier: "0.35"`) and preemption buffering. |
 | **[`04-budget-capped-service.yaml`](04-budget-capped-service.yaml)** | Cost-Constrained Service | Hard dollar budget ceilings (`maxHourlyCostUSD`) with emergency headroom overrides. |
+| **[`05-scaleops-predictive-oom-shield-binpack.yaml`](05-scaleops-predictive-oom-shield-binpack.yaml)** | ScaleOps Feature Parity | Predictive HPA (pre-warming ahead of surges), continuous OOM shield, and node bin-packing. |
 
 ---
 
