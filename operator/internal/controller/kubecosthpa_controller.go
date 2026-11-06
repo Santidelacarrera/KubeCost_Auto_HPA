@@ -187,7 +187,7 @@ func (r *KubeCostHPAReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	// --- converge existing/new pods to the desired values ---
-	if !hpa.Spec.DryRun && (hpa.Status.DesiredCPUMillicores != 0 || hpa.Status.DesiredMemoryMiB != 0) {
+	if !hpa.Spec.DryRun && (hpa.Status.DesiredCPUMillicores != 0 || (hpa.Spec.Memory != nil && hpa.Status.DesiredMemoryMiB != 0)) {
 		r.converge(ctx, &hpa, pods, cname, actuator.Target{CPUMillis: desired, MemoryBytes: memBytes(hpa.Spec.Memory, desiredMem)})
 	}
 
@@ -312,7 +312,8 @@ func (r *KubeCostHPAReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if ereq.Memory != nil && dec.Memory != nil && dec.Memory.Action != "hold" { // only act on what was asked for
 		newMem = dec.Memory.MiB
 	}
-	if dec.OOMProtection != nil && dec.OOMProtection.Action == "inflate" && dec.OOMProtection.RecommendedLimitMiB > newMem {
+	oomInflate := dec.OOMProtection != nil && dec.OOMProtection.Action == "inflate" && dec.OOMProtection.RecommendedLimitMiB > newMem
+	if oomInflate {
 		newMem = dec.OOMProtection.RecommendedLimitMiB
 	}
 	newReplicas := curReplicas
@@ -323,7 +324,7 @@ func (r *KubeCostHPAReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		newReplicas = dec.Predictive.RecommendedReplicas
 	}
 	cpuChange := dec.Action != "hold" && dec.CPUMillicores != desired
-	memChange := newMem != desiredMem
+	memChange := (ereq.Memory != nil && newMem != desiredMem) || oomInflate
 	repChange := newReplicas != curReplicas
 	if cpuChange || memChange || repChange {
 		var parts []string
@@ -387,7 +388,11 @@ func (r *KubeCostHPAReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				hpa.Status.LastResizeAction = "grow"
 			}
 			if cpuChange || memChange {
-				r.converge(ctx, &hpa, pods, cname, actuator.Target{CPUMillis: desired, MemoryBytes: memBytes(hpa.Spec.Memory, desiredMem)})
+				targetMem := memBytes(hpa.Spec.Memory, desiredMem)
+				if hpa.Spec.Memory == nil && oomInflate {
+					targetMem = newMem << 20
+				}
+				r.converge(ctx, &hpa, pods, cname, actuator.Target{CPUMillis: desired, MemoryBytes: targetMem})
 			}
 			if serr := r.Store.Set(ctx, key+":decision", storedDecision{dec.Action, desired, r.now()}, hpa.Spec.Cooldown.Duration); serr != nil {
 				lg.Info("cache write failed", "error", serr.Error())
@@ -491,7 +496,7 @@ func (r *KubeCostHPAReconciler) converge(ctx context.Context, h *v1alpha1.KubeCo
 }
 
 func memBytes(m *v1alpha1.MemorySpec, mib int64) int64 {
-	if m == nil && mib == 0 {
+	if m == nil {
 		return 0 // memory resizing not enabled: leave memory alone
 	}
 	return mib << 20
