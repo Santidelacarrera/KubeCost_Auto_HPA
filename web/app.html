@@ -1805,6 +1805,11 @@
           document.getElementById('gameday-score-val').textContent = `${sc.overall_resilience_score} / 100`;
           document.getElementById('gameday-protected-val').textContent = `${sc.total_oom_kills_prevented} OOMKills Prevented • ${sc.total_downtime_seconds}s Downtime • $${sc.total_protected_value_usd.toLocaleString()} Protected`;
         }
+        const rdyRes = await fetch(`${base}/v1/system/readiness`);
+        if (rdyRes.ok) {
+          const rdy = await rdyRes.json();
+          logToTerminal('PROD-READY', `Certified ${rdy.certified_subsystems}/${rdy.total_subsystems} Production Subsystems (${rdy.overall_status}) for Tenant ${rdy.canonical_tenant_id}.`, true);
+        }
       } catch (e) {
         // non-blocking telemetry sync
       }

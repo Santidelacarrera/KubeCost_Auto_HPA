@@ -14,6 +14,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from .auth_billing import MultiTenantAuthManager, generate_stripe_billing_invoice
 from .binpacking import ConsolidationResult, NodeBinPacker, NodeState, PodPlacement
+from .bootstrap import get_production_readiness_report, process_stripe_webhook_event
 from .economics import cost_per_request_from_pod
 from .gameday import run_autonomous_gameday
 from .gpu_optimizer import evaluate_gpu_workload
@@ -403,6 +404,9 @@ class Handler(BaseHTTPRequestHandler):
             cluster_id = qs.get("cluster_id", ["prod-us-east-1"])[0]
             scorecard = run_autonomous_gameday(cluster_id=cluster_id)
             return self._send(200, json.dumps(scorecard.to_dict()))
+        elif path_only == "/v1/system/readiness":
+            rep = get_production_readiness_report(auth_manager=_auth_manager)
+            return self._send(200, json.dumps(rep))
         elif path_only == "/v1/cluster/topology":
             # ScaleOps Parity: Sample Cluster Topology & Bin-Packing State
             sample_topology = {
@@ -581,6 +585,18 @@ class Handler(BaseHTTPRequestHandler):
                 node_count=int(payload.get("node_count", 12)),
             ).to_dict(),
         }
+        if self.path == "/v1/billing/stripe-webhook":
+            try:
+                n = int(self.headers.get("Content-Length", 0))
+                raw_body = self.rfile.read(n).decode("utf-8")
+                sig_hdr = self.headers.get("Stripe-Signature", "")
+                res = process_stripe_webhook_event(raw_body=raw_body, signature_header=sig_hdr)
+                return self._send(200, json.dumps(res))
+            except PermissionError as e:
+                return self._send(401, json.dumps({"error": str(e)}))
+            except Exception as e:
+                return self._send(400, json.dumps({"error": str(e)}))
+
         if self.path in saas_post_routes:
             if not self._authorized():
                 return self._send(401, '{"error":"unauthorized"}')

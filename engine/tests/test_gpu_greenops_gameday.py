@@ -100,6 +100,11 @@ def test_server_gpu_greenops_guardrail_gameday_endpoints():
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/v1/gameday/simulate") as resp:
             gd_data = json.loads(resp.read().decode())
             assert gd_data["overall_resilience_score"] >= 98.0
+
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/v1/system/readiness") as resp:
+            rdy_data = json.loads(resp.read().decode())
+            assert rdy_data["overall_status"] == "PRODUCTION_READY_100_PCT"
+            assert rdy_data["certified_subsystems"] == 10
     finally:
         srv.shutdown()
         srv.server_close()

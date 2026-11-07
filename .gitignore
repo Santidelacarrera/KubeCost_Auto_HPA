@@ -12,3 +12,7 @@ kubeconfig*
 *.kubeconfig
 *.key
 *.pem
+.prod-bootstrap/
+*.db
+*.db-wal
+*.db-shm
