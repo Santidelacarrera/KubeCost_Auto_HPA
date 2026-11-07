@@ -571,6 +571,7 @@ def test_14_3_redis_distributed_counters_restart_persistence_and_prod_fail_close
                 "POST",
                 f"10.0.0.{i+1}",
                 "tenant-shared-redis",
+                "mock-principal",
                 fixed_ts,
             )
             for i in range(6)
@@ -580,7 +581,7 @@ def test_14_3_redis_distributed_counters_restart_persistence_and_prod_fail_close
 
     # 7th request on replica 2 exceeds the shared limit of 6 across replicas
     seventh = limiter_replica_2.check_request(
-        "/v1/evaluate", "POST", "10.0.0.99", "tenant-shared-redis", now_ts=fixed_ts
+        "/v1/evaluate", "POST", "10.0.0.99", "tenant-shared-redis", "mock-principal", now_ts=fixed_ts
     )
     assert seventh.allowed is False
 
