@@ -389,14 +389,14 @@ class DistributedRateLimiter:
                     "REDIS_URL is required for distributed rate limiting in production mode"
                 )
             return None
+        if self._redis_client is not None and self._redis_url_cached == url:
+            return self._redis_client
         if redis is None:
             if is_redis_required_in_production():
                 raise RateLimitBackendUnavailableError(
                     "redis package is required for distributed rate limiting in production mode"
                 )
             return None
-        if self._redis_client is not None and self._redis_url_cached == url:
-            return self._redis_client
         try:
             self._redis_client = redis.Redis.from_url(
                 url,

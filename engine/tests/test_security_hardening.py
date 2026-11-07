@@ -561,6 +561,7 @@ def test_14_3_redis_distributed_counters_restart_persistence_and_prod_fail_close
     limiter_replica_2._redis_url_cached = "redis://localhost:6379/0"
 
     monkeypatch.setenv("RATE_LIMIT_COMPUTE_PER_MIN", "6")
+    fixed_ts = 1700000010
     # Send 3 concurrent requests to replica 1 and 3 concurrent requests to replica 2
     with ThreadPoolExecutor(max_workers=6) as pool:
         futs = [
@@ -570,6 +571,7 @@ def test_14_3_redis_distributed_counters_restart_persistence_and_prod_fail_close
                 "POST",
                 f"10.0.0.{i+1}",
                 "tenant-shared-redis",
+                fixed_ts,
             )
             for i in range(6)
         ]
@@ -578,7 +580,7 @@ def test_14_3_redis_distributed_counters_restart_persistence_and_prod_fail_close
 
     # 7th request on replica 2 exceeds the shared limit of 6 across replicas
     seventh = limiter_replica_2.check_request(
-        "/v1/evaluate", "POST", "10.0.0.99", "tenant-shared-redis"
+        "/v1/evaluate", "POST", "10.0.0.99", "tenant-shared-redis", now_ts=fixed_ts
     )
     assert seventh.allowed is False
 
