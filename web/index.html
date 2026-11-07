@@ -11,33 +11,33 @@
   <link rel="stylesheet" href="styles/impeccable-kit.css">
   <style>
     :root {
-      /* Impeccable Neo Kinpaku Design Tokens */
-      --ks-kinpaku: oklch(84% 0.19 80.46);
-      --ks-kinpaku-vivid: oklch(87% 0.20 85);
-      --ks-kinpaku-rich: oklch(77% 0.13 82);
-      --ks-kinpaku-deep: oklch(61% 0.085 78);
-      --ks-on-gold: oklch(14% 0.018 95);
+      /* Cast AI Inspired Design System — Deep Midnight, Electric Blue & Luminous Cyan */
+      --ks-kinpaku: #00E5FF;
+      --ks-kinpaku-vivid: #38BDF8;
+      --ks-kinpaku-rich: #2563EB;
+      --ks-kinpaku-deep: #1D4ED8;
+      --ks-on-gold: #030712;
 
-      --ks-patina: oklch(70% 0.12 188);
-      --ks-patina-pale: oklch(82% 0.07 188);
-      --ks-patina-deep: oklch(46% 0.08 188);
+      --ks-patina: #10B981;
+      --ks-patina-pale: #34D399;
+      --ks-patina-deep: #059669;
 
-      --ks-lacquer-black: oklch(7% 0.006 95);
-      --ks-lacquer-deep: oklch(4% 0.004 95);
-      --ks-raised-lacquer: oklch(11% 0.006 95);
-      --ks-graphite: oklch(15% 0.008 95);
-      --ks-graphite-2: oklch(19% 0.008 95);
+      --ks-lacquer-black: #060913;
+      --ks-lacquer-deep: #04070F;
+      --ks-raised-lacquer: #0B1221;
+      --ks-graphite: #111B30;
+      --ks-graphite-2: #172542;
 
-      --ks-champagne: oklch(91% 0 0);
-      --ks-text-warm: oklch(88% 0 0);
-      --ks-text-muted: oklch(68% 0 0);
-      --ks-text-faint: oklch(52% 0 0);
+      --ks-champagne: #F8FAFC;
+      --ks-text-warm: #E2E8F0;
+      --ks-text-muted: #94A3B8;
+      --ks-text-faint: #64748B;
 
-      --ks-gold-hairline: oklch(78% 0 0 / 0.14);
-      --ks-gold-hairline-strong: oklch(74% 0.09 82 / 0.5);
+      --ks-gold-hairline: rgba(56, 189, 248, 0.16);
+      --ks-gold-hairline-strong: rgba(0, 229, 255, 0.45);
 
-      --ks-font: "Albert Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      --ks-font-wordmark: "Alumni Sans", "Albert Sans", sans-serif;
+      --ks-font: "Inter", "Albert Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --ks-font-wordmark: "Inter", "Albert Sans", sans-serif;
       --ks-mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
     }
 
@@ -45,6 +45,9 @@
 
     body {
       background-color: var(--ks-lacquer-black);
+      background-image:
+        radial-gradient(ellipse 85% 45% at 50% -10%, rgba(37, 99, 235, 0.30) 0%, rgba(0, 229, 255, 0.09) 48%, transparent 75%),
+        radial-gradient(circle at 85% 22%, rgba(16, 185, 129, 0.08) 0%, transparent 45%);
       color: var(--ks-text-warm);
       font-family: var(--ks-font);
       font-size: 1rem;
@@ -53,10 +56,10 @@
       overflow-x: hidden;
     }
 
-    /* Impeccable Site Navigation */
+    /* Cast AI Glassmorphic Site Navigation */
     nav.site-nav {
-      background: rgba(11, 11, 13, 0.9);
-      backdrop-filter: blur(12px);
+      background: rgba(4, 7, 15, 0.85);
+      backdrop-filter: blur(16px);
       border-bottom: 1px solid var(--ks-gold-hairline);
       padding: 1.1rem 8%;
       display: flex;
@@ -76,26 +79,27 @@
     }
 
     .brand-mark {
-      width: 28px;
-      height: 28px;
-      background: var(--ks-kinpaku);
-      clip-path: polygon(0 0, 100% 0, 100% 70%, 70% 100%, 0 100%);
+      width: 30px;
+      height: 30px;
+      background: linear-gradient(135deg, #2563EB 0%, #00E5FF 100%);
+      border-radius: 7px;
       position: relative;
+      box-shadow: 0 0 16px rgba(0, 229, 255, 0.35);
     }
 
     .brand-mark::after {
       content: '';
       position: absolute;
-      top: 3px; left: 3px; right: 3px; bottom: 3px;
-      border: 1px solid var(--ks-on-gold);
+      top: 5px; left: 5px; right: 5px; bottom: 5px;
+      border: 1.5px solid rgba(255, 255, 255, 0.85);
+      border-radius: 3px;
     }
 
     .brand-title {
       font-family: var(--ks-font-wordmark);
-      font-size: 1.45rem;
-      letter-spacing: 0.18em;
-      font-weight: 400;
-      text-transform: uppercase;
+      font-size: 1.25rem;
+      letter-spacing: -0.02em;
+      font-weight: 700;
       color: var(--ks-champagne);
     }
 
@@ -114,7 +118,7 @@
     }
 
     .nav-links a:hover {
-      color: var(--ks-champagne);
+      color: #00E5FF;
     }
 
     /* Button Primitives */
@@ -123,35 +127,37 @@
       align-items: center;
       gap: 0.5rem;
       padding: 0.65rem 1.35rem;
-      border-radius: 2px;
+      border-radius: 8px;
       font-family: var(--ks-font);
       font-weight: 600;
       font-size: 0.875rem;
       text-decoration: none;
       cursor: pointer;
-      transition: all 120ms ease;
+      transition: all 150ms ease;
     }
 
     .btn-kinpaku {
-      background: var(--ks-kinpaku);
-      color: var(--ks-on-gold);
-      border: 1px solid var(--ks-kinpaku-rich);
+      background: linear-gradient(135deg, #2563EB 0%, #0284C7 55%, #00E5FF 100%);
+      color: #FFFFFF;
+      border: 1px solid rgba(56, 189, 248, 0.55);
+      box-shadow: 0 4px 20px rgba(37, 99, 235, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.25);
     }
 
     .btn-kinpaku:hover {
-      background: var(--ks-kinpaku-vivid);
-      box-shadow: 0 0 14px oklch(84% 0.19 80 / 0.4);
+      transform: translateY(-1px);
+      box-shadow: 0 6px 26px rgba(0, 229, 255, 0.48);
     }
 
     .btn-secondary {
-      background: var(--ks-raised-lacquer);
+      background: rgba(15, 23, 42, 0.85);
       color: var(--ks-champagne);
       border: 1px solid var(--ks-gold-hairline);
     }
 
     .btn-secondary:hover {
-      border-color: var(--ks-kinpaku-rich);
-      color: var(--ks-kinpaku);
+      border-color: #00E5FF;
+      color: #00E5FF;
+      background: rgba(37, 99, 235, 0.15);
     }
 
     /* Hero Section */

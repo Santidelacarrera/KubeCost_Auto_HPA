@@ -11,38 +11,40 @@
   <link rel="stylesheet" href="styles/impeccable-kit.css">
   <style>
     :root {
-      /* Impeccable Neo Kinpaku Core Tokens */
-      --ks-kinpaku: oklch(84% 0.19 80.46);
-      --ks-kinpaku-vivid: oklch(87% 0.20 85);
-      --ks-kinpaku-pale: oklch(86% 0.07 84);
-      --ks-kinpaku-rich: oklch(77% 0.13 82);
-      --ks-kinpaku-deep: oklch(61% 0.085 78);
-      --ks-on-gold: oklch(14% 0.018 95);
+      /* Cast AI Inspired Design System — Deep Midnight, Electric Blue & Luminous Cyan */
+      --ks-kinpaku: #00E5FF;
+      --ks-kinpaku-vivid: #38BDF8;
+      --ks-kinpaku-pale: #BAE6FD;
+      --ks-kinpaku-rich: #2563EB;
+      --ks-kinpaku-deep: #1D4ED8;
+      --ks-on-gold: #030712;
+      --ks-gold: #22D3EE;
 
-      --ks-patina: oklch(70% 0.12 188);
-      --ks-patina-pale: oklch(82% 0.07 188);
-      --ks-patina-deep: oklch(46% 0.08 188);
-      --ks-patina-ink: oklch(38% 0.08 188);
+      --ks-patina: #10B981;
+      --ks-patina-pale: #34D399;
+      --ks-patina-deep: #059669;
+      --ks-patina-ink: #047857;
 
-      --ks-vermilion: oklch(52% 0.16 35);
+      --ks-vermilion: #EF4444;
 
-      /* Dark Lacquer System Ground */
-      --ks-lacquer-black: oklch(7% 0.006 95);
-      --ks-lacquer-deep: oklch(4% 0.004 95);
-      --ks-raised-lacquer: oklch(11% 0.006 95);
-      --ks-graphite: oklch(15% 0.008 95);
-      --ks-graphite-2: oklch(19% 0.008 95);
+      /* Cast AI Multi-Layered Midnight Slate Canvas */
+      --ks-lacquer-black: #060913;
+      --ks-lacquer-deep: #04070F;
+      --ks-raised-lacquer: #0B1221;
+      --ks-graphite: #111B30;
+      --ks-graphite-2: #172542;
 
-      --ks-champagne: oklch(91% 0 0);
-      --ks-text-warm: oklch(88% 0 0);
-      --ks-text-muted: oklch(68% 0 0);
-      --ks-text-faint: oklch(52% 0 0);
+      --ks-champagne: #F8FAFC;
+      --ks-text-warm: #E2E8F0;
+      --ks-text-secondary: #94A3B8;
+      --ks-text-muted: #94A3B8;
+      --ks-text-faint: #64748B;
 
-      --ks-gold-hairline: oklch(78% 0 0 / 0.14);
-      --ks-gold-hairline-strong: oklch(74% 0.09 82 / 0.5);
+      --ks-gold-hairline: rgba(56, 189, 248, 0.16);
+      --ks-gold-hairline-strong: rgba(0, 229, 255, 0.45);
 
-      --ks-font: "Inter", "Geist Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      --ks-font-wordmark: "Inter", "Geist Sans", sans-serif;
+      --ks-font: "Inter", "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --ks-font-wordmark: "Inter", "Plus Jakarta Sans", sans-serif;
       --ks-mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
     }
 
@@ -50,6 +52,9 @@
 
     body {
       background-color: var(--ks-lacquer-black);
+      background-image:
+        radial-gradient(ellipse 85% 42% at 50% -10%, rgba(37, 99, 235, 0.28) 0%, rgba(0, 229, 255, 0.08) 48%, transparent 75%),
+        radial-gradient(circle at 88% 18%, rgba(16, 185, 129, 0.07) 0%, transparent 40%);
       color: var(--ks-text-warm);
       font-family: var(--ks-font);
       font-size: 0.9375rem;
@@ -58,11 +63,13 @@
       min-height: 100vh;
       display: flex;
       flex-direction: column;
+      font-variant-numeric: tabular-nums;
     }
 
-    /* Top Console Navigation Bar */
+    /* Top Console Navigation Bar (Cast AI Glassmorphic Header) */
     header.console-header {
-      background: var(--ks-lacquer-deep);
+      background: rgba(4, 7, 15, 0.85);
+      backdrop-filter: blur(16px);
       border-bottom: 1px solid var(--ks-gold-hairline);
       padding: 0.85rem 2.5rem;
       display: flex;
@@ -76,46 +83,48 @@
     .brand-lockup {
       display: flex;
       align-items: center;
-      gap: 1rem;
+      gap: 0.85rem;
       text-decoration: none;
       color: var(--ks-champagne);
     }
 
     .brand-glyph {
-      width: 32px;
-      height: 32px;
-      background: var(--ks-kinpaku);
+      width: 34px;
+      height: 34px;
+      background: linear-gradient(135deg, #2563EB 0%, #00E5FF 100%);
+      border-radius: 8px;
       position: relative;
-      clip-path: polygon(0 0, 100% 0, 100% 70%, 70% 100%, 0 100%);
+      box-shadow: 0 0 18px rgba(0, 229, 255, 0.35);
     }
 
     .brand-glyph::after {
       content: '';
       position: absolute;
-      top: 4px; left: 4px; right: 4px; bottom: 4px;
-      border: 1px solid var(--ks-on-gold);
+      top: 6px; left: 6px; right: 6px; bottom: 6px;
+      border: 1.5px solid rgba(255, 255, 255, 0.85);
+      border-radius: 4px;
     }
 
     .brand-wordmark {
       font-family: var(--ks-font-wordmark);
-      font-size: 1.45rem;
-      letter-spacing: 0.16em;
-      font-weight: 400;
-      text-transform: uppercase;
+      font-size: 1.25rem;
+      letter-spacing: -0.02em;
+      font-weight: 700;
       color: var(--ks-champagne);
       display: flex;
-      align-items: baseline;
-      gap: 0.5rem;
+      align-items: center;
+      gap: 0.65rem;
     }
 
     .brand-wordmark span.sub {
       font-family: var(--ks-mono);
       font-size: 0.6875rem;
-      letter-spacing: 0.22em;
-      color: var(--ks-kinpaku);
-      padding: 2px 6px;
-      border: 1px solid var(--ks-kinpaku-rich);
-      border-radius: 2px;
+      letter-spacing: 0.12em;
+      color: #00E5FF;
+      background: rgba(37, 99, 235, 0.2);
+      padding: 3px 8px;
+      border: 1px solid rgba(0, 229, 255, 0.35);
+      border-radius: 999px;
     }
 
     /* Instrument Segmented Cluster Switcher */
@@ -210,14 +219,20 @@
     }
 
     .tile {
-      background: var(--ks-raised-lacquer);
+      background: linear-gradient(180deg, rgba(15, 23, 42, 0.88) 0%, rgba(11, 18, 33, 0.95) 100%);
       border: 1px solid var(--ks-gold-hairline);
-      border-radius: 4px;
+      border-radius: 10px;
       padding: 1.5rem;
       position: relative;
       display: flex;
       flex-direction: column;
       justify-content: space-between;
+      box-shadow: 0 8px 28px rgba(2, 6, 23, 0.55);
+      transition: border-color 180ms ease, box-shadow 180ms ease;
+    }
+    .tile:hover {
+      border-color: rgba(0, 229, 255, 0.35);
+      box-shadow: 0 10px 32px rgba(37, 99, 235, 0.16);
     }
 
     .tile-span-4 { grid-column: span 4; }
@@ -309,47 +324,49 @@
       gap: 1rem;
     }
 
-    /* Hardware Button Primitives */
+    /* Cast AI Electric Blue -> Cyan Primary Action & Secondary Instrument Buttons */
     .btn-kinpaku {
-      background: var(--ks-kinpaku);
-      color: var(--ks-on-gold);
-      border: 1px solid var(--ks-kinpaku-rich);
+      background: linear-gradient(135deg, #2563EB 0%, #0284C7 55%, #00E5FF 100%);
+      color: #FFFFFF;
+      border: 1px solid rgba(56, 189, 248, 0.55);
       font-family: var(--ks-font);
       font-weight: 600;
-      font-size: 0.875rem;
+      font-size: 0.85rem;
       padding: 0.6rem 1.25rem;
-      border-radius: 2px;
+      border-radius: 8px;
       cursor: pointer;
       display: inline-flex;
       align-items: center;
       gap: 0.5rem;
-      transition: all 120ms ease;
+      box-shadow: 0 4px 18px rgba(37, 99, 235, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+      transition: all 150ms ease;
     }
 
     .btn-kinpaku:hover {
-      background: var(--ks-kinpaku-vivid);
-      box-shadow: 0 0 12px oklch(84% 0.19 80 / 0.35);
+      transform: translateY(-1px);
+      box-shadow: 0 6px 24px rgba(0, 229, 255, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.35);
     }
 
     .btn-instrument {
-      background: var(--ks-raised-lacquer);
+      background: rgba(15, 23, 42, 0.85);
       color: var(--ks-champagne);
-      border: 1px solid var(--ks-gold-hairline);
+      border: 1px solid rgba(56, 189, 248, 0.24);
       font-family: var(--ks-font);
       font-weight: 500;
-      font-size: 0.875rem;
+      font-size: 0.85rem;
       padding: 0.6rem 1.25rem;
-      border-radius: 2px;
+      border-radius: 8px;
       cursor: pointer;
       display: inline-flex;
       align-items: center;
       gap: 0.5rem;
-      transition: all 120ms ease;
+      transition: all 150ms ease;
     }
 
     .btn-instrument:hover {
-      border-color: var(--ks-kinpaku-rich);
-      color: var(--ks-kinpaku);
+      border-color: #00E5FF;
+      color: #00E5FF;
+      background: rgba(37, 99, 235, 0.15);
     }
 
     /* Hardware Toggle Switch */
@@ -834,6 +851,24 @@
       <a href="index.html" class="btn-instrument">Exit to Site</a>
     </div>
   </header>
+
+  <!-- Cast AI Inspired SaaS Sub-Navigation & Live Savings Efficiency Strip -->
+  <div style="background: rgba(11, 18, 33, 0.92); border-bottom: 1px solid rgba(56, 189, 248, 0.16); padding: 0.65rem 2.5rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+    <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+      <span style="font-family: var(--ks-mono); font-size: 0.7rem; color: #00E5FF; background: rgba(0, 229, 255, 0.1); border: 1px solid rgba(0, 229, 255, 0.3); padding: 3px 9px; border-radius: 999px; font-weight: 600;">
+        CAST AI + SCALEOPS ENGINE v2.6
+      </span>
+      <span style="font-size: 0.78rem; color: #94A3B8;">
+        Autonomous Optimization Mode: <strong style="color: #10B981;">ACTIVE (Phase 2 Full Automation)</strong>
+      </span>
+    </div>
+    <div style="display: flex; align-items: center; gap: 1.35rem; font-size: 0.76rem; font-family: var(--ks-mono);">
+      <span style="color: #94A3B8;">Cluster Efficiency: <strong style="color: #00E5FF;">93.4%</strong></span>
+      <span style="color: #94A3B8;">Spot Ratio: <strong style="color: #38BDF8;">68.0%</strong></span>
+      <span style="color: #94A3B8;">RI/SP Utilization: <strong style="color: #10B981;">93.8%</strong></span>
+      <span style="color: #94A3B8;">CIS Posture: <strong style="color: #10B981;">92.5/100</strong></span>
+    </div>
+  </div>
 
   <!-- Main Console Work Area -->
   <main class="console-main">
@@ -1363,7 +1398,7 @@
 
       <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(245px, 1fr)); gap: 1rem; padding: 1.15rem;">
         <!-- Card 1: AI/GPU MIG Fractional Optimizer -->
-        <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(212, 175, 55, 0.22); border-radius: 8px; padding: 1rem;">
+        <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(0, 229, 255, 0.26); border-radius: 10px; padding: 1rem;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
             <span style="font-size: 0.72rem; color: var(--ks-text-muted); text-transform: uppercase; letter-spacing: 0.06em;">AI / GPU MIG Optimizer</span>
             <span class="status-pill status-healthy" id="gpu-action-badge">PARTITION_NVIDIA_MIG</span>
@@ -1408,7 +1443,7 @@
         </div>
 
         <!-- Card 4: Autonomous Chaos GameDay Scorecard -->
-        <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(212, 175, 55, 0.35); border-radius: 8px; padding: 1rem;">
+        <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(37, 99, 235, 0.42); border-radius: 10px; padding: 1rem;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
             <span style="font-size: 0.72rem; color: var(--ks-text-muted); text-transform: uppercase; letter-spacing: 0.06em;">SRE Chaos GameDay</span>
             <span class="status-pill status-healthy" id="gameday-grade-badge">A+ CERTIFIED</span>
@@ -1472,7 +1507,7 @@
           </div>
         </div>
 
-        <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(212, 175, 55, 0.25); border-radius: 8px; padding: 0.9rem;">
+        <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(0, 229, 255, 0.26); border-radius: 10px; padding: 0.9rem;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
             <span style="font-size: 0.7rem; color: var(--ks-text-muted); text-transform: uppercase;">3. Cross-AZ &amp; EBS gp3</span>
             <span class="status-pill status-healthy" id="cast-net-badge">AZ AFFINITY</span>
