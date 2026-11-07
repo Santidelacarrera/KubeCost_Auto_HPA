@@ -135,12 +135,27 @@ type Evaluator interface {
 
 // HTTP is an Evaluator over the engine's REST API.
 type HTTP struct {
-	BaseURL string
-	Client  *http.Client
+	BaseURL     string
+	Client      *http.Client
+	BearerToken string
+	TenantID    string
 }
 
 func NewHTTP(baseURL string) *HTTP {
 	return &HTTP{BaseURL: baseURL, Client: &http.Client{Timeout: 10 * time.Second}}
+}
+
+func (h *HTTP) applyAuthHeaders(req *http.Request, tenantOverride string) {
+	if h.BearerToken != "" && req.Header.Get("Authorization") == "" {
+		req.Header.Set("Authorization", "Bearer "+h.BearerToken)
+	}
+	effTenant := tenantOverride
+	if effTenant == "" {
+		effTenant = h.TenantID
+	}
+	if effTenant != "" {
+		req.Header.Set("X-Tenant-ID", effTenant)
+	}
 }
 
 func (h *HTTP) Evaluate(ctx context.Context, r Request) (Decision, error) {
@@ -153,6 +168,7 @@ func (h *HTTP) Evaluate(ctx context.Context, r Request) (Decision, error) {
 		return Decision{}, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	h.applyAuthHeaders(req, "")
 	resp, err := h.Client.Do(req)
 	if err != nil {
 		return Decision{}, err
@@ -245,9 +261,7 @@ func (h *HTTP) IngestTelemetry(ctx context.Context, payload TelemetryPayload) er
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if payload.ClientID != "" {
-		req.Header.Set("X-Tenant-ID", payload.ClientID)
-	}
+	h.applyAuthHeaders(req, payload.ClientID)
 	resp, err := h.Client.Do(req)
 	if err != nil {
 		return err

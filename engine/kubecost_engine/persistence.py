@@ -2,7 +2,8 @@
 
 Provides zero-external-dependency transactional persistence (stdlib sqlite3 in WAL mode)
 and enterprise PostgreSQL/TimescaleDB hypertable schema migrations with retention policies
-for telemetry records, event_id deduplication, PRE_WARM commands, tenant API keys, and FinOps audit logs.
+for telemetry records, event_id deduplication, PRE_WARM commands, tenant API keys (with expiration),
+Stripe webhook idempotency, rate-limit counters, and FinOps audit logs.
 """
 
 from __future__ import annotations
@@ -11,6 +12,7 @@ import json
 import os
 import sqlite3
 import threading
+import time
 from typing import Any, Dict, List, Optional
 
 
@@ -62,8 +64,17 @@ def generate_timescaledb_migrations(retention_days: int = 90) -> List[str]:
             key_sha256 TEXT NOT NULL UNIQUE,
             scopes_json JSONB NOT NULL,
             created_at BIGINT NOT NULL,
+            expires_at BIGINT NOT NULL,
             revoked BOOLEAN NOT NULL DEFAULT FALSE,
             PRIMARY KEY (client_id, key_id)
+        );
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS stripe_webhook_events (
+            event_id TEXT PRIMARY KEY,
+            tenant_id TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            processed_at BIGINT NOT NULL
         );
         """,
     ]
@@ -131,8 +142,33 @@ class SQLiteSaaSStore:
                     key_sha256 TEXT NOT NULL UNIQUE,
                     scopes_json TEXT NOT NULL,
                     created_at INTEGER NOT NULL,
+                    expires_at INTEGER NOT NULL DEFAULT 0,
                     revoked INTEGER NOT NULL DEFAULT 0,
                     PRIMARY KEY (client_id, key_id)
+                );
+                """
+            )
+            # Safe migration for legacy databases missing expires_at column
+            cols = [row["name"] for row in cur.execute("PRAGMA table_info(tenant_api_keys);").fetchall()]
+            if "expires_at" not in cols:
+                cur.execute("ALTER TABLE tenant_api_keys ADD COLUMN expires_at INTEGER NOT NULL DEFAULT 0;")
+
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS stripe_webhook_events (
+                    event_id TEXT PRIMARY KEY,
+                    tenant_id TEXT NOT NULL,
+                    event_type TEXT NOT NULL,
+                    processed_at INTEGER NOT NULL
+                );
+                """
+            )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS rate_limit_counters (
+                    counter_key TEXT PRIMARY KEY,
+                    count INTEGER NOT NULL,
+                    expires_at INTEGER NOT NULL
                 );
                 """
             )
@@ -195,6 +231,94 @@ class SQLiteSaaSStore:
                     (client_id,),
                 ).fetchall()
         return [json.loads(r["payload_json"]) for r in rows]
+
+    def save_api_key(
+        self,
+        key_id: str,
+        client_id: str,
+        key_prefix: str,
+        key_sha256: str,
+        scopes: List[str],
+        created_at: int,
+        expires_at: int,
+        revoked: bool = False,
+    ) -> None:
+        with self._lock:
+            self._conn.execute(
+                """
+                INSERT OR REPLACE INTO tenant_api_keys
+                (key_id, client_id, key_prefix, key_sha256, scopes_json, created_at, expires_at, revoked)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    key_id,
+                    client_id,
+                    key_prefix,
+                    key_sha256,
+                    json.dumps(list(scopes)),
+                    int(created_at),
+                    int(expires_at),
+                    1 if revoked else 0,
+                ),
+            )
+            self._conn.commit()
+
+    def load_all_api_keys(self) -> List[Dict[str, Any]]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT key_id, client_id, key_prefix, key_sha256, scopes_json, created_at, expires_at, revoked FROM tenant_api_keys"
+            ).fetchall()
+        return [
+            {
+                "key_id": r["key_id"],
+                "client_id": r["client_id"],
+                "key_prefix": r["key_prefix"],
+                "key_sha256": r["key_sha256"],
+                "scopes": json.loads(r["scopes_json"]),
+                "created_at": int(r["created_at"]),
+                "expires_at": int(r["expires_at"]),
+                "revoked": bool(r["revoked"]),
+            }
+            for r in rows
+        ]
+
+    def record_stripe_event_if_new(self, event_id: str, tenant_id: str, event_type: str, processed_at: int) -> bool:
+        """Atomically record a Stripe webhook event_id. Returns True if new, False if duplicate."""
+        with self._lock:
+            try:
+                self._conn.execute(
+                    "INSERT INTO stripe_webhook_events (event_id, tenant_id, event_type, processed_at) VALUES (?, ?, ?, ?)",
+                    (event_id, tenant_id, event_type, int(processed_at)),
+                )
+                self._conn.commit()
+                return True
+            except sqlite3.IntegrityError:
+                return False
+
+    def increment_rate_counter(self, key: str, window_seconds: int, now_ts: Optional[int] = None) -> tuple[int, int]:
+        """Atomically increment a rate-limit or daily quota counter in SQLite WAL."""
+        now = int(now_ts if now_ts is not None else time.time())
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT count, expires_at FROM rate_limit_counters WHERE counter_key = ?",
+                (key,),
+            ).fetchone()
+            if row is None or int(row["expires_at"]) <= now:
+                expires_at = now + int(window_seconds)
+                self._conn.execute(
+                    "INSERT OR REPLACE INTO rate_limit_counters (counter_key, count, expires_at) VALUES (?, ?, ?)",
+                    (key, 1, expires_at),
+                )
+                self._conn.commit()
+                return 1, int(window_seconds)
+            new_count = int(row["count"]) + 1
+            expires_at = int(row["expires_at"])
+            self._conn.execute(
+                "UPDATE rate_limit_counters SET count = ? WHERE counter_key = ?",
+                (new_count, key),
+            )
+            self._conn.commit()
+            return new_count, max(1, expires_at - now)
 
     def close(self) -> None:
         with self._lock:

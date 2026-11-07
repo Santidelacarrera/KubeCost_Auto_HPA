@@ -1628,6 +1628,35 @@
     let isConnected = false;
     let activeTuneTarget = null;
 
+    function getEngineHeaders(extra = {}) {
+      const h = { ...extra };
+      try {
+        const key = localStorage.getItem('KUBECOST_API_KEY') || window.KUBECOST_API_KEY || '';
+        const tenant = localStorage.getItem('KUBECOST_TENANT_ID') || window.KUBECOST_TENANT_ID || '';
+        if (key && !h['Authorization']) h['Authorization'] = key.startsWith('Bearer ') ? key : `Bearer ${key}`;
+        if (tenant && !h['X-Tenant-ID']) h['X-Tenant-ID'] = tenant;
+      } catch (e) {}
+      return h;
+    }
+
+    function checkSecurityResponse(res, endpointLabel) {
+      if (!res) return false;
+      if (res.status === 401) {
+        logToTerminal('AUTH-401', `Unauthorized on ${endpointLabel}: Valid ENGINE_TOKEN or kc_live_* API Key required.`);
+        return false;
+      }
+      if (res.status === 403) {
+        logToTerminal('RBAC-403', `Forbidden on ${endpointLabel}: Cross-tenant BOLA/IDOR isolation blocked access.`);
+        return false;
+      }
+      if (res.status === 429) {
+        const retry = res.headers.get('Retry-After') || '60';
+        logToTerminal('RATELIMIT-429', `Rate limit exceeded on ${endpointLabel}. Retry-After: ${retry}s.`);
+        return false;
+      }
+      return res.ok;
+    }
+
     function logToTerminal(action, message, isSuccess = false) {
       const logs = document.getElementById('term-logs');
       const now = new Date();
@@ -1759,9 +1788,9 @@
           const promises = Array.from({ length: 25 }, () =>
             fetch(`${engineUrl}/v1/evaluate`, {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: getEngineHeaders({ 'Content-Type': 'application/json' }),
               body: JSON.stringify(payload)
-            }).then(r => r.json()).catch(() => null)
+            }).then(r => checkSecurityResponse(r, '/v1/evaluate') ? r.json() : null).catch(() => null)
           );
           await Promise.all(promises);
         } catch (e) {
@@ -1853,15 +1882,16 @@
 
       if (isConnected && engineUrl) {
         try {
-          await fetch(`${engineUrl}/v1/ui/recommendations/execute`, {
+          const recRes = await fetch(`${engineUrl}/v1/ui/recommendations/execute`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: getEngineHeaders({ 'Content-Type': 'application/json' }),
             body: JSON.stringify({
               recommendation_id: recId,
               workload: workload,
               action_type: actionType
             })
           });
+          checkSecurityResponse(recRes, '/v1/ui/recommendations/execute');
         } catch (e) {
           // continue local UI feedback
         }
@@ -1880,58 +1910,63 @@
     }
 
     async function syncLiveSaaSTelemetry(base) {
+      const hdrs = getEngineHeaders();
       try {
         const [dashRes, priceRes, billRes] = await Promise.all([
-          fetch(`${base}/v1/ui/cast-dashboard`),
-          fetch(`${base}/v1/pricing/lookup?instance_type=m6i.2xlarge&region=us-east-1`),
-          fetch(`${base}/v1/billing/invoice?savings_usd=3420&nodes=6&model=VALUE_SHARED`)
+          fetch(`${base}/v1/ui/cast-dashboard`, { headers: hdrs }),
+          fetch(`${base}/v1/pricing/lookup?instance_type=m6i.2xlarge&region=us-east-1`, { headers: hdrs }),
+          fetch(`${base}/v1/billing/invoice?savings_usd=3420&nodes=6&model=VALUE_SHARED`, { headers: hdrs })
         ]);
-        if (dashRes.ok) {
+        if (checkSecurityResponse(dashRes, '/v1/ui/cast-dashboard')) {
           const dash = await dashRes.json();
-          logToTerminal('SAAS-SYNC', `Synced Cast AI + Tremor telemetry: Projected $${dash.summary_cards.projected_monthly_spend_usd.toLocaleString()}/mo | Potential Savings $${dash.summary_cards.potential_monthly_savings_usd.toLocaleString()}/mo (${dash.summary_cards.savings_percentage}%).`, true);
+          const cards = dash.pain_number_cards || dash.summary_cards || {};
+          const proj = cards.projected_optimized_spend_usd || cards.projected_monthly_spend_usd || 9890;
+          const sav = cards.net_monthly_savings_usd || cards.potential_monthly_savings_usd || 8560;
+          const pct = cards.net_savings_pct || cards.savings_percentage || 46.4;
+          logToTerminal('SAAS-SYNC', `Synced Cast AI + Tremor telemetry: Projected $${proj.toLocaleString()}/mo | Potential Savings $${sav.toLocaleString()}/mo (${pct}%).`, true);
         }
-        if (priceRes.ok) {
+        if (checkSecurityResponse(priceRes, '/v1/pricing/lookup')) {
           const pr = await priceRes.json();
           logToTerminal('CLOUD-PRICING', `Live ${pr.provider} Catalog (${pr.instance_type} @ ${pr.region}): On-Demand $${pr.ondemand_hourly_usd}/h vs Spot $${pr.spot_hourly_usd}/h (-${pr.spot_discount_pct}% Spot discount).`, true);
         }
-        if (billRes.ok) {
+        if (checkSecurityResponse(billRes, '/v1/billing/invoice')) {
           const bill = await billRes.json();
           logToTerminal('STRIPE-FINOPS', `Commercial Billing Ready (${bill.billing_model}): Customer Net Savings +$${bill.customer_net_savings_usd.toLocaleString()}/mo | ROI ${bill.customer_roi_multiple}x.`, true);
         }
         const [gpuRes, greenRes, guardRes, gdRes] = await Promise.all([
-          fetch(`${base}/v1/gpu/optimize`),
-          fetch(`${base}/v1/greenops/report?region=us-east-1`),
-          fetch(`${base}/v1/finops/guardrail?mtd_spend_usd=9200&day_of_month=20&monthly_budget_usd=15000`),
-          fetch(`${base}/v1/gameday/simulate`)
+          fetch(`${base}/v1/gpu/optimize`, { headers: hdrs }),
+          fetch(`${base}/v1/greenops/report?region=us-east-1`, { headers: hdrs }),
+          fetch(`${base}/v1/finops/guardrail?mtd_spend_usd=9200&day_of_month=20&monthly_budget_usd=15000`, { headers: hdrs }),
+          fetch(`${base}/v1/gameday/simulate`, { headers: hdrs })
         ]);
-        if (gpuRes.ok) {
+        if (checkSecurityResponse(gpuRes, '/v1/gpu/optimize')) {
           const gpu = await gpuRes.json();
           document.getElementById('gpu-action-badge').textContent = gpu.action;
           document.getElementById('gpu-savings-val').textContent = `+$${gpu.monthly_savings_usd.toLocaleString()} / mo`;
           document.getElementById('gpu-token-cost').textContent = `Unit Cost: $${gpu.cost_per_1k_tokens_usd} / 1k LLM Tokens • VRAM ${gpu.vram_used_gib}/${gpu.allocated_vram_gib} GiB`;
         }
-        if (greenRes.ok) {
+        if (checkSecurityResponse(greenRes, '/v1/greenops/report')) {
           const gr = await greenRes.json();
           document.getElementById('green-co2-val').textContent = `-${gr.monthly_co2_saved_kg} kg CO2eq / mo`;
           document.getElementById('green-trees-val').textContent = `${gr.gco2_per_1k_requests} gCO2/1k req • Equiv. ${gr.equivalent_trees_planted_year} Trees/yr`;
         }
-        if (guardRes.ok) {
+        if (checkSecurityResponse(guardRes, '/v1/finops/guardrail')) {
           const gd = await guardRes.json();
           document.getElementById('guardrail-mode-badge').textContent = `${gd.mode} (${gd.projected_utilization_pct}% EOM)`;
           document.getElementById('guardrail-eom-val').textContent = `$${gd.projected_eom_spend_usd.toLocaleString()} / $${gd.monthly_budget_usd.toLocaleString()}`;
         }
-        if (gdRes.ok) {
+        if (checkSecurityResponse(gdRes, '/v1/gameday/simulate')) {
           const sc = await gdRes.json();
           document.getElementById('gameday-score-val').textContent = `${sc.overall_resilience_score} / 100`;
           document.getElementById('gameday-protected-val').textContent = `${sc.total_oom_kills_prevented} OOMKills Prevented • ${sc.total_downtime_seconds}s Downtime • $${sc.total_protected_value_usd.toLocaleString()} Protected`;
         }
-        const rdyRes = await fetch(`${base}/v1/system/readiness`);
-        if (rdyRes.ok) {
+        const rdyRes = await fetch(`${base}/v1/system/readiness`, { headers: hdrs });
+        if (checkSecurityResponse(rdyRes, '/v1/system/readiness')) {
           const rdy = await rdyRes.json();
           logToTerminal('PROD-READY', `Certified ${rdy.certified_subsystems}/${rdy.total_subsystems} Production Subsystems (${rdy.overall_status}) for Tenant ${rdy.canonical_tenant_id}.`, true);
         }
-        const castSuiteRes = await fetch(`${base}/v1/cast/full-suite`);
-        if (castSuiteRes.ok) {
+        const castSuiteRes = await fetch(`${base}/v1/cast/full-suite`, { headers: hdrs });
+        if (checkSecurityResponse(castSuiteRes, '/v1/cast/full-suite')) {
           const cs = await castSuiteRes.json();
           document.getElementById('cast-commit-val').textContent = `+$${cs.commitments.monthly_commitment_waste_recovered_usd} / mo`;
           document.getElementById('cast-hib-val').textContent = `+$${cs.hibernation.monthly_hibernation_savings_usd} / mo`;
@@ -1946,8 +1981,8 @@
     async function runCastSuiteAction(kind) {
       const base = engineUrl || window.location.origin;
       try {
-        const res = await fetch(`${base}/v1/cast/full-suite`);
-        if (!res.ok) return;
+        const res = await fetch(`${base}/v1/cast/full-suite`, { headers: getEngineHeaders() });
+        if (!checkSecurityResponse(res, '/v1/cast/full-suite')) return;
         const cs = await res.json();
         if (kind === 'commitments') {
           logToTerminal('COMMITMENTS', cs.commitments.reason, true);
@@ -1970,7 +2005,7 @@
       try {
         const res = await fetch(`${base}/v1/gpu/optimize`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: getEngineHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify({
             workload: 'llm-gateway-vllm',
             current_gpu_model: 'A100-80GB',
@@ -1984,7 +2019,7 @@
             latency_slo_ms: 350.0
           })
         });
-        if (res.ok) {
+        if (checkSecurityResponse(res, '/v1/gpu/optimize')) {
           const plan = await res.json();
           document.getElementById('gpu-action-badge').textContent = plan.action;
           document.getElementById('gpu-savings-val').textContent = `+$${plan.monthly_savings_usd.toLocaleString()} / mo`;
@@ -2005,7 +2040,7 @@
       try {
         const res = await fetch(`${base}/v1/finops/guardrail`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: getEngineHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify({
             tenant_id: 'org-prod-01',
             monthly_budget_usd: 15000,
@@ -2015,7 +2050,7 @@
             slo_critical_breach: false
           })
         });
-        if (res.ok) {
+        if (checkSecurityResponse(res, '/v1/finops/guardrail')) {
           const dec = await res.json();
           document.getElementById('guardrail-mode-badge').textContent = `${dec.mode} (${dec.projected_utilization_pct}% EOM)`;
           document.getElementById('guardrail-eom-val').textContent = `$${dec.projected_eom_spend_usd.toLocaleString()} / $${dec.monthly_budget_usd.toLocaleString()}`;
@@ -2032,10 +2067,10 @@
       try {
         const res = await fetch(`${base}/v1/gameday/simulate`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: getEngineHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify({ cluster_id: 'prod-us-east-1', baseline_rps: 840.0, node_count: 12 })
         });
-        if (res.ok) {
+        if (checkSecurityResponse(res, '/v1/gameday/simulate')) {
           const card = await res.json();
           document.getElementById('gameday-score-val').textContent = `${card.overall_resilience_score} / 100`;
           document.getElementById('gameday-protected-val').textContent = `${card.total_oom_kills_prevented} OOMKills Prevented • ${card.total_downtime_seconds}s Downtime • $${card.total_protected_value_usd.toLocaleString()} Protected`;

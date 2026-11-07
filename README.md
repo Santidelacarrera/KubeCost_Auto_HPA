@@ -98,14 +98,20 @@ importes no numéricos o negativos y `onSpendUnavailable` desconocido. El motor 
   `cpu.max` y la p99 ≥ 90 % del SLO; −1 si la CPU está en `cpu.min`, hay holgura de latencia y las demás réplicas absorben la carga
   por debajo del 70 %. **No combinar con otro HPA sobre el mismo Deployment.**
 
-### Seguridad
+### Seguridad, Aislamiento Multi-Tenant (BOLA/IDOR) y Rate Limiting Distribuido
 
-- Motor: `ENGINE_TOKEN` exige `Authorization: Bearer` en `/v1/*` (`/healthz` y `/metrics` quedan abiertos para probes).
-  TLS con `TLS_CERT`/`TLS_KEY`; con `TLS_CLIENT_CA` exige certificado de cliente (mTLS).
-- Operador → Prometheus / KubeCost / motor: flags `--<backend>-ca-file`, `--<backend>-client-cert/-key`,
-  `--<backend>-bearer-token-file` (se relee en cada petición, soporta rotación) o env `PROMETHEUS_TOKEN`/`KUBECOST_TOKEN`/`ENGINE_TOKEN`.
-- Helm: `auth.*` (tokens desde Secrets), `tls.engine.*`, `networkPolicy.enabled`, PDBs, `prometheusRule.enabled`.
-- Redis: contraseña (`REDIS_PASSWORD`) y TLS/mTLS (`--redis-tls`, `--redis-ca-file`, `--redis-client-cert/-key`); además `networkPolicy.enabled`.
+- **Autenticación Unificada (`/v1/*`):** Todas las rutas privadas bajo `/v1/*` (`GET` y `POST`) exigen autenticación mediante `ENGINE_TOKEN` (operador Go M2M), `ENGINE_ADMIN_TOKEN` o API Keys multi-tenant `kc_live_*` / `kch_live_*` gestionadas por `MultiTenantAuthManager` (hash SHA-256 en tiempo constante, expiración por defecto de **90 días** `expires_in_days=90`, revocación y rotación atómica). Con `KUBECOST_ENV=production`, la ausencia de `ENGINE_TOKEN` **nunca** habilita silenciosamente el modo demo.
+- **Excepciones Públicas Explícitas:** Solo `/healthz`, `/health`, `/readyz` y los activos estáticos de `web/` son públicos. `POST /v1/billing/stripe-webhook` exige firma criptográfica `Stripe-Signature` HMAC-SHA256 con ventana anti-replay de 300 s e idempotencia por `event_id` (sin secretos fallback por defecto; si `STRIPE_WEBHOOK_SECRET` no está configurado, falla cerrado con `HTTP 503`).
+- **Prevención BOLA / IDOR (`_verify_tenant_access`):** `X-Tenant-ID` nunca se acepta como prueba de identidad por sí solo. El tenant efectivo proviene de la credencial autenticada (`kc_live_*` / `kch_live_*` o `ENGINE_TOKEN_TENANT_ID`) y se valida frente a `client_id`, `tenant_id` y la propiedad de recursos (`cluster_id`, `command_id`, `event_id`, `decision_id`), devolviendo `HTTP 403 Forbidden` ante cualquier intento de acceso cruzado.
+- **Rate Limiting Distribuido (`REDIS_URL`) y Cuotas Diarias:** `DistributedRateLimiter` ejecuta contadores atómicos con scripts Lua en Redis (`REDIS_URL`) y falla cerrado (`HTTP 503`) en producción multi-réplica si Redis no está disponible:
+  - `POST /v1/auth/keys`: `10 req/min/IP` (`RATE_LIMIT_AUTH_KEYS_PER_MIN`).
+  - Cómputo intensivo (`/v1/evaluate`, `/v1/cluster/binpack`, `/v1/gpu/optimize`, `/v1/gameday/simulate`): `60 req/min/tenant` (`RATE_LIMIT_COMPUTE_PER_MIN`) + cuota diaria atómica de `10,000 evaluaciones/día/tenant` (`RATE_LIMIT_DAILY_EVAL_QUOTA=10000`).
+  - Telemetría del operador Go (`/v1/telemetry/ingest`, `/v1/agents/heartbeat`): `600 req/min/tenant` (`RATE_LIMIT_TELEMETRY_PER_MIN`) con cuota independiente para no interferir con el bucle de reconciliación.
+  - Lectura general (`/v1/*`): `120 req/min/tenant` (`RATE_LIMIT_GENERAL_PER_MIN`).
+  - Al superar el límite devuelve `HTTP 429 Too Many Requests` con cabeceras `Retry-After`, `X-RateLimit-Limit` y `X-RateLimit-Remaining`.
+- **Validación Estricta y Cabeceras HTTP:** Rechazo de `NaN`/`Infinity` (`math.isfinite`), validación de identificadores, límite estricto de `1 MiB` (`HTTP 413`) en todos los cuerpos JSON (incluyendo `POST /v1/cluster/binpack`) y cabeceras `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `Cache-Control: no-store` y `X-Frame-Options` / `CSP frame-ancestors` (configurable con `ALLOWED_FRAME_ANCESTORS` para integración con `Nexus_Client_Portal`).
+- **Plantilla de Variables de Entorno:** Consulta [`.env.example`](.env.example) para la referencia completa de variables sin secretos reales.
+- **TLS / mTLS y Helm:** `TLS_CERT`/`TLS_KEY` y `TLS_CLIENT_CA` en el motor; flags `--<backend>-ca-file`, `--<backend>-client-cert/-key`, `--<backend>-bearer-token-file` en el operador Go; y `values-production.yaml` en Helm.
 
 ### Métricas del operador
 

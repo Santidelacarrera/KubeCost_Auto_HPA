@@ -3,8 +3,10 @@
 Provides:
 - Backward-compatible v1 telemetry ingestion and multi-level hierarchical schema
   (Cluster -> Node -> Workload -> Pod -> Container).
-- Strict tenant isolation (client_id scoping across all queries and mutations).
-- Event idempotency & deduplication via event_id.
+- Strict tenant isolation (`_verify_tenant_access` & `client_id` scoping across all queries,
+  clusters, commands, recommendations, and mutations).
+- Cross-tenant resource IDOR protection (`_cluster_owners`, `_command_owners`, `_event_owners`).
+- Event idempotency & deduplication via `event_id`.
 - Agent registration, heartbeats, and policy distribution with versioning.
 - PRE_WARM command dispatch, anti-replay, expiration checking, and ACK tracking.
 - Decision audit log and FinOps net savings reporting per tenant & cluster.
@@ -12,15 +14,26 @@ Provides:
 
 from __future__ import annotations
 
+from dataclasses import asdict, dataclass, field
 import hashlib
 import math
 import threading
 import time
-import uuid
-from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional
+import uuid
 
 from .persistence import SQLiteSaaSStore
+from .security import AuthorizationError, InputValidationError, validate_identifier
+
+_SHARED_DEFAULT_CLUSTER_NAMES = frozenset(
+    {
+        "eks-prod-1",
+        "eks-prod-us-east-1",
+        "prod-us-east-1",
+        "eks-staging-us-east-1",
+        "eks-1",
+    }
+)
 
 
 @dataclass
@@ -107,46 +120,90 @@ class SaaSControlPlane:
         self._executed_command_ids: Dict[str, set[str]] = {}
         self._audit_logs: Dict[str, List[Dict[str, Any]]] = {}
         self._tenant_tokens: Dict[str, str] = {}
+        self._executed_ui_recs_by_tenant: Dict[str, set[str]] = {}
+        # Cross-tenant resource ownership maps to block IDOR by resource ID
+        self._cluster_owners: Dict[str, str] = {}
+        self._command_owners: Dict[str, str] = {}
+        self._event_owners: Dict[str, str] = {}
+        self._decision_owners: Dict[str, str] = {}
 
     def register_tenant_token(self, client_id: str, token: str) -> None:
         with self._lock:
             self._tenant_tokens[client_id] = token
 
-    def validate_tenant_access(self, client_id: str, provided_tenant_header: Optional[str] = None) -> None:
-        """Enforces strict multi-tenant boundary: header tenant (if provided) must match payload client_id."""
+    def _verify_tenant_access(
+        self, client_id: str, provided_tenant_header: Optional[str] = None
+    ) -> str:
+        """Centralized multi-tenant boundary enforcement: authenticated tenant must match client_id."""
         if not client_id or not isinstance(client_id, str) or not client_id.strip():
-            raise ValueError("client_id is required for multi-tenant isolation")
-        if provided_tenant_header and provided_tenant_header.strip() != client_id.strip():
-            raise PermissionError(
-                f"Tenant isolation violation: authenticated tenant '{provided_tenant_header}' "
-                f"cannot access resources of client_id '{client_id}'"
+            raise InputValidationError("client_id is required for multi-tenant isolation")
+        clean_client = validate_identifier(client_id.strip(), "client_id")
+        if provided_tenant_header is not None and str(provided_tenant_header).strip():
+            clean_hdr = validate_identifier(str(provided_tenant_header).strip(), "X-Tenant-ID")
+            if clean_hdr != clean_client:
+                raise AuthorizationError(
+                    "Tenant isolation violation: authenticated tenant is not authorized for the requested tenant resource"
+                )
+        return clean_client
+
+    def validate_tenant_access(
+        self, client_id: str, provided_tenant_header: Optional[str] = None
+    ) -> None:
+        """Backward-compatible alias for `_verify_tenant_access`."""
+        self._verify_tenant_access(client_id, provided_tenant_header)
+
+    def _bind_or_verify_cluster_owner(self, client_id: str, cluster_id: str, register: bool = False) -> None:
+        """Prevent cross-tenant access to a cluster_id registered by another tenant."""
+        if not cluster_id:
+            return
+        clean_cluster = validate_identifier(cluster_id.strip(), "cluster_id")
+        if clean_cluster in _SHARED_DEFAULT_CLUSTER_NAMES:
+            return
+        owner = self._cluster_owners.get(clean_cluster)
+        if owner is not None and owner != client_id:
+            raise AuthorizationError(
+                "Tenant isolation violation: cluster resource belongs to another organization"
             )
+        if register and owner is None:
+            self._cluster_owners[clean_cluster] = client_id
+
+    def verify_cluster_access(
+        self, client_id: str, cluster_id: str, tenant_header: Optional[str] = None
+    ) -> None:
+        """Public check that `client_id` matches `tenant_header` and is allowed to access `cluster_id`."""
+        clean_client = self._verify_tenant_access(client_id, tenant_header)
+        with self._lock:
+            self._bind_or_verify_cluster_owner(clean_client, cluster_id, register=False)
 
     def register_agent(self, payload: Dict[str, Any], tenant_header: Optional[str] = None) -> Dict[str, Any]:
-        client_id = str(payload.get("client_id", "")).strip()
-        self.validate_tenant_access(client_id, tenant_header)
+        raw_client = str(payload.get("client_id") or payload.get("tenant_id") or "").strip()
+        client_id = self._verify_tenant_access(raw_client, tenant_header)
         cluster_id = str(payload.get("cluster_id", "")).strip()
         if not cluster_id:
-            raise ValueError("cluster_id is required")
+            raise InputValidationError("cluster_id is required")
+        cluster_id = validate_identifier(cluster_id, "cluster_id")
 
-        agent_id = str(payload.get("agent_id") or f"agent-{cluster_id}-{uuid.uuid4().hex[:8]}")
+        agent_id = validate_identifier(
+            str(payload.get("agent_id") or f"agent-{cluster_id}-{uuid.uuid4().hex[:8]}"),
+            "agent_id",
+        )
         now = time.time()
         reg = AgentRegistration(
             client_id=client_id,
             cluster_id=cluster_id,
             agent_id=agent_id,
-            agent_version=str(payload.get("agent_version", "v2.0.0")),
-            cluster_version=str(payload.get("cluster_version", "v1.33.0")),
-            region=str(payload.get("region", "us-east-1")),
-            cloud_provider=str(payload.get("cloud_provider", "aws")),
+            agent_version=str(payload.get("agent_version", "v2.0.0"))[:64],
+            cluster_version=str(payload.get("cluster_version", "v1.33.0"))[:64],
+            region=validate_identifier(str(payload.get("region", "us-east-1")), "region"),
+            cloud_provider=validate_identifier(str(payload.get("cloud_provider", "aws")), "cloud_provider"),
             registered_at=now,
             last_heartbeat_at=now,
-            execution_mode=str(payload.get("execution_mode", "ACTIVE")),
+            execution_mode=validate_identifier(str(payload.get("execution_mode", "ACTIVE")), "execution_mode"),
             status="ONLINE",
         )
         with self._lock:
+            self._bind_or_verify_cluster_owner(client_id, cluster_id, register=True)
             self._agents.setdefault(client_id, {})[cluster_id] = reg
-            # Initialize default policy for cluster if not present
             self._policies.setdefault(client_id, {}).setdefault(
                 cluster_id,
                 {
@@ -169,32 +226,37 @@ class SaaSControlPlane:
         return asdict(reg)
 
     def heartbeat(self, payload: Dict[str, Any], tenant_header: Optional[str] = None) -> Dict[str, Any]:
-        client_id = str(payload.get("client_id", "")).strip()
-        self.validate_tenant_access(client_id, tenant_header)
+        raw_client = str(payload.get("client_id") or payload.get("tenant_id") or "").strip()
+        client_id = self._verify_tenant_access(raw_client, tenant_header)
         cluster_id = str(payload.get("cluster_id", "")).strip()
         if not cluster_id:
-            raise ValueError("cluster_id is required")
+            raise InputValidationError("cluster_id is required")
+        cluster_id = validate_identifier(cluster_id, "cluster_id")
 
         now = time.time()
         with self._lock:
+            self._bind_or_verify_cluster_owner(client_id, cluster_id, register=True)
             reg = self._agents.get(client_id, {}).get(cluster_id)
             if not reg:
-                # Auto-register on first heartbeat for resilience
                 reg = AgentRegistration(
                     client_id=client_id,
                     cluster_id=cluster_id,
-                    agent_id=str(payload.get("agent_id", f"agent-{cluster_id}")),
-                    agent_version=str(payload.get("agent_version", "v2.0.0")),
-                    cluster_version=str(payload.get("cluster_version", "v1.33.0")),
+                    agent_id=validate_identifier(
+                        str(payload.get("agent_id", f"agent-{cluster_id}")), "agent_id"
+                    ),
+                    agent_version=str(payload.get("agent_version", "v2.0.0"))[:64],
+                    cluster_version=str(payload.get("cluster_version", "v1.33.0"))[:64],
                     registered_at=now,
                     last_heartbeat_at=now,
                 )
                 self._agents.setdefault(client_id, {})[cluster_id] = reg
             else:
                 reg.last_heartbeat_at = now
-                reg.status = str(payload.get("status", "ONLINE"))
+                reg.status = validate_identifier(str(payload.get("status", "ONLINE")), "status")
                 if "execution_mode" in payload:
-                    reg.execution_mode = str(payload["execution_mode"])
+                    reg.execution_mode = validate_identifier(
+                        str(payload["execution_mode"]), "execution_mode"
+                    )
 
             pending_cmds = [
                 asdict(c)
@@ -212,15 +274,16 @@ class SaaSControlPlane:
 
     def ingest_telemetry(self, payload: Dict[str, Any], tenant_header: Optional[str] = None) -> Dict[str, Any]:
         """Ingests both legacy v1 payloads (Section 13.1) and extended multi-level schemas (Section 13.2)."""
-        client_id = str(payload.get("client_id", "")).strip()
-        self.validate_tenant_access(client_id, tenant_header)
+        raw_client = str(payload.get("client_id") or payload.get("tenant_id") or "").strip()
+        client_id = self._verify_tenant_access(raw_client, tenant_header)
         cluster_id = str(payload.get("cluster_id", "")).strip()
         if not cluster_id:
-            raise ValueError("cluster_id is required")
+            raise InputValidationError("cluster_id is required")
+        cluster_id = validate_identifier(cluster_id, "cluster_id")
 
         metrics = payload.get("metrics")
         if not isinstance(metrics, dict):
-            raise ValueError("metrics object is required")
+            raise InputValidationError("metrics object is required")
 
         timestamp = int(payload.get("timestamp") or int(time.time()))
         rps = float(metrics.get("rps", 0.0))
@@ -229,21 +292,28 @@ class SaaSControlPlane:
         mem_bytes = int(metrics.get("mem_usage_bytes", 0))
         replicas = int(metrics.get("current_replicas", 1))
 
-        if rps < 0 or p99 < 0 or cpu_cores < 0 or mem_bytes < 0 or replicas < 0:
-            raise ValueError("telemetry metrics must be non-negative")
         if not (math.isfinite(rps) and math.isfinite(p99) and math.isfinite(cpu_cores)):
-            raise ValueError("telemetry metrics must be finite numbers")
+            raise InputValidationError("telemetry metrics must be finite numbers")
+        if rps < 0 or p99 < 0 or cpu_cores < 0 or mem_bytes < 0 or replicas < 0:
+            raise InputValidationError("telemetry metrics must be non-negative")
 
-        # Deterministic event_id if not explicitly provided by caller
         raw_event_id = payload.get("event_id")
         if not raw_event_id:
             workload = str(payload.get("workload_name") or metrics.get("workload_name") or "default/workload")
             digest_src = f"{client_id}:{cluster_id}:{workload}:{timestamp}:{rps}:{p99}:{cpu_cores}:{mem_bytes}"
             event_id = "evt-" + hashlib.sha256(digest_src.encode("utf-8")).hexdigest()[:16]
         else:
-            event_id = str(raw_event_id)
+            event_id = validate_identifier(str(raw_event_id), "event_id")
 
         with self._lock:
+            self._bind_or_verify_cluster_owner(client_id, cluster_id, register=True)
+            evt_owner = self._event_owners.get(event_id)
+            if evt_owner is not None and evt_owner != client_id:
+                raise AuthorizationError(
+                    "Tenant isolation violation: telemetry event_id belongs to another organization"
+                )
+            self._event_owners[event_id] = client_id
+
             seen = self._seen_event_ids.setdefault(client_id, set())
             if event_id in seen or not self._store.save_telemetry_event(
                 client_id, event_id, cluster_id, timestamp, payload
@@ -259,6 +329,8 @@ class SaaSControlPlane:
             seen.add(event_id)
 
             error_rate = float(payload.get("error_rate", metrics.get("error_rate", 0.0)))
+            if not math.isfinite(error_rate):
+                raise InputValidationError("error_rate must be finite")
             error_rate = max(0.0, min(1.0, error_rate))
             default_succ = rps * (1.0 - error_rate)
             successful_requests = float(
@@ -266,25 +338,29 @@ class SaaSControlPlane:
             )
 
             rec = NormalizedTelemetryRecord(
-                schema_version=str(payload.get("schema_version", "v1.2")),
+                schema_version=str(payload.get("schema_version", "v1.2"))[:32],
                 event_id=event_id,
                 client_id=client_id,
                 cluster_id=cluster_id,
                 timestamp=timestamp,
-                agent_version=str(payload.get("agent_version", "v2.0.0")),
-                cluster_version=str(payload.get("cluster_version", "v1.33.0")),
-                node_name=str(payload.get("node_name", metrics.get("node_name", "node-unknown"))),
+                agent_version=str(payload.get("agent_version", "v2.0.0"))[:64],
+                cluster_version=str(payload.get("cluster_version", "v1.33.0"))[:64],
+                node_name=str(payload.get("node_name", metrics.get("node_name", "node-unknown")))[:128],
                 node_instance_type=str(
                     payload.get("node_instance_type", metrics.get("node_instance_type", "m6i.xlarge"))
-                ),
+                )[:64],
                 spot_instance_risk=float(
                     payload.get("spot_instance_risk", metrics.get("spot_instance_risk", 0.0))
                 ),
-                namespace=str(payload.get("namespace", metrics.get("namespace", "default"))),
-                workload_name=str(payload.get("workload_name", metrics.get("workload_name", "default-workload"))),
-                workload_kind=str(payload.get("workload_kind", metrics.get("workload_kind", "Deployment"))),
-                pod_name=str(payload.get("pod_name", metrics.get("pod_name", ""))),
-                container_name=str(payload.get("container_name", metrics.get("container_name", "app"))),
+                namespace=str(payload.get("namespace", metrics.get("namespace", "default")))[:128],
+                workload_name=str(
+                    payload.get("workload_name", metrics.get("workload_name", "default-workload"))
+                )[:128],
+                workload_kind=str(
+                    payload.get("workload_kind", metrics.get("workload_kind", "Deployment"))
+                )[:64],
+                pod_name=str(payload.get("pod_name", metrics.get("pod_name", "")))[:128],
+                container_name=str(payload.get("container_name", metrics.get("container_name", "app")))[:128],
                 rps=rps,
                 successful_requests=successful_requests,
                 error_rate=error_rate,
@@ -292,15 +368,15 @@ class SaaSControlPlane:
                 p95_latency_ms=float(payload.get("p95_latency_ms", metrics.get("p95_latency_ms", p99 * 0.75))),
                 p99_latency_ms=p99,
                 cpu_usage_cores=cpu_cores,
-                cpu_requests=str(payload.get("cpu_requests", metrics.get("cpu_requests", f"{int(cpu_cores*1000)}m"))),
-                cpu_limits=str(payload.get("cpu_limits", metrics.get("cpu_limits", f"{int(cpu_cores*1500)}m"))),
+                cpu_requests=str(payload.get("cpu_requests", metrics.get("cpu_requests", f"{int(cpu_cores*1000)}m")))[:32],
+                cpu_limits=str(payload.get("cpu_limits", metrics.get("cpu_limits", f"{int(cpu_cores*1500)}m")))[:32],
                 mem_usage_bytes=mem_bytes,
                 memory_requests=str(
                     payload.get("memory_requests", metrics.get("memory_requests", f"{mem_bytes // (1024*1024)}Mi"))
-                ),
+                )[:32],
                 memory_limits=str(
                     payload.get("memory_limits", metrics.get("memory_limits", f"{int(mem_bytes * 1.25) // (1024*1024)}Mi"))
-                ),
+                )[:32],
                 current_replicas=replicas,
             )
             bucket = self._telemetry.setdefault(client_id, [])
@@ -318,16 +394,44 @@ class SaaSControlPlane:
             "normalized": asdict(rec),
         }
 
-    def get_policy(self, client_id: str, cluster_id: str, tenant_header: Optional[str] = None) -> Dict[str, Any]:
-        self.validate_tenant_access(client_id, tenant_header)
+    def get_telemetry_events(
+        self,
+        client_id: str,
+        cluster_id: Optional[str] = None,
+        event_id: Optional[str] = None,
+        tenant_header: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Query telemetry records strictly isolated to the authenticated tenant."""
+        clean_client = self._verify_tenant_access(client_id, tenant_header)
         with self._lock:
-            pol = self._policies.get(client_id, {}).get(cluster_id)
+            if cluster_id:
+                self._bind_or_verify_cluster_owner(clean_client, cluster_id, register=False)
+            if event_id:
+                clean_evt = validate_identifier(event_id, "event_id")
+                evt_owner = self._event_owners.get(clean_evt)
+                if evt_owner is not None and evt_owner != clean_client:
+                    raise AuthorizationError(
+                        "Tenant isolation violation: telemetry event belongs to another organization"
+                    )
+            records = [asdict(r) for r in self._telemetry.get(clean_client, [])]
+        if cluster_id:
+            records = [r for r in records if r.get("cluster_id") == cluster_id]
+        if event_id:
+            records = [r for r in records if r.get("event_id") == event_id]
+        return records
+
+    def get_policy(self, client_id: str, cluster_id: str, tenant_header: Optional[str] = None) -> Dict[str, Any]:
+        clean_client = self._verify_tenant_access(client_id, tenant_header)
+        clean_cluster = validate_identifier(cluster_id or "eks-prod-1", "cluster_id")
+        with self._lock:
+            self._bind_or_verify_cluster_owner(clean_client, clean_cluster, register=False)
+            pol = self._policies.get(clean_client, {}).get(clean_cluster)
             if pol:
                 return dict(pol)
             return {
                 "policy_version": "2026-11-01.default",
-                "client_id": client_id,
-                "cluster_id": cluster_id,
+                "client_id": clean_client,
+                "cluster_id": clean_cluster,
                 "execution_mode": "ACTIVE",
                 "slo_p99_ms": 200.0,
                 "max_increase_percent": 100.0,
@@ -338,22 +442,71 @@ class SaaSControlPlane:
                 "enable_spot_drain": True,
             }
 
+    def update_policy(self, payload: Dict[str, Any], tenant_header: Optional[str] = None) -> Dict[str, Any]:
+        """Update scaling policy for a tenant's cluster, enforcing strict tenant isolation."""
+        raw_client = str(payload.get("client_id") or payload.get("tenant_id") or "").strip()
+        clean_client = self._verify_tenant_access(raw_client, tenant_header)
+        clean_cluster = validate_identifier(str(payload.get("cluster_id") or "eks-prod-1"), "cluster_id")
+        slo = float(payload.get("slo_p99_ms", 200.0))
+        if not math.isfinite(slo) or slo <= 0 or slo > 60000:
+            raise InputValidationError("slo_p99_ms must be between 1 and 60000")
+        min_rep = int(payload.get("min_replicas", 2))
+        max_rep = int(payload.get("max_replicas", 50))
+        if min_rep < 1 or max_rep < min_rep or max_rep > 10000:
+            raise InputValidationError("invalid replica bounds in policy")
+
+        with self._lock:
+            self._bind_or_verify_cluster_owner(clean_client, clean_cluster, register=True)
+            pol = self._policies.setdefault(clean_client, {}).setdefault(
+                clean_cluster,
+                {
+                    "policy_version": "2026-11-01.v2",
+                    "client_id": clean_client,
+                    "cluster_id": clean_cluster,
+                },
+            )
+            pol.update(
+                {
+                    "policy_version": str(payload.get("policy_version", "2026-11-01.v2"))[:64],
+                    "client_id": clean_client,
+                    "cluster_id": clean_cluster,
+                    "execution_mode": validate_identifier(
+                        str(payload.get("execution_mode", pol.get("execution_mode", "ACTIVE"))),
+                        "execution_mode",
+                    ),
+                    "slo_p99_ms": slo,
+                    "min_replicas": min_rep,
+                    "max_replicas": max_rep,
+                    "enable_prewarm": bool(payload.get("enable_prewarm", True)),
+                    "enable_spot_drain": bool(payload.get("enable_spot_drain", True)),
+                }
+            )
+            return dict(pol)
+
     def issue_prewarm_command(
         self, payload: Dict[str, Any], tenant_header: Optional[str] = None
     ) -> Dict[str, Any]:
         """Creates and queues a Section 7.5 PRE_WARM command for the Go agent."""
-        client_id = str(payload.get("client_id", "default-tenant")).strip()
-        self.validate_tenant_access(client_id, tenant_header)
+        raw_client = str(payload.get("client_id") or payload.get("tenant_id") or "default-tenant").strip()
+        client_id = self._verify_tenant_access(raw_client, tenant_header)
         cluster_id = str(payload.get("cluster_id", "")).strip()
         workload = str(payload.get("workload", "")).strip()
         if not cluster_id or not workload:
-            raise ValueError("cluster_id and workload are required for PRE_WARM")
+            raise InputValidationError("cluster_id and workload are required for PRE_WARM")
+        cluster_id = validate_identifier(cluster_id, "cluster_id")
+        workload = validate_identifier(workload, "workload", allow_slash=True)
 
         now = int(time.time())
-        command_id = str(payload.get("command_id") or f"cmd-prewarm-{uuid.uuid4().hex[:10]}")
+        command_id = validate_identifier(
+            str(payload.get("command_id") or f"cmd-prewarm-{uuid.uuid4().hex[:10]}"),
+            "command_id",
+        )
         execute_at = int(payload.get("execute_at") or now)
         expires_at = int(payload.get("expires_at") or (execute_at + 900))
         req_res = payload.get("requested_resources") or {"cpu": "1500m", "memory": "2Gi"}
+        confidence = float(payload.get("confidence", 0.91))
+        if not math.isfinite(confidence) or confidence < 0.0 or confidence > 1.0:
+            raise InputValidationError("confidence must be between 0.0 and 1.0")
 
         cmd = PreWarmCommand(
             command_id=command_id,
@@ -361,27 +514,42 @@ class SaaSControlPlane:
             cluster_id=cluster_id,
             workload=workload,
             action="PRE_WARM",
-            requested_resources={"cpu": str(req_res.get("cpu", "1500m")), "memory": str(req_res.get("memory", "2Gi"))},
+            requested_resources={
+                "cpu": str(req_res.get("cpu", "1500m"))[:32],
+                "memory": str(req_res.get("memory", "2Gi"))[:32],
+            },
             recommended_replicas=int(payload.get("recommended_replicas", 6)),
             execute_at=execute_at,
             expires_at=expires_at,
-            confidence=float(payload.get("confidence", 0.91)),
-            reason=str(payload.get("reason", "Predicted seasonal traffic spike")),
-            policy_version=str(payload.get("policy_version", "2026-11-01.v1")),
+            confidence=confidence,
+            reason=str(payload.get("reason", "Predicted seasonal traffic spike"))[:256],
+            policy_version=str(payload.get("policy_version", "2026-11-01.v1"))[:64],
         )
         with self._lock:
+            self._bind_or_verify_cluster_owner(client_id, cluster_id, register=True)
+            existing_cmd_owner = self._command_owners.get(command_id)
+            if existing_cmd_owner is not None and existing_cmd_owner != client_id:
+                raise AuthorizationError(
+                    "Tenant isolation violation: command_id belongs to another organization"
+                )
+            self._command_owners[command_id] = client_id
             self._commands.setdefault(client_id, {})[command_id] = cmd
+            self._store.upsert_prewarm_command(
+                client_id, command_id, cluster_id, cmd.status, cmd.expires_at, asdict(cmd)
+            )
         return asdict(cmd)
 
     def get_pending_commands(
         self, client_id: str, cluster_id: str, now_ts: Optional[int] = None, tenant_header: Optional[str] = None
     ) -> List[Dict[str, Any]]:
-        self.validate_tenant_access(client_id, tenant_header)
+        clean_client = self._verify_tenant_access(client_id, tenant_header)
+        clean_cluster = validate_identifier(cluster_id or "eks-prod-1", "cluster_id")
         now = int(now_ts if now_ts is not None else time.time())
         out: List[Dict[str, Any]] = []
         with self._lock:
-            for cmd in self._commands.get(client_id, {}).values():
-                if cmd.cluster_id != cluster_id:
+            self._bind_or_verify_cluster_owner(clean_client, clean_cluster, register=False)
+            for cmd in self._commands.get(clean_client, {}).values():
+                if cmd.cluster_id != clean_cluster:
                     continue
                 if cmd.status == "PENDING" and cmd.expires_at <= now:
                     cmd.status = "EXPIRED"
@@ -392,18 +560,25 @@ class SaaSControlPlane:
     def acknowledge_command(
         self, payload: Dict[str, Any], tenant_header: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Processes Go Agent ACK for PRE_WARM commands with expiry and anti-replay protection."""
-        client_id = str(payload.get("client_id", "")).strip()
-        self.validate_tenant_access(client_id, tenant_header)
+        """Processes Go Agent ACK for PRE_WARM commands with expiry, tenant ownership, and anti-replay protection."""
+        raw_client = str(payload.get("client_id") or payload.get("tenant_id") or "").strip()
+        client_id = self._verify_tenant_access(raw_client, tenant_header)
         command_id = str(payload.get("command_id", "")).strip()
         if not command_id:
-            raise ValueError("command_id is required")
+            raise InputValidationError("command_id is required")
+        command_id = validate_identifier(command_id, "command_id")
 
         now = int(payload.get("timestamp") or time.time())
-        agent_status = str(payload.get("status", "EXECUTED")).upper()
-        agent_reason = str(payload.get("reason", "Executed by Go agent"))
+        agent_status = validate_identifier(str(payload.get("status", "EXECUTED")).upper(), "status")
+        agent_reason = str(payload.get("reason", "Executed by Go agent"))[:256]
 
         with self._lock:
+            cmd_owner = self._command_owners.get(command_id)
+            if cmd_owner is not None and cmd_owner != client_id:
+                raise AuthorizationError(
+                    "Tenant isolation violation: cannot acknowledge command owned by another organization"
+                )
+
             executed_set = self._executed_command_ids.setdefault(client_id, set())
             if command_id in executed_set:
                 return {
@@ -415,7 +590,7 @@ class SaaSControlPlane:
 
             cmd = self._commands.get(client_id, {}).get(command_id)
             if not cmd:
-                raise KeyError(f"command_id '{command_id}' not found for tenant '{client_id}'")
+                raise KeyError("command_id not found for tenant")
 
             if cmd.expires_at <= now:
                 cmd.status = "EXPIRED"
@@ -447,46 +622,87 @@ class SaaSControlPlane:
     def record_audit_decision(
         self, payload: Dict[str, Any], tenant_header: Optional[str] = None
     ) -> Dict[str, Any]:
-        client_id = str(payload.get("client_id", "default-tenant")).strip()
-        self.validate_tenant_access(client_id, tenant_header)
+        raw_client = str(payload.get("client_id") or payload.get("tenant_id") or "default-tenant").strip()
+        client_id = self._verify_tenant_access(raw_client, tenant_header)
+        cluster_id = validate_identifier(str(payload.get("cluster_id", "eks-prod-1")), "cluster_id")
+        decision_id = validate_identifier(
+            str(payload.get("decision_id") or f"dec-{uuid.uuid4().hex[:10]}"),
+            "decision_id",
+        )
+        econ_delta = float(payload.get("economic_delta_usd_hour", 0.0))
+        if not math.isfinite(econ_delta):
+            raise InputValidationError("economic_delta_usd_hour must be a finite number")
+
         entry = {
-            "decision_id": str(payload.get("decision_id") or f"dec-{uuid.uuid4().hex[:10]}"),
+            "decision_id": decision_id,
             "client_id": client_id,
-            "cluster_id": str(payload.get("cluster_id", "eks-prod-1")),
-            "workload": str(payload.get("workload", "default/workload")),
-            "decision_type": str(payload.get("decision_type", "VERTICAL_RESIZE")),
-            "execution_mode": str(payload.get("execution_mode", "ACTIVE")),
+            "cluster_id": cluster_id,
+            "workload": validate_identifier(
+                str(payload.get("workload", "default/workload")), "workload", allow_slash=True
+            ),
+            "decision_type": validate_identifier(
+                str(payload.get("decision_type", "VERTICAL_RESIZE")), "decision_type"
+            ),
+            "execution_mode": validate_identifier(
+                str(payload.get("execution_mode", "ACTIVE")), "execution_mode"
+            ),
             "before_state": payload.get("before_state", {}),
             "after_state": payload.get("after_state", {}),
-            "economic_delta_usd_hour": float(payload.get("economic_delta_usd_hour", 0.0)),
-            "reason": str(payload.get("reason", "")),
+            "economic_delta_usd_hour": econ_delta,
+            "reason": str(payload.get("reason", ""))[:256],
             "timestamp": int(payload.get("timestamp") or time.time()),
         }
         with self._lock:
+            self._bind_or_verify_cluster_owner(client_id, cluster_id, register=True)
+            dec_owner = self._decision_owners.get(decision_id)
+            if dec_owner is not None and dec_owner != client_id:
+                raise AuthorizationError(
+                    "Tenant isolation violation: decision_id belongs to another organization"
+                )
+            self._decision_owners[decision_id] = client_id
             logs = self._audit_logs.setdefault(client_id, [])
             logs.append(entry)
+            self._store.save_audit_decision(client_id, decision_id, cluster_id, entry["timestamp"], entry)
         return entry
 
     def get_audit_decisions(
-        self, client_id: str, cluster_id: Optional[str] = None, tenant_header: Optional[str] = None
+        self,
+        client_id: str,
+        cluster_id: Optional[str] = None,
+        tenant_header: Optional[str] = None,
+        decision_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
-        self.validate_tenant_access(client_id, tenant_header)
+        clean_client = self._verify_tenant_access(client_id, tenant_header)
         with self._lock:
-            logs = list(self._audit_logs.get(client_id, []))
+            if cluster_id:
+                clean_cluster = validate_identifier(cluster_id, "cluster_id")
+                self._bind_or_verify_cluster_owner(clean_client, clean_cluster, register=False)
+            if decision_id:
+                clean_dec = validate_identifier(decision_id, "decision_id")
+                dec_owner = self._decision_owners.get(clean_dec)
+                if dec_owner is not None and dec_owner != clean_client:
+                    raise AuthorizationError(
+                        "Tenant isolation violation: decision_id belongs to another organization"
+                    )
+            logs = list(self._audit_logs.get(clean_client, []))
         if cluster_id:
             logs = [x for x in logs if x.get("cluster_id") == cluster_id]
+        if decision_id:
+            logs = [x for x in logs if x.get("decision_id") == decision_id]
         return logs
 
     def get_cast_dashboard(
-        self, client_id: str = "default-tenant", cluster_id: str = "eks-prod-us-east-1"
+        self,
+        client_id: str = "default-tenant",
+        cluster_id: str = "eks-prod-us-east-1",
+        tenant_header: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Returns the Fase 10 Cast AI + Tremor UI payload:
-        1. Pain Number Cards (Current Spend Red, Optimized Spend Emerald, Net Savings & Value-Shared Fee).
-        2. Namespace BarChart (Allocated vs Real Used CPU/Memory isolating 'la grasa').
-        3. Actionable 1-Click Recommendations Table (In-Place Resize & Spot Drain).
-        """
+        """Returns the Fase 10 Cast AI + Tremor UI payload strictly scoped to the authenticated tenant."""
+        clean_client = self._verify_tenant_access(client_id, tenant_header)
+        clean_cluster = validate_identifier(cluster_id or "eks-prod-us-east-1", "cluster_id")
         with self._lock:
-            executed_recs = getattr(self, "_executed_ui_recs", set())
+            self._bind_or_verify_cluster_owner(clean_client, clean_cluster, register=False)
+            executed_recs = set(self._executed_ui_recs_by_tenant.get(clean_client, set()))
 
         recommendations = [
             {
@@ -548,8 +764,8 @@ class SaaSControlPlane:
         value_shared_fee = round(net_savings * 0.22, 2)
 
         return {
-            "client_id": client_id,
-            "cluster_id": cluster_id,
+            "client_id": clean_client,
+            "cluster_id": clean_cluster,
             "typography_policy": "Inter, Geist Sans, system-ui, sans-serif",
             "pain_number_cards": {
                 "current_monthly_spend_usd": current_spend,
@@ -604,31 +820,68 @@ class SaaSControlPlane:
         }
 
     def execute_ui_recommendation(
-        self, payload: Dict[str, Any], tenant_header: Optional[str] = None
+        self,
+        payload_or_client_id: Dict[str, Any] | str,
+        recommendation_type: Optional[str] = None,
+        target: Optional[str] = None,
+        tenant_header: Optional[str] = None,
     ) -> Dict[str, Any]:
-        rec_id = str(payload.get("recommendation_id", "")).strip()
+        """Translates a 1-click UI recommendation into an actionable operator audit/command.
+
+        Mandatory authorization check (`_verify_tenant_access`) runs BEFORE any state mutation.
+        Supports both `execute_ui_recommendation(payload_dict, tenant_header=...)`
+        and `execute_ui_recommendation(client_id, recommendation_type, target, tenant_header=...)`.
+        """
+        if isinstance(payload_or_client_id, dict):
+            payload = payload_or_client_id
+            raw_client = str(
+                payload.get("client_id") or payload.get("tenant_id") or tenant_header or "default-tenant"
+            ).strip()
+            rec_id = str(payload.get("recommendation_id") or payload.get("recommendation_type") or "").strip()
+            cluster_id = str(payload.get("cluster_id", "eks-prod-us-east-1")).strip()
+            workload = str(payload.get("workload") or payload.get("target") or rec_id).strip()
+            action_type = str(
+                payload.get("action_type") or payload.get("recommendation_type") or "ONE_CLICK_OPTIMIZATION"
+            ).strip()
+        else:
+            raw_client = str(payload_or_client_id or "").strip()
+            rec_id = str(recommendation_type or "").strip()
+            cluster_id = "eks-prod-us-east-1"
+            workload = str(target or rec_id).strip()
+            action_type = str(recommendation_type or "ONE_CLICK_OPTIMIZATION").strip()
+
+        clean_client = self._verify_tenant_access(raw_client, tenant_header)
         if not rec_id:
-            raise ValueError("recommendation_id is required")
+            raise InputValidationError("recommendation_id is required")
+        clean_rec_id = validate_identifier(rec_id, "recommendation_id")
+        clean_cluster = validate_identifier(cluster_id, "cluster_id")
+        clean_workload = validate_identifier(workload, "workload", allow_slash=True)
+        clean_action = validate_identifier(action_type, "action_type")
+
         with self._lock:
-            if not hasattr(self, "_executed_ui_recs"):
-                self._executed_ui_recs = set()
-            self._executed_ui_recs.add(rec_id)
+            self._bind_or_verify_cluster_owner(clean_client, clean_cluster, register=False)
+            self._executed_ui_recs_by_tenant.setdefault(clean_client, set()).add(clean_rec_id)
+
         self.record_audit_decision(
             {
-                "client_id": str(payload.get("client_id", "default-tenant")),
-                "cluster_id": str(payload.get("cluster_id", "eks-prod-us-east-1")),
-                "workload": str(payload.get("workload", rec_id)),
-                "decision_type": str(payload.get("action_type", "ONE_CLICK_OPTIMIZATION")),
+                "client_id": clean_client,
+                "cluster_id": clean_cluster,
+                "workload": clean_workload,
+                "decision_type": clean_action,
                 "execution_mode": "ACTIVE",
-                "reason": f"1-click UI execution of {rec_id}",
-            }
+                "reason": f"1-click UI execution of {clean_rec_id}",
+            },
+            tenant_header=clean_client,
         )
         return {
             "status": "executed",
-            "recommendation_id": rec_id,
+            "client_id": clean_client,
+            "cluster_id": clean_cluster,
+            "recommendation_id": clean_rec_id,
+            "workload": clean_workload,
+            "action_type": clean_action,
             "timestamp": int(time.time()),
         }
-
 
 
 _GLOBAL_CONTROL_PLANE = SaaSControlPlane()
