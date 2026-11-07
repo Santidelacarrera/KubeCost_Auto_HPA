@@ -17,40 +17,40 @@ type GPUAcceleratorSpec struct {
 
 // MIGSliceProfile represents an NVIDIA Multi-Instance GPU hardware partition.
 type MIGSliceProfile struct {
-	ResourceName    string  // e.g. "nvidia.com/mig-1g.10gb"
-	ComputeSlices   int     // e.g. 1, 2, 3, 7
-	TotalSlices     int     // 7 for A100/H100
-	VRAMGiB         float64 // e.g. 10, 20, 40, 80
-	CostFraction    float64 // fraction of full GPU cost
+	ResourceName  string  // e.g. "nvidia.com/mig-1g.10gb"
+	ComputeSlices int     // e.g. 1, 2, 3, 7
+	TotalSlices   int     // 7 for A100/H100
+	VRAMGiB       float64 // e.g. 10, 20, 40, 80
+	CostFraction  float64 // fraction of full GPU cost
 }
 
 // WorkloadGPUTelemetry captures real-time AI/ML inference or training telemetry.
 type WorkloadGPUTelemetry struct {
-	CurrentGPUModel      string
-	RequestedGPUs        int
-	SMUtilizationPct     float64 // 0..100 Streaming Multiprocessor active %
-	VRAMUsedGiB          float64 // Active GPU memory in GiB
-	TokensPerSecond      float64 // LLM token throughput (tokens/s)
-	InferenceRPS         float64 // Inference requests/sec
-	SpotTolerant         bool
-	LatencyP99Ms         float64
-	LatencySLOMs         float64
+	CurrentGPUModel  string
+	RequestedGPUs    int
+	SMUtilizationPct float64 // 0..100 Streaming Multiprocessor active %
+	VRAMUsedGiB      float64 // Active GPU memory in GiB
+	TokensPerSecond  float64 // LLM token throughput (tokens/s)
+	InferenceRPS     float64 // Inference requests/sec
+	SpotTolerant     bool
+	LatencyP99Ms     float64
+	LatencySLOMs     float64
 }
 
 // GPUOptimizationRecommendation contains the deterministic right-sizing & MIG plan.
 type GPUOptimizationRecommendation struct {
-	Action                   string
-	RecommendedGPUModel      string
-	RecommendedResourceName  string
-	RecommendedSliceCount    int
-	UseSpotInstance          bool
-	CurrentHourlyCostUSD     float64
-	ProjectedHourlyCostUSD   float64
-	MonthlySavingsUSD        float64
-	CostPer1kTokensUSD       float64
-	CostPer1kInferencesUSD   float64
-	VRAMHeadroomPct          float64
-	Reason                   string
+	Action                  string
+	RecommendedGPUModel     string
+	RecommendedResourceName string
+	RecommendedSliceCount   int
+	UseSpotInstance         bool
+	CurrentHourlyCostUSD    float64
+	ProjectedHourlyCostUSD  float64
+	MonthlySavingsUSD       float64
+	CostPer1kTokensUSD      float64
+	CostPer1kInferencesUSD  float64
+	VRAMHeadroomPct         float64
+	Reason                  string
 }
 
 var gpuCatalog = map[string]GPUAcceleratorSpec{
