@@ -105,6 +105,17 @@ def test_server_gpu_greenops_guardrail_gameday_endpoints():
             rdy_data = json.loads(resp.read().decode())
             assert rdy_data["overall_status"] == "PRODUCTION_READY_100_PCT"
             assert rdy_data["certified_subsystems"] == 10
+
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/v1/cast/full-suite") as resp:
+            cs_data = json.loads(resp.read().decode())
+            assert cs_data["commitments"]["action"] == "ABSORB_INTO_PREPAID_COMMITMENT"
+            assert cs_data["commitments"]["monthly_commitment_waste_recovered_usd"] > 300.0
+            assert cs_data["hibernation"]["hibernation_action"] == "HIBERNATE_CLUSTER_NOW"
+            assert cs_data["hibernation"]["monthly_hibernation_savings_usd"] > 1000.0
+            assert cs_data["network_and_storage"]["total_monthly_net_and_storage_savings_usd"] > 400.0
+            assert cs_data["security_posture"]["security_posture_score"] >= 90.0
+            assert cs_data["security_posture"]["nexus_telemetry_event"]["type"] == "security.finding"
+            assert "AWS_EKS" in cs_data["onboarding"]["supported_platforms"]
     finally:
         srv.shutdown()
         srv.server_close()

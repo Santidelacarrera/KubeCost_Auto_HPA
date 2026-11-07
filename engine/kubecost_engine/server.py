@@ -15,6 +15,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from .auth_billing import MultiTenantAuthManager, generate_stripe_billing_invoice
 from .binpacking import ConsolidationResult, NodeBinPacker, NodeState, PodPlacement
 from .bootstrap import get_production_readiness_report, process_stripe_webhook_event
+from .cast_suite import (
+    evaluate_cluster_hibernation_and_rebalancing,
+    evaluate_commitments_arbitrage,
+    evaluate_k8s_security_posture,
+    evaluate_network_and_storage_optimization,
+    generate_cast_onboarding_bundle,
+)
 from .economics import cost_per_request_from_pod
 from .gameday import run_autonomous_gameday
 from .gpu_optimizer import evaluate_gpu_workload
@@ -407,6 +414,56 @@ class Handler(BaseHTTPRequestHandler):
         elif path_only == "/v1/system/readiness":
             rep = get_production_readiness_report(auth_manager=_auth_manager)
             return self._send(200, json.dumps(rep))
+        elif path_only == "/v1/cast/commitments":
+            provider = qs.get("provider", ["aws"])[0]
+            req_cores = int(qs.get("requested_cores", ["16"])[0])
+            return self._send(
+                200,
+                json.dumps(
+                    evaluate_commitments_arbitrage(
+                        provider=provider, workload_requested_cores=req_cores
+                    )
+                ),
+            )
+        elif path_only == "/v1/cast/hibernation":
+            cluster_id = qs.get("cluster_id", ["eks-staging-us-east-1"])[0]
+            env = qs.get("environment", ["staging"])[0]
+            hour = int(qs.get("hour_utc", ["22"])[0])
+            return self._send(
+                200,
+                json.dumps(
+                    evaluate_cluster_hibernation_and_rebalancing(
+                        cluster_id=cluster_id, environment=env, current_hour_utc=hour
+                    )
+                ),
+            )
+        elif path_only == "/v1/cast/network-storage":
+            return self._send(200, json.dumps(evaluate_network_and_storage_optimization()))
+        elif path_only == "/v1/cast/security":
+            cluster_id = qs.get("cluster_id", ["eks-prod-us-east-1"])[0]
+            return self._send(200, json.dumps(evaluate_k8s_security_posture(cluster_id=cluster_id)))
+        elif path_only == "/v1/cast/onboarding":
+            provider = qs.get("provider", ["eks"])[0]
+            cluster_name = qs.get("cluster_name", ["eks-prod-us-east-1"])[0]
+            return self._send(
+                200,
+                json.dumps(
+                    generate_cast_onboarding_bundle(provider=provider, cluster_name=cluster_name)
+                ),
+            )
+        elif path_only == "/v1/cast/full-suite":
+            return self._send(
+                200,
+                json.dumps(
+                    {
+                        "commitments": evaluate_commitments_arbitrage(),
+                        "hibernation": evaluate_cluster_hibernation_and_rebalancing(),
+                        "network_and_storage": evaluate_network_and_storage_optimization(),
+                        "security_posture": evaluate_k8s_security_posture(),
+                        "onboarding": generate_cast_onboarding_bundle(),
+                    }
+                ),
+            )
         elif path_only == "/v1/cluster/topology":
             # ScaleOps Parity: Sample Cluster Topology & Bin-Packing State
             sample_topology = {
@@ -584,6 +641,27 @@ class Handler(BaseHTTPRequestHandler):
                 baseline_rps=float(payload.get("baseline_rps", 840.0)),
                 node_count=int(payload.get("node_count", 12)),
             ).to_dict(),
+            "/v1/cast/commitments": lambda payload, tenant_header=None: evaluate_commitments_arbitrage(
+                provider=str(payload.get("provider", "aws")),
+                region=str(payload.get("region", "us-east-1")),
+                committed_cores=int(payload.get("committed_cores", 64)),
+                currently_used_cores=int(payload.get("currently_used_cores", 44)),
+                hourly_commitment_usd=float(payload.get("hourly_commitment_usd", 1.92)),
+                workload_requested_cores=int(payload.get("workload_requested_cores", 16)),
+            ),
+            "/v1/cast/hibernation": lambda payload, tenant_header=None: evaluate_cluster_hibernation_and_rebalancing(
+                cluster_id=str(payload.get("cluster_id", "eks-staging-us-east-1")),
+                environment=str(payload.get("environment", "staging")),
+                active_nodes=int(payload.get("active_nodes", 10)),
+                skeleton_nodes=int(payload.get("skeleton_nodes", 1)),
+                current_hour_utc=int(payload.get("current_hour_utc", 22)),
+            ),
+            "/v1/cast/network-storage": lambda payload, tenant_header=None: evaluate_network_and_storage_optimization(
+                cross_az_gb_per_day=float(payload.get("cross_az_gb_per_day", 420.0)),
+                gp2_volumes_total_gib=int(payload.get("gp2_volumes_total_gib", 4000)),
+                overprovisioned_pvc_gib=int(payload.get("overprovisioned_pvc_gib", 1800)),
+                unattached_zombie_volumes_gib=int(payload.get("unattached_zombie_volumes_gib", 650)),
+            ),
         }
         if self.path == "/v1/billing/stripe-webhook":
             try:
