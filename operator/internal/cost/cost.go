@@ -283,3 +283,83 @@ func ObservedSavings(before, after Report, namespace string, potential money.USD
 	}
 	return s, nil
 }
+
+// BudgetStatus compares one namespace's allocated cost with its budget for the report window.
+type BudgetStatus struct {
+	Namespace string
+	Spent     money.USD
+	Budget    money.USD
+	// Used is Spent/Budget (1.0 = the whole budget).
+	Used float64
+	Over bool
+	// Basis says whether Spent is billed-based or estimated: an over-budget alert on estimates is a warning, not an invoice.
+	Basis Basis
+}
+
+// CheckBudgets returns one status per budgeted namespace, sorted by namespace. A namespace with no cost in the report counts as zero spent.
+func CheckBudgets(r Report, budgets map[string]money.USD) []BudgetStatus {
+	names := make([]string, 0, len(budgets))
+	for ns := range budgets {
+		names = append(names, ns)
+	}
+	sort.Strings(names)
+	var out []BudgetStatus
+	for _, ns := range names {
+		b := budgets[ns]
+		spent := r.ByNamespace[ns]
+		st := BudgetStatus{Namespace: ns, Spent: spent, Budget: b, Basis: r.Basis, Over: b > 0 && spent > b}
+		if b > 0 {
+			st.Used = spent.Float() / b.Float()
+		}
+		out = append(out, st)
+	}
+	return out
+}
+
+// Deviation is a namespace whose cost per hour moved by more than the threshold between two reports.
+type Deviation struct {
+	Namespace            string
+	BeforePerHour, After float64
+	ChangePct            float64
+}
+
+// Deviations compares cost PER HOUR (so windows of different length compare) and returns the namespaces that moved by more than pct percent
+// (for example 20). Namespaces that appear or disappear are reported with +Inf/-100 percent. Reports on different bases do not compare.
+func Deviations(before, after Report, pct float64) ([]Deviation, error) {
+	if before.Basis != after.Basis {
+		return nil, fmt.Errorf("the reports use different bases (%s vs %s): they cannot be compared", before.Basis, after.Basis)
+	}
+	hb, ha := before.End.Sub(before.Start).Hours(), after.End.Sub(after.Start).Hours()
+	if hb <= 0 || ha <= 0 {
+		return nil, fmt.Errorf("both windows must have a positive length")
+	}
+	seen := map[string]bool{}
+	for ns := range before.ByNamespace {
+		seen[ns] = true
+	}
+	for ns := range after.ByNamespace {
+		seen[ns] = true
+	}
+	names := make([]string, 0, len(seen))
+	for ns := range seen {
+		names = append(names, ns)
+	}
+	sort.Strings(names)
+	var out []Deviation
+	for _, ns := range names {
+		b, a := before.ByNamespace[ns].Float()/hb, after.ByNamespace[ns].Float()/ha
+		var ch float64
+		switch {
+		case b == 0 && a == 0:
+			continue
+		case b == 0:
+			ch = math.Inf(1)
+		default:
+			ch = (a - b) / b * 100
+		}
+		if math.Abs(ch) > pct {
+			out = append(out, Deviation{Namespace: ns, BeforePerHour: b, After: a, ChangePct: ch})
+		}
+	}
+	return out, nil
+}

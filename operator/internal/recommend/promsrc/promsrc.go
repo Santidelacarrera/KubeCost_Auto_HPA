@@ -85,8 +85,11 @@ func (c *Client) Collect(ctx context.Context, t Target, window, step time.Durati
 	sel := fmt.Sprintf(`namespace="%s",pod=~"%s",container="%s"`, t.Namespace, pods, t.Container)
 	w := promDuration(window)
 
-	if in.CPUSamples, err = c.rangeValues(ctx, fmt.Sprintf(`rate(container_cpu_usage_seconds_total{%s}[5m])`, sel), in.WindowStart, now, step); err != nil {
+	if in.CPUSeries, err = c.rangeSeries(ctx, fmt.Sprintf(`rate(container_cpu_usage_seconds_total{%s}[5m])`, sel), in.WindowStart, now, step); err != nil {
 		return in, fmt.Errorf("cpu usage: %w", err)
+	}
+	for _, s := range in.CPUSeries {
+		in.CPUSamples = append(in.CPUSamples, s...)
 	}
 	if in.MemSamples, err = c.rangeValues(ctx, fmt.Sprintf(`container_memory_working_set_bytes{%s}`, sel), in.WindowStart, now, step); err != nil {
 		return in, fmt.Errorf("memory working set: %w", err)
@@ -242,18 +245,30 @@ func (c *Client) instant(ctx context.Context, query string, at time.Time) ([]flo
 
 // rangeValues flattens every series (one per pod) into one slice of finite samples.
 func (c *Client) rangeValues(ctx context.Context, query string, start, end time.Time, step time.Duration) ([]float64, error) {
+	ss, err := c.rangeSeries(ctx, query, start, end, step)
+	var out []float64
+	for _, s := range ss {
+		out = append(out, s...)
+	}
+	return out, err
+}
+
+// rangeSeries returns one time-ordered slice of finite samples per series (per pod).
+func (c *Client) rangeSeries(ctx context.Context, query string, start, end time.Time, step time.Duration) ([][]float64, error) {
 	r, err := c.get(ctx, "/api/v1/query_range", url.Values{"query": {query}, "start": {strconv.FormatInt(start.Unix(), 10)},
 		"end": {strconv.FormatInt(end.Unix(), 10)}, "step": {strconv.FormatInt(int64(step.Seconds()), 10)}})
 	if err != nil {
 		return nil, err
 	}
-	var out []float64
+	var out [][]float64
 	for _, s := range r.Data.Result {
+		var one []float64
 		for _, p := range s.Values {
 			if v, ok := parse(p[1]); ok {
-				out = append(out, v)
+				one = append(one, v)
 			}
 		}
+		out = append(out, one)
 	}
 	return out, nil
 }

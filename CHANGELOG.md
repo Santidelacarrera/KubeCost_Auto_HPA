@@ -4,6 +4,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 
 ## [Unreleased]
 
+### Added (second pass)
+- `execute` supports StatefulSet and DaemonSet (OnDelete update strategies are refused; the DaemonSet replica-count check is off because the desired count follows the node count).
+- `rightsize approve`: stamps the approval with the identity the API server reports (SelfSubjectReview); policy `approvers` restricts who may approve.
+- `rightsize plan` (recommendation plus HPA / VPA / exclusion-label facts read from the cluster), `rightsize propose` (GitOps: commit on a new local branch, no push), `rightsize report` (acceptance, rollback rate, kept ESTIMATED savings from the audit), `--as` impersonation.
+- Recommender: windows under 7 days cap confidence and add a seasonality risk; a four-quarter stationarity check lowers confidence.
+- `cost`: namespace budgets and cost-per-hour deviation against an earlier report.
+- `deploy/rbac/rightsize.yaml` (read and apply roles for the person running the CLI), proven by impersonation.
+- Lab: `hack/lab-e2e2.sh` (23 checks: real HPA, real VPA object, StatefulSet, identity, GitOps proposal, report, nodes/cost, live contract test against a real OpenCost), `lab-rbac.sh` (14), `lab-crash.sh` (7), `lab-opencost.sh`. docs/COMPETITIVE.md with fetched sources.
+
 ### Added (policy, execution, rollback, cost, capacity, lab)
 - `internal/safety` (fail-closed policy), `internal/execute` (apply with previous state on the object, observation, automatic rollback, audit JSONL), `cmd/rightsize` (`apply`, `rollback`, `nodes`, `cost`). ADR-0002, docs/SAFETY.md.
 - `internal/cost` (estimated / billed / allocated kept apart, reconciliation, CSV billing adapter, observed-savings comparison), `internal/capacity` (would a node actually be released). docs/COST.md. Not validated against a real invoice.

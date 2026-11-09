@@ -70,7 +70,7 @@ func TestOverprovisionedWorkloadGetsADocumentedReduction(t *testing.T) {
 	if r.CPU.PotentialMonthlyUSD <= 0 || r.Memory.PotentialMonthlyUSD <= 0 {
 		t.Fatal("potential saving not estimated")
 	}
-	if r.Confidence != ConfHigh || r.Samples != 600 || r.CPU.Formula == "" || r.ID == "" {
+	if r.Confidence != ConfMed || r.Samples != 600 || r.CPU.Formula == "" || r.ID == "" {
 		t.Fatalf("%+v", r)
 	}
 	if r.CPU.Limit != 4 || r.Memory.Limit != 4<<30 {
@@ -262,5 +262,35 @@ func TestNeverNegativeOrNaN(t *testing.T) {
 		if math.IsNaN(v) || math.IsInf(v, 0) || v < 0 {
 			t.Fatalf("bad value %v", v)
 		}
+	}
+}
+
+func TestShortWindowCapsConfidenceAndSaysWhy(t *testing.T) {
+	r := mustRec(t, good(), cfg()) // 48 h
+	if r.Confidence != ConfMed || !strings.Contains(strings.Join(r.Risks, " "), "weekly seasonality") {
+		t.Fatalf("%s %v", r.Confidence, r.Risks)
+	}
+	in := good()
+	in.WindowStart = in.WindowEnd.Add(-8 * 24 * time.Hour)
+	if r := mustRec(t, in, cfg()); r.Confidence != ConfHigh || strings.Contains(strings.Join(r.Risks, " "), "weekly") {
+		t.Fatalf("an 8-day clean window can be high confidence: %s %v", r.Confidence, r.Risks)
+	}
+}
+
+func TestNonStationaryLoadLowersConfidence(t *testing.T) {
+	in := good()
+	in.WindowStart = in.WindowEnd.Add(-8 * 24 * time.Hour)
+	quiet, busy := series(150, 0.1), series(150, 1.0)
+	in.CPUSeries = [][]float64{append(append(append(append([]float64{}, quiet...), quiet...), busy...), busy...)}
+	r := mustRec(t, in, cfg())
+	if r.Confidence != ConfLow || !strings.Contains(strings.Join(r.Risks, " "), "not stationary") {
+		t.Fatalf("%s %v", r.Confidence, r.Risks)
+	}
+	lo, hi := QuarterSpread(in.CPUSeries)
+	if lo != 0.1 || hi != 1.0 {
+		t.Fatalf("%v %v", lo, hi)
+	}
+	if lo, hi := QuarterSpread([][]float64{{1, 2}}); lo != 0 || hi != 0 {
+		t.Fatal("too little data must give no spread")
 	}
 }

@@ -1,0 +1,18 @@
+== 1. what each identity may do (kubectl auth can-i)
+PASS  reader can list deployments cluster-wide
+PASS  reader cannot update deployments
+PASS  reader cannot read secrets
+PASS  applier can update deployments in lab
+PASS  applier cannot update deployments elsewhere
+PASS  applier cannot delete or create workloads
+== 2. the CLI works with exactly those roles
+PASS  reader: plan works (read-only)
+PASS  reader: nodes works
+PASS  reader: cost works
+PASS  reader: approve is refused by RBAC (forbidden)
+PASS  applier: approve works
+PASS  reader: --execute cannot change the workload (RBAC)
+PASS  applier: --execute changes the workload with only update rights
+PASS  applier: rollback restores the previous value
+
+RESULT: 14 passed, 0 failed

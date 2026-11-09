@@ -3,6 +3,7 @@ package cost
 // All figures here are SYNTHETIC fixtures chosen so the arithmetic can be checked by hand. They are not real prices or bills.
 
 import (
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -173,6 +174,39 @@ func TestTrafficDropIsFlagged(t *testing.T) {
 		t.Fatalf("%v", s.Notes)
 	}
 	if _, err := ObservedSavings(Report{}, Report{}, "x", 0, 0, 0); err == nil {
+		t.Fatal("empty windows accepted")
+	}
+}
+
+func TestBudgetsFlagOverspendAndCarryTheBasis(t *testing.T) {
+	r := Report{Basis: BasisEstimated, ByNamespace: map[string]money.USD{"shop": usd("12"), "dev": usd("1")}}
+	st := CheckBudgets(r, map[string]money.USD{"shop": usd("10"), "dev": usd("5"), "ghost": usd("3")})
+	if len(st) != 3 || st[0].Namespace != "dev" || st[0].Over || !st[2].Over || st[2].Namespace != "shop" || st[2].Used != 1.2 || st[1].Spent != 0 {
+		t.Fatalf("%+v", st)
+	}
+	if st[2].Basis != BasisEstimated {
+		t.Fatal("an alert on estimates must say so")
+	}
+}
+
+func TestDeviationsUsePerHourCostAndRefuseMixedBases(t *testing.T) {
+	before := rep(BasisBilled, "shop", "24", 24) // 1 USD/h
+	after := rep(BasisBilled, "shop", "9", 6)    // 1.5 USD/h
+	after.ByNamespace["new"] = usd("3")
+	d, err := Deviations(before, after, 20)
+	if err != nil || len(d) != 2 {
+		t.Fatalf("%v %+v", err, d)
+	}
+	if d[1].Namespace != "shop" || d[1].ChangePct != 50 || d[0].Namespace != "new" || !math.IsInf(d[0].ChangePct, 1) {
+		t.Fatalf("%+v", d)
+	}
+	if d, _ := Deviations(before, rep(BasisBilled, "shop", "25", 24), 20); len(d) != 0 {
+		t.Fatalf("a 4%% move is under the threshold: %+v", d)
+	}
+	if _, err := Deviations(before, rep(BasisEstimated, "shop", "9", 6), 20); err == nil {
+		t.Fatal("mixed bases accepted")
+	}
+	if _, err := Deviations(Report{Basis: BasisBilled}, Report{Basis: BasisBilled}, 20); err == nil {
 		t.Fatal("empty windows accepted")
 	}
 }

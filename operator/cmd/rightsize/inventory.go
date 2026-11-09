@@ -156,7 +156,8 @@ func costCmd(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("cost", flag.ContinueOnError)
 	var c common
 	c.bind(fs)
-	var billing, label, startS, endS, shared string
+	var billing, label, startS, endS, shared, budgetList, baseline string
+	var devPct float64
 	var hourly, cpuWeight float64
 	fs.StringVar(&billing, "billing-file", "", "CSV resource,cost_usd,start,end (real billing data, or labelled simulated).")
 	fs.StringVar(&label, "billing-label", "", "label shown in the report, e.g. SIMULATED-lab or aws-cur-2026-10.")
@@ -165,6 +166,9 @@ func costCmd(args []string, out io.Writer) error {
 	fs.StringVar(&endS, "end", "", "window end, RFC3339 (default: now).")
 	fs.StringVar(&shared, "shared-namespaces", "kube-system", "comma list redistributed over the other namespaces.")
 	fs.Float64Var(&cpuWeight, "cpu-weight", 0.5, "fraction of node cost attributed to CPU.")
+	fs.StringVar(&budgetList, "budget", "", "namespace budgets for the window: ns=usd,ns2=usd.")
+	fs.StringVar(&baseline, "baseline-report", "", "an earlier output of this command; namespaces whose cost per hour moved more than --deviation-pct are listed.")
+	fs.Float64Var(&devPct, "deviation-pct", 20, "threshold for --baseline-report, in percent.")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -238,11 +242,28 @@ func costCmd(args []string, out io.Writer) error {
 			return err
 		}
 	}
+	budgets, err := parseBudgets(budgetList)
+	if err != nil {
+		return err
+	}
+	var deviations []map[string]any
+	if baseline != "" {
+		prev, err := loadReport(baseline)
+		if err != nil {
+			return err
+		}
+		ds, err := cost.Deviations(prev, rep, devPct)
+		if err != nil {
+			return err
+		}
+		deviations = deviationView(ds)
+	}
 	view := map[string]string{}
 	for ns, v := range rep.ByNamespace {
 		view[ns] = v.String()
 	}
 	return printJSON(out, map[string]any{"basis": rep.Basis, "source": rep.Source, "start": rep.Start, "end": rep.End,
 		"total": rep.Total.String(), "accounted": rep.Accounted.String(), "difference": rep.Difference.String(), "reconciled": rep.Reconciled,
-		"shared": rep.Shared.String(), "byNamespace": view, "notes": rep.Notes})
+		"shared": rep.Shared.String(), "byNamespace": view, "budgets": budgetView(cost.CheckBudgets(rep, budgets)),
+		"deviations": deviations, "notes": rep.Notes})
 }

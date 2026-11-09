@@ -44,6 +44,12 @@ Lowering requests is *resource efficiency*; fitting the same pods on fewer nodes
 The tool reports removable nodes as **candidates** with their estimated hourly price, plus stranded (fragmented) capacity. It ignores pod affinity/anti-affinity, topology
 spread, taints and volume zones, and says so in the report. It never drains or removes anything.
 
+## Budgets and deviation alerts
+
+`rightsize cost --budget shop=10,dev=2` compares each namespace's allocated cost for the window with its budget and flags `over`, always carrying the report basis: an alert on **estimated** cost is a warning, not an invoice.
+`--baseline-report earlier.json --deviation-pct 20` lists namespaces whose cost **per hour** moved more than the threshold between two reports (windows of different length compare; mixed bases refuse).
+Both are unit-tested and ran on the lab with an estimated basis; nothing was compared with a real bill.
+
 ## What is not done
 
 * No provider adapters (CUR/FOCUS/GCP/Azure exports must be reduced to the CSV columns `resource,cost_usd,start,end` by the user).

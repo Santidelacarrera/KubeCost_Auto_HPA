@@ -187,7 +187,7 @@ func TestGitOpsHPAAndVPAAreDetected(t *testing.T) {
 	}
 	d = dep()
 	d.Labels = map[string]string{"kustomize.toolkit.fluxcd.io/name": "apps"}
-	if f, _, _ := newEnv(d).ex.Inspect(context.Background(), "shop", "api"); f.GitOps != "flux" {
+	if f, _, _ := newEnv(d).ex.Inspect(context.Background(), "Deployment", "shop", "api"); f.GitOps != "flux" {
 		t.Fatal("flux not detected")
 	}
 
@@ -345,7 +345,7 @@ func TestRolloutTimeoutRollsBack(t *testing.T) {
 
 func TestRollbackWithoutSavedStateAndFailedRollbackAreErrors(t *testing.T) {
 	e := newEnv(dep())
-	if err := e.ex.Rollback(context.Background(), "shop", "api", nil, 0); err == nil {
+	if err := e.ex.Rollback(context.Background(), "Deployment", "shop", "api", nil, 0); err == nil {
 		t.Fatal("nothing to roll back must be an error")
 	}
 	e = newEnv(dep(), pod("p1", true, 0, true), pod("p2", true, 0, false))
@@ -415,7 +415,7 @@ func TestRollbackRetriesOnConflict(t *testing.T) {
 		}
 		return false, nil, nil
 	})
-	if err := e.ex.Rollback(context.Background(), "shop", "api", []string{"test"}, 0); err != nil {
+	if err := e.ex.Rollback(context.Background(), "Deployment", "shop", "api", []string{"test"}, 0); err != nil {
 		t.Fatalf("a conflict on the rollback write must be retried: %v", err)
 	}
 	if cpuReq(e.container(t)) != "2" || atomic.LoadInt32(&conflicts) != 3 {

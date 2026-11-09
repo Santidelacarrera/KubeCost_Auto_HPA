@@ -5,6 +5,10 @@
 //
 //	rightsize apply    --recommendation rec.json --policy policy.yaml --context lab [--execute] [--observe-for 5m]
 //	rightsize rollback --namespace shop --workload api --context lab
+//	rightsize plan     --context lab --prometheus-url ...  (read-only: recommendation + HPA/VPA/exclusion facts from the cluster)
+//	rightsize approve  --recommendation rec.json --context lab   (stamps the approval with the identity the API server reports)
+//	rightsize propose  --recommendation rec.json --repo . --file k8s/api.yaml   (GitOps: commit on a new local branch, no push)
+//	rightsize report   --audit-file audit.jsonl   (acceptance / rollback rate / estimated savings kept)
 //	rightsize nodes    --context lab          (read-only: which nodes could be released)
 //	rightsize cost     --context lab --billing-file b.csv | --node-hourly-usd 0.2   (read-only allocation report)
 package main
@@ -33,7 +37,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: rightsize apply|rollback|nodes|cost [flags]")
+		fmt.Fprintln(os.Stderr, "usage: rightsize plan|approve|apply|rollback|propose|report|nodes|cost [flags]")
 		os.Exit(2)
 	}
 	var err error
@@ -42,6 +46,14 @@ func main() {
 		err = apply(os.Args[2:], os.Stdout)
 	case "rollback":
 		err = rollback(os.Args[2:], os.Stdout)
+	case "approve":
+		err = approveCmd(os.Args[2:], os.Stdout)
+	case "plan":
+		err = planCmd(os.Args[2:], os.Stdout)
+	case "report":
+		err = reportCmd(os.Args[2:], os.Stdout)
+	case "propose":
+		err = proposeCmd(os.Args[2:], os.Stdout)
 	case "nodes":
 		err = nodesCmd(os.Args[2:], os.Stdout)
 	case "cost":
@@ -56,12 +68,13 @@ func main() {
 }
 
 type common struct {
-	kubeconfig, kctx, actor, auditFile string
+	kubeconfig, kctx, actor, auditFile, impersonate string
 }
 
 func (c *common) bind(fs *flag.FlagSet) {
 	fs.StringVar(&c.kubeconfig, "kubeconfig", "", "kubeconfig path (default: standard loading rules).")
 	fs.StringVar(&c.kctx, "context", "", "kubeconfig context (REQUIRED with --execute and for rollback).")
+	fs.StringVar(&c.impersonate, "as", "", "impersonate this user or service account (system:serviceaccount:ns:name): proves a minimal role is enough.")
 	fs.StringVar(&c.actor, "actor", "", "who is responsible (default: the current OS user).")
 	fs.StringVar(&c.auditFile, "audit-file", "", "also append JSONL audit events to this file (they are always printed to stderr).")
 }
@@ -74,6 +87,9 @@ func (c *common) executor() (*execute.Executor, func(), error) {
 	cfg, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(rules, &clientcmd.ConfigOverrides{CurrentContext: c.kctx}).ClientConfig()
 	if err != nil {
 		return nil, nil, err
+	}
+	if c.impersonate != "" {
+		cfg.Impersonate.UserName = c.impersonate
 	}
 	kc, err := kubernetes.NewForConfig(cfg)
 	if err != nil {
@@ -175,10 +191,11 @@ func rollback(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("rollback", flag.ContinueOnError)
 	var c common
 	c.bind(fs)
-	var ns, wl string
+	var ns, wl, kind string
 	var wait time.Duration
 	fs.StringVar(&ns, "namespace", "", "namespace (required).")
-	fs.StringVar(&wl, "workload", "", "Deployment name (required).")
+	fs.StringVar(&wl, "workload", "", "workload name (required).")
+	fs.StringVar(&kind, "kind", "Deployment", "Deployment, StatefulSet or DaemonSet.")
 	fs.DurationVar(&wait, "wait", 5*time.Minute, "how long to wait for the restored rollout.")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -191,7 +208,7 @@ func rollback(args []string, out io.Writer) error {
 		return err
 	}
 	defer closeAudit()
-	if err := ex.Rollback(context.Background(), ns, wl, []string{"manual rollback by " + ex.Actor}, wait); err != nil {
+	if err := ex.Rollback(context.Background(), kind, ns, wl, []string{"manual rollback by " + ex.Actor}, wait); err != nil {
 		return err
 	}
 	return printJSON(out, map[string]any{"rolledBack": true, "namespace": ns, "workload": wl})

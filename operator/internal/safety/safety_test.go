@@ -203,3 +203,22 @@ func TestInvalidPolicyDenies(t *testing.T) {
 		mustDeny(t, "invalid", eval(p, rec(), facts()), "invalid policy")
 	}
 }
+
+func TestApproversAllowList(t *testing.T) {
+	p := allow()
+	p.Approvers = []string{"alice@example.com"}
+	f := facts()
+	f.ApprovedBy = "mallory@example.com"
+	d := eval(p, rec(), f)
+	mustDeny(t, "wrong approver", d, "not in approvers")
+	f.ApprovedBy = ""
+	mustDeny(t, "no stamp", eval(p, rec(), f), "not in approvers")
+	f.ApprovedBy = "alice@example.com"
+	if d := eval(p, rec(), f); !d.Allowed {
+		t.Fatalf("%+v", d)
+	}
+	// without an approvers list the stamp is informational
+	if d := eval(allow(), rec(), f); !d.Allowed {
+		t.Fatalf("%+v", d)
+	}
+}

@@ -50,6 +50,10 @@ type Policy struct {
 
 	// RequireApproval defaults to TRUE: a human must annotate the workload with the recommendation ID.
 	RequireApproval *bool `json:"requireApproval,omitempty"`
+	// Approvers, if non-empty, restricts who may approve: the approved-by stamp must be in this list (usernames as the API server reports them).
+	// The stamp is written by "rightsize approve" from a SelfSubjectReview; it can still be forged by anyone with update rights,
+	// which is why the Kubernetes audit log of the writer is the authoritative record.
+	Approvers []string `json:"approvers,omitempty"`
 	// AllowGitOps lets the apply proceed on a workload managed by Argo CD / Flux. Default false.
 	AllowGitOps bool `json:"allowGitOps,omitempty"`
 	// AllowCPUWithHPA lets a CPU request change proceed when an HPA scales on CPU utilisation. Default false.
@@ -62,6 +66,8 @@ type Facts struct {
 	Labels                map[string]string
 	// Approved is the value of the approval annotation (the recommendation ID a human approved).
 	Approved string
+	// ApprovedBy is the identity stamped next to the approval (the API server's view of who ran the approve command).
+	ApprovedBy string
 	// RolledBack is the ID of the last recommendation that was rolled back on this workload.
 	RolledBack string
 	// AlreadyApplied is the ID of the recommendation currently applied (idempotency).
@@ -304,7 +310,10 @@ func Evaluate(p Policy, rec recommend.Recommendation, f Facts, now time.Time, re
 	dec := Decision{Reasons: deny}
 	if p.approval() && f.Approved != rec.ID {
 		dec.NeedsApproval = true
-		dec.Reasons = append(dec.Reasons, fmt.Sprintf("not approved: annotate the workload with autoscaling.kubecost.io/approved-recommendation=%s", rec.ID))
+		dec.Reasons = append(dec.Reasons, fmt.Sprintf("not approved: run \"rightsize approve\" for recommendation %s (or annotate the workload with autoscaling.kubecost.io/approved-recommendation=%s)", rec.ID, rec.ID))
+	} else if p.approval() && len(p.Approvers) > 0 && !contains(p.Approvers, f.ApprovedBy) {
+		dec.NeedsApproval = true
+		dec.Reasons = append(dec.Reasons, fmt.Sprintf("approved by %q, who is not in approvers", f.ApprovedBy))
 	}
 	dec.Allowed = len(dec.Reasons) == 0
 	return dec

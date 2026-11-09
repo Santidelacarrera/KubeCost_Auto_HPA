@@ -49,6 +49,9 @@ type Input struct {
 	WindowStart, WindowEnd time.Time
 	// CPU usage in cores and memory working set in bytes, one value per (pod, step).
 	CPUSamples, MemSamples []float64
+	// CPUSeries optionally keeps the CPU samples as one time-ordered slice per pod. It enables the non-stationarity check;
+	// without it only the window-length caveat applies.
+	CPUSeries [][]float64
 
 	// ThrottledRatio is throttled CFS periods / total periods over the window; ThrottleKnown says whether it was measured.
 	ThrottledRatio float64
@@ -312,6 +315,18 @@ func Recommend(in Input, cfg Config) (Recommendation, error) {
 		return rec, nil
 	}
 
+	// ---- seasonality caveats: what the window cannot show ----
+	if w := in.WindowEnd.Sub(in.WindowStart); w < 7*24*time.Hour {
+		rec.Risks = append(rec.Risks, fmt.Sprintf("the window (%s) is shorter than 7 days: weekly seasonality is not observed", w.Round(time.Hour)))
+		if rec.Confidence == ConfHigh {
+			rec.Confidence = ConfMed
+		}
+	}
+	if lo, hi := QuarterSpread(in.CPUSeries); lo > 0 && hi/lo > 2 {
+		rec.Risks = append(rec.Risks, fmt.Sprintf("CPU load is not stationary: the p95 of the four quarters of the window ranges from %.3g to %.3g cores", lo, hi))
+		rec.Confidence = ConfLow
+	}
+
 	// ---- shared vetoes that only block decreases ----
 	var noDown []string
 	if in.SLOKnown && in.SLOBreached {
@@ -365,6 +380,34 @@ func Recommend(in Input, cfg Config) (Recommendation, error) {
 		rec.Conditions = append(rec.Conditions, "explicit policy authorisation, previous state recorded, rollback condition defined (not provided by this package)")
 	}
 	return rec, nil
+}
+
+// QuarterSpread splits every series in four time quarters, pools each quarter across series and returns the lowest and highest
+// quarter p95. It returns 0, 0 when there is not enough data (fewer than 8 points in a series, or no series).
+func QuarterSpread(series [][]float64) (lo, hi float64) {
+	var q [4][]float64
+	for _, s := range series {
+		if len(s) < 8 {
+			continue
+		}
+		n := len(s) / 4
+		for i := 0; i < 4; i++ {
+			end := (i + 1) * n
+			if i == 3 {
+				end = len(s)
+			}
+			q[i] = append(q[i], s[i*n:end]...)
+		}
+	}
+	if len(q[0]) == 0 {
+		return 0, 0
+	}
+	lo = math.Inf(1)
+	for i := range q {
+		p := Percentile(q[i], 0.95)
+		lo, hi = math.Min(lo, p), math.Max(hi, p)
+	}
+	return lo, hi
 }
 
 // decide turns a target into an action, honouring vetoes, the step cap and the tolerance band.

@@ -55,3 +55,40 @@ Upgrade between chart versions was not tested (only a values change).
 
 Real KubeCost/OpenCost; real billing; GitOps controllers; HPA/VPA objects; multi-node scheduling; managed clouds (EKS/GKE/AKS); real traffic and latency; envtest and `-race` (no binaries/cgo);
 kind/k3d (minikube was used because it was the available tool).
+
+## Result 3: second real-cluster run (`hack/lab-e2e2.sh`): 23 PASS, 0 FAIL
+
+Evidence: `evidence/2026-11-09-lab-e2e2.log`, `evidence/2026-11-09-lab-audit2.jsonl`, `evidence/2026-11-09-opencost-live-contract.log`.
+
+| Check | Result |
+|---|---|
+| A **real HPA** scaling on CPU: the plan warns, `apply` is denied ("an HPA scales on CPU") | PASS |
+| A **real VerticalPodAutoscaler object** (the real CRD; no VPA controller runs, the object is only seen) in Auto mode: the planner abstains naming the VPA | PASS |
+| A workload carrying an Argo CD tracking annotation (Argo CD itself is not installed): `apply` is denied as managed by argocd | PASS |
+| The exclusion label makes the planner abstain | PASS |
+| **StatefulSet** end to end: `approve` stamps the identity the API server reports (`SelfSubjectReview`, user `minikube-user`); a policy whose `approvers` list excludes that user denies; with the right list the change applies (500m / 128Mi to 320m / 64Mi), pods are replaced, observation healthy; `rollback --kind StatefulSet` restores the values | PASS |
+| GitOps proposal on a local git repo: a branch with the edit, original branch untouched, YAML comment preserved, nothing pushed | PASS |
+| `report` counts one applied and one rolled-back change from the audit trail | PASS |
+| `nodes` (single node: nothing removable) and `cost` (ESTIMATED basis, reconciled, budget exceeded flagged, a doubled node price shows as a deviation) | PASS |
+| **Live KubeCost-contract test against a REAL OpenCost** (chart opencost 2.5.33, app 1.121.3; default pricing, so the numbers are not a bill): the client parsed a real allocation response | PASS |
+
+Notes on the OpenCost run: OpenCost serves `/allocation/compute`; `/model/allocation` (the path this client uses, as KubeCost does) answered 404 directly on the API port but 200 through the OpenCost UI service
+(port 9090), whose proxy exposes `/model/`. Point `--kubecost-url` at that service when using OpenCost. This is **OpenCost**, not Kubecost: Kubecost itself was not installed.
+Prometheus needed an extra scrape job for OpenCost's own metrics, otherwise the allocation is empty (`hack/lab/` notes in docs/TROUBLESHOOTING.md).
+A first attempt failed because my own lab workloads requested more memory than the node had (two pods Pending): the tool refused to plan without kube-state-metrics data and the StatefulSet rollout timed out and rolled back, which is the intended behaviour; the manifests were then shrunk.
+
+## Result 4: minimal RBAC proven by impersonation (`hack/lab-rbac.sh`): 14 PASS, 0 FAIL
+
+Evidence: `evidence/2026-11-09-lab-rbac.log`. `deploy/rbac/rightsize.yaml` defines `kubecost-rightsize-read` (cluster-wide list/get) and `kubecost-rightsize-apply` (update on workloads, bind per namespace).
+As a read-only ServiceAccount the CLI can `plan`, `nodes` and `cost` but `approve` is Forbidden and `--execute` changes nothing; as the applier ServiceAccount (apply role in `lab` only, no create/delete, nothing in other namespaces)
+it can approve, apply and roll back. This is the role of the person running the CLI, not of the operator.
+
+## Result 5: interruption and recovery (`hack/lab-crash.sh`): 7 PASS, 0 FAIL
+
+Evidence: `evidence/2026-11-09-lab-crash.log`. The process is killed (`kill -9`) in the middle of a 10-minute observation after the change was applied. The new values stay, the previous state is still on the object,
+a second process refuses the same recommendation ID, and a brand-new process rolls back from the saved state alone; the audit shows `rolled_back` by the recovery actor.
+
+## Also verified outside the lab: GitHub CI on the pushed branch
+
+Run 42681084642 (commit b7ba429): jobs `engine`, `operator` (includes `go test -race -p 2 ./...`, the integration tests and `govulncheck`), `manifests`, `envtest` (kube-apiserver 1.33.4 + etcd), `e2e-kind` and `e2e-kca`: all success.
+That closes the earlier NOT RUN items for `-race`, envtest and CI. It did not include the changes of the later commits listed in the CHANGELOG under "Added (second pass)".

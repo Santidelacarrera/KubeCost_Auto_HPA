@@ -1,0 +1,45 @@
+== 0. wait for enough history (workloads must have run ~9 minutes)
+PASS  history is sufficient for a StatefulSet recommendation
+== 1. a real HPA on CPU blocks a CPU change
+PASS  plan sees the HPA and warns
+PASS  apply is denied because of the HPA
+== 2. a real VerticalPodAutoscaler object in Auto mode makes the planner abstain
+PASS  recommendation abstained
+PASS  reason names the VPA
+== 3. Argo CD managed workload (annotation only; no Argo CD installed) is refused
+PASS  apply is denied: managed by argocd
+== 4. exclusion label makes the planner abstain
+PASS  excluded workload: abstained
+== 5. StatefulSet with identity-stamped approval (real SelfSubjectReview)
+api server says you are: minikube-user
+PASS  kubectl auth whoami returned a username
+PASS  approve stamped the API server identity
+PASS  a different approver list denies
+{"allowed":true,"applied":true,"degradedReasons":null,"healthy":true,"mode":"execute","reasons":null,"rolledBack":false}
+StatefulSet requests: 500m/128Mi -> 320m/64Mi
+PASS  StatefulSet change applied and healthy
+PASS  pods were replaced and run with the new request
+PASS  manual rollback of the StatefulSet restored the values
+== 6. GitOps proposal on a local git repository (no push, no cluster)
+PASS  a branch with the change was created
+PASS  the original branch is untouched
+PASS  the comment survived the edit
+PASS  nothing was pushed (no remote exists)
+== 7. outcome report from the audit trail
+{"Since":"0001-01-01T00:00:00Z","Evaluated":3,"Allowed":1,"Denied":2,"Applied":1,"Verified":1,"Degraded":0,"RolledBack":1,"Failed":0,"AcceptanceRate":0.3333333333333333,"RollbackRate":1,"KeptEstimatedMonthlyUSD":0,"PendingEstimatedMonthlyUSD":0,"RolledBackEstimatedMonthlyUSD":0,"TopDenials":[{"Reaso
+
+PASS  report counts an applied and a rolled-back change
+== 8. nodes and cost on the real cluster
+PASS  nodes report produced (single node: nothing removable)
+PASS  cost report reconciles (ESTIMATED basis)
+PASS  namespace budget exceeded is flagged and labelled estimated
+PASS  doubling the node price shows up as a deviation
+== 9. KubeCost client against a REAL OpenCost (default pricing; the response format is real, the prices are not a bill)
+=== RUN   TestLiveAllocationContract
+    live_test.go:61: sample: total=0.017820 hourly=0.071714 minutes=14.9 windowEnd=2026-11-09 19:54:54 +0000 UTC age=1s
+--- PASS: TestLiveAllocationContract (0.11s)
+PASS
+ok  	github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/kubecost	5.161s
+PASS  live contract test passes against OpenCost
+
+RESULT: 23 passed, 0 failed

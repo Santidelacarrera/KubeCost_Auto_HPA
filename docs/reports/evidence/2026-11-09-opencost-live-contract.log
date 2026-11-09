@@ -1,0 +1,5 @@
+=== RUN   TestLiveAllocationContract
+    live_test.go:61: sample: total=0.017820 hourly=0.071714 minutes=14.9 windowEnd=2026-11-09 19:54:54 +0000 UTC age=1s
+--- PASS: TestLiveAllocationContract (0.11s)
+PASS
+ok  	github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/kubecost	5.161s

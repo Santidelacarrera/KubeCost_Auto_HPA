@@ -132,3 +132,33 @@ rollback that was exercised on a real cluster, a stated separation of estimated/
 * Ready for production? **No.**
 * Missing to compete commercially: real-workload validation, managed-cloud validation, real KubeCost/billing, GitOps PR flow, tenancy and identity, outcome measurement of actual savings, UI/reporting, CI and release evidence.
 * Next engineering priority: run the lab E2E on a staging cluster with real traffic and a real KubeCost, and use that data to tune or reject the recommender defaults.
+
+
+## L. Addendum (same day, second pass): what was closed and what was not
+
+Requested by the owner: do what remains of the prompt. Done where this machine allows; everything that needs a cloud account, credentials, real billing or real traffic stays BLOCKED.
+
+| Item | Before this addendum | Now | Evidence |
+|---|---|---|---|
+| `-race`, envtest on a real kube-apiserver, CI | BLOCKED / NOT RUN here | **PASS in GitHub Actions** (`engine`, `operator` incl. `go test -race` and govulncheck, `manifests`, `envtest`, `e2e-kind`, `e2e-kca`) on the pushed commit b7ba429; later commits are not covered by that run | docs/LAB.md |
+| Live KubeCost contract | mock only | **PASS against a real OpenCost 1.121.3** (default pricing, via the OpenCost UI service). Kubecost itself still not run | docs/reports/evidence/2026-11-09-opencost-live-contract.log |
+| HPA / VPA detection | unit tests | **PASS on a real HPA and the real VPA CRD object** (no VPA controller) | evidence lab-e2e2 |
+| StatefulSet / DaemonSet | not supported | StatefulSet **PASS on the real cluster**; DaemonSet unit-tested only | evidence lab-e2e2 |
+| Approval identity | annotation | stamped with the API server's identity; policy `approvers`; **PASS** | evidence lab-e2e2 |
+| Minimal RBAC for the CLI | undocumented | `deploy/rbac/rightsize.yaml`, **PASS 14/14** by impersonation | evidence lab-rbac |
+| Interruption recovery | untested | kill -9 mid-watch then rollback from saved state, **PASS 7/7** | evidence lab-crash |
+| GitOps | detection | detection + `rightsize propose` (local git branch; unit + lab) | evidence lab-e2e2 |
+| Seasonality | none | window-length cap + stationarity check (heuristic, not a seasonal model) | unit tests |
+| Outcome metrics | none | `rightsize report` from the audit (process metrics + ESTIMATED savings) | unit tests + lab |
+| Cost budgets / deviation alerts | none | implemented on the estimated basis | unit tests + lab |
+| Competitor comparison with sources | pending | docs/COMPETITIVE.md (4 pages read 2026-11-09; paraphrased, not tested) | docs |
+| Original 22-check E2E after the executor refactor | | **PASS 22/22 again** | .lab rerun |
+| Go tests | 23 packages | **25 packages PASS** locally (Windows, no `-race`) | |
+
+**Still BLOCKED or not done:** EKS/GKE/AKS (no cloud credentials may be entered by me); real billing and any measured saving; real traffic/latency; Kubecost itself; Argo CD / Flux installed;
+multi-node cluster (the Docker Desktop VM has no memory for a second node); chart upgrade between two released versions; a recommendation CRD and an applying controller (deliberately not built, ADR-0001/0002);
+multi-tenancy; defaults of the recommender tuned on real workloads. The verdict in section K does not change: **not production-ready, no savings demonstrated**.
+
+Maturity changes (0-5): Metrics collection 3 (unchanged); Recommendation engine 2 (unchanged); Cost intelligence 1 to 2 (real OpenCost contract + budgets, still no real bill); HPA/VPA compatibility 1 to 2 (real objects detected);
+GitOps 1 to 2 (proposal flow); Security 2 to 3 (identity-stamped approval, proven minimal RBAC); Reliability 2 to 3 (interruption recovery proven); Observability 2 (unchanged: report from audit only, no exported metrics);
+Testing 3 to 4 (CI incl. race/envtest green; 82 real-cluster checks over five scripts: 22 + 16 + 23 + 14 + 7); Node optimisation 1 (unchanged, single node).

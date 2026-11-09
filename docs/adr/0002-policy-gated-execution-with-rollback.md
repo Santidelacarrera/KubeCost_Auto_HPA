@@ -40,4 +40,4 @@ change a workload without an explicit authorisation, a failed or partial run mus
 * The rate limit counts namespaces' workloads that carry a recent `last-applied-at`; several changes to the same workload in the window count once.
 * The observation window is short by design in the lab; production values must be chosen per workload (a nightly batch needs hours, not minutes).
 * `Judge` cannot see latency or errors unless an SLO query is supplied; without one only Kubernetes-level signals are watched.
-* Only Deployments. StatefulSets/DaemonSets are rejected.
+* Deployments, StatefulSets and DaemonSets (added the same day; OnDelete update strategies are refused because a template change would never roll out). Approval is stamped with the identity the API server reports (SelfSubjectReview) and the policy can restrict approvers.

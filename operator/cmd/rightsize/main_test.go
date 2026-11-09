@@ -70,3 +70,57 @@ func TestParsePrices(t *testing.T) {
 		}
 	}
 }
+
+func TestNewCommandsGuardTheirArguments(t *testing.T) {
+	for name, f := range map[string]func([]string, io.Writer) error{
+		"approve": approveCmd, "plan": planCmd, "report": reportCmd, "propose": proposeCmd,
+	} {
+		if err := f(nil, io.Discard); err == nil {
+			t.Errorf("%s accepted no arguments", name)
+		}
+	}
+	if err := approveCmd([]string{"--recommendation", "x.json"}, io.Discard); err == nil || !strings.Contains(err.Error(), "--context") {
+		t.Fatalf("approve without --context: %v", err)
+	}
+	if err := planCmd([]string{"--prometheus-url", "http://x", "--namespace", "a", "--workload", "b", "--container", "c"}, io.Discard); err == nil {
+		t.Fatal("plan without --context accepted (it reads the cluster)")
+	}
+}
+
+func TestReportSummarisesAnAuditFile(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "audit.jsonl")
+	_ = os.WriteFile(f, []byte(`{"time":"2026-11-09T10:00:00Z","type":"decision","recommendationId":"r1","details":{"allowed":true}}
+{"time":"2026-11-09T10:00:01Z","type":"applied","recommendationId":"r1","details":{"cpuPotentialMonthlyUSD":3}}
+`), 0o600)
+	var b strings.Builder
+	if err := reportCmd([]string{"--audit-file", f}, &b); err != nil || !strings.Contains(b.String(), `"Applied": 1`) {
+		t.Fatalf("%v %s", err, b.String())
+	}
+	if err := reportCmd([]string{"--audit-file", f, "--since", "yesterday"}, io.Discard); err == nil {
+		t.Fatal("bad --since accepted")
+	}
+}
+
+func TestBudgetsAndBaselineParsing(t *testing.T) {
+	b, err := parseBudgets("shop=10.5,dev=2")
+	if err != nil || len(b) != 2 {
+		t.Fatalf("%v %v", b, err)
+	}
+	for _, bad := range []string{"shop", "=3", "shop=-1", "shop=x"} {
+		if _, err := parseBudgets(bad); err == nil {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+	dir := t.TempDir()
+	p := filepath.Join(dir, "r.json")
+	_ = os.WriteFile(p, []byte(`{"basis":"billed","start":"2026-11-01T00:00:00Z","end":"2026-11-02T00:00:00Z","byNamespace":{"shop":"24.000000"}}`), 0o600)
+	r, err := loadReport(p)
+	if err != nil || string(r.Basis) != "billed" || r.ByNamespace["shop"].String() != "24.000000" {
+		t.Fatalf("%v %+v", err, r)
+	}
+	_ = os.WriteFile(p, []byte(`{"byNamespace":{"shop":"abc"}}`), 0o600)
+	if _, err := loadReport(p); err == nil {
+		t.Fatal("garbage money accepted")
+	}
+}

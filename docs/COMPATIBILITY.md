@@ -10,20 +10,25 @@ Only what was actually run is listed as verified. Everything else is **not valid
 | Prometheus | chart `prometheus-community/prometheus` 29.46.0 (Prometheus v3.16.0) with its bundled kube-state-metrics 2.20.0, cAdvisor via kubelet | `cmd/recommend` read real series |
 | metrics-server | v0.9.0 (minikube addon) | `kubectl top`, KubeCostAutoscaler demand source (autoscaler tests use fakes; see LAB.md) |
 | Helm | v3.16.3 | `helm lint`, `helm template`, install on the lab |
+| OpenCost | chart `opencost/opencost` 2.5.33, app 1.121.3, default pricing, behind the OpenCost UI service | the KubeCost client's live contract test passed against it (this is OpenCost, not Kubecost) |
+| VerticalPodAutoscaler CRD | `autoscaling.k8s.io/v1` from kubernetes/autoscaler master (CRD only, no VPA controller) | detection of an Auto-mode VPA |
+| HPA | `autoscaling/v2`, CPU utilisation | detection and refusal of a CPU change |
+| StatefulSet | apps/v1, RollingUpdate | apply, observe, rollback |
+| GitHub Actions (ubuntu) | `go test -race`, integration tests, govulncheck, envtest on kube-apiserver 1.33.4 + etcd 3.5.21, kind e2e, e2e-kca | all success on commit b7ba429 (see docs/LAB.md) |
 | Go | 1.27.3 (go.mod says 1.26.10) | build, vet, tests on Windows |
 | Python | 3.12.10 | engine tests |
 
-An earlier pass (docs/ENGINEERING_REPORT.md) ran the controller tests against a real kube-apiserver 1.33.4 + etcd (envtest) on another machine. That was not re-run here (no envtest binaries).
+The controller tests against a real kube-apiserver 1.33.4 + etcd (envtest) ran in GitHub Actions on the pushed branch and passed; they were not run on this Windows machine (no Linux envtest binaries).
 
 ## Not validated
 
 * **EKS, GKE, AKS** and any other managed Kubernetes: no cluster was available. The recommender/executor use only core APIs (apps/v1, autoscaling/v2, core/v1, policy/v1)
   and the VPA CRD if present, so they are *expected* to work, but that is an expectation, not a result.
-* Kubernetes other than 1.33.x; multi-node clusters (the node-capacity analysis is only unit-tested for >1 node).
-* KubeCost / OpenCost (live contract test exists, never run: `docs/PILOT.md` section 11).
-* Argo CD and Flux: detection is by label/annotation and unit-tested; no GitOps controller was installed.
-* HPA and VPA objects: detection unit-tested with fakes; not exercised against real HPA/VPA controllers.
-* Windows is the only OS the Go tests were run on in this pass; `-race` needs cgo and was not run.
+* Kubernetes other than 1.33.x; multi-node clusters (the node-capacity analysis is only unit-tested for more than one node; the Docker Desktop lab had no memory for a second node).
+* **Kubecost itself** (only OpenCost was run). The client talks to `/model/allocation`; OpenCost needs its UI service for that path (docs/LAB.md).
+* Argo CD and Flux: detection is by label/annotation (verified with the annotation on a real cluster); no GitOps controller was installed.
+* HPA and VPA **controllers**: the objects are detected on a real cluster, but the VPA recommender/updater and an HPA reacting to a request change were not run together with a change.
+* Windows: the Go tests ran here without `-race` (no cgo); `-race` ran in GitHub Actions on Linux.
 * Prometheus Operator / kube-prometheus-stack label conventions: the queries assume the standard `namespace`, `pod`, `container` labels of cAdvisor and kube-state-metrics.
 
 ## Requirements of the rightsize pipeline
