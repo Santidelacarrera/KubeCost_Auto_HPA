@@ -25,8 +25,10 @@ type Settings struct {
 	FallbackCPU                                            int32
 	DryRun                                                 bool
 	// Paused is the emergency stop (annotation): it forces DryRun and is reported as such.
-	Paused     bool
-	Classifier *infra.Classifier
+	Paused bool
+	// ObserveOnly is the operator-wide observe-only mode (--observe-only); it also forces DryRun.
+	ObserveOnly bool
+	Classifier  *infra.Classifier
 }
 
 func dur(d metav1.Duration, def time.Duration) time.Duration {

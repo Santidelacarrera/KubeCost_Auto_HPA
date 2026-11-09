@@ -74,6 +74,9 @@
         "leaderElect": {
           "type": "boolean"
         },
+        "observeOnly": {
+          "type": "boolean"
+        },
         "enableSpotDrain": {
           "type": "boolean"
         },

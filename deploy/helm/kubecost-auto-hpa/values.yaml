@@ -7,6 +7,9 @@ operator:
   image: {repository: ghcr.io/santidelacarrera/kubecost-auto-hpa-operator, tag: "", pullPolicy: IfNotPresent}
   replicas: 2
   leaderElect: true
+  # Starts in observe-only: every decision is computed and reported, nothing is written to the cluster
+  # (also disables Spot draining). Set to false only after reviewing decisions (see docs/OPERATIONS.md).
+  observeOnly: true
   enableSpotDrain: true
   enableCostAutoscaler: true   # KubeCostAutoscaler controller (needs kubecost.url)
   kubecostMaxAttempts: 3

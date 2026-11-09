@@ -42,7 +42,7 @@ func main() {
 	var (
 		metricsAddr, probeAddr, promURL, kubecostURL, engineURL, redisAddr, redisPass string
 		redisDB                                                                       int
-		leaderElect, spotDrain                                                        bool
+		leaderElect, spotDrain, observeOnly                                           bool
 		cpuPrice, memPrice                                                            float64
 		drainTimeout                                                                  time.Duration
 	)
@@ -57,6 +57,7 @@ func main() {
 	flag.IntVar(&redisDB, "redis-db", 0, "Redis database.")
 	flag.Float64Var(&cpuPrice, "cpu-price-per-core-hour", 0.031, "Default CPU price (USD/core-hour).")
 	flag.Float64Var(&memPrice, "mem-price-per-gib-hour", 0.004, "Default memory price (USD/GiB-hour).")
+	flag.BoolVar(&observeOnly, "observe-only", false, "Compute and report every decision but write nothing to the cluster (global dry-run; also disables Spot draining).")
 	flag.BoolVar(&spotDrain, "enable-spot-drain", true, "Cordon/drain Spot nodes with interruption signals.")
 	flag.DurationVar(&drainTimeout, "drain-timeout", 2*time.Minute, "Maximum time to drain a node.")
 	var promHTTP, kcHTTP, engHTTP, redisTLS httpx.Options
@@ -90,6 +91,10 @@ func main() {
 	registerBuildInfo()
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 	log := ctrl.Log.WithName("setup")
+	if observeOnly {
+		log.Info("observe-only mode: decisions are reported, nothing is written to the cluster; Spot draining is disabled")
+		spotDrain = false
+	}
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
@@ -143,14 +148,15 @@ func main() {
 	}
 
 	if err := (&controller.KubeCostHPAReconciler{
-		Client:   mgr.GetClient(),
-		Resizer:  &actuator.Resizer{Client: cs},
-		Metrics:  prom,
-		Spend:    spend,
-		Engine:   eng,
-		Store:    store,
-		Recorder: mgr.GetEventRecorderFor("kubecost-auto-hpa"),
-		Defaults: config.Defaults{CPUPricePerCoreHour: cpuPrice, MemPricePerGiBHour: memPrice},
+		Client:      mgr.GetClient(),
+		ObserveOnly: observeOnly,
+		Resizer:     &actuator.Resizer{Client: cs},
+		Metrics:     prom,
+		Spend:       spend,
+		Engine:      eng,
+		Store:       store,
+		Recorder:    mgr.GetEventRecorderFor("kubecost-auto-hpa"),
+		Defaults:    config.Defaults{CPUPricePerCoreHour: cpuPrice, MemPricePerGiBHour: memPrice},
 	}).SetupWithManager(mgr); err != nil {
 		log.Error(err, "unable to create KubeCostHPA controller")
 		os.Exit(1)
@@ -181,13 +187,14 @@ func main() {
 				os.Exit(1)
 			}
 			if err := (&controller.KubeCostAutoscalerReconciler{
-				Client:    mgr.GetClient(),
-				Scheme:    mgr.GetScheme(),
-				Cost:      kcClient,
-				Resources: &resmetrics.Client{Metrics: metricsCS, Discovery: cs.Discovery()},
-				Scaler:    &actuator.DeploymentScaler{Client: cs},
-				Fallback:  &ownership.Fallback{Client: mgr.GetClient(), Scheme: mgr.GetScheme()},
-				Recorder:  mgr.GetEventRecorderFor("kubecost-autoscaler"),
+				Client:      mgr.GetClient(),
+				ObserveOnly: observeOnly,
+				Scheme:      mgr.GetScheme(),
+				Cost:        kcClient,
+				Resources:   &resmetrics.Client{Metrics: metricsCS, Discovery: cs.Discovery()},
+				Scaler:      &actuator.DeploymentScaler{Client: cs},
+				Fallback:    &ownership.Fallback{Client: mgr.GetClient(), Scheme: mgr.GetScheme()},
+				Recorder:    mgr.GetEventRecorderFor("kubecost-autoscaler"),
 			}).SetupWithManager(mgr); err != nil {
 				log.Error(err, "unable to create KubeCostAutoscaler controller")
 				os.Exit(1)

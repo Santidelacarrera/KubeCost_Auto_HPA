@@ -4,6 +4,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 
 ## [Unreleased]
 
+### Added (read-only recommender, phase 1)
+- `internal/recommend` (pure percentile/headroom algorithm with abstention and veto rules), `internal/recommend/promsrc` (Prometheus reader) and `cmd/recommend` (prints JSON; no Kubernetes client). See `docs/RECOMMENDER.md` and ADR-0001. Tested with a mock Prometheus only; defaults are untuned.
+
+### Added (observe-only)
+- Operator-wide `--observe-only` flag (Helm `operator.observeOnly`, **default `true` in the chart**; the binary default stays `false` for kustomize users). Every `KubeCostAutoscaler` and `KubeCostHPA` then behaves as if `spec.dryRun` were set whatever the spec says, the Spot drain controller is not started, and the autoscaler reports `ScalingActive=False, reason ObserveOnly`. It can only add safety. Tests: `TestObserveOnlyOperatorNeverWritesWhateverTheSpecSays`, `TestObserveOnlyOperatorDoesNotTouchPodsEvenWithoutSpecDryRun`.
+- **Behaviour change for chart users:** a fresh install no longer writes anything until `--set operator.observeOnly=false`.
+- Fixed `TestVersionIsInjectedAtLinkTime` on Windows (the test binary needs the `.exe` suffix).
+
 ### Fixed
 - `hack/helm-rehearsal.sh`: `grep -q` at the end of a pipe under `pipefail` could report a false failure (exit 141); output is now captured first. The script also checks for docker, kind, kubectl and helm before starting.
 - `hack/helm-lifecycle.sh` and `hack/release-dry-run.sh`: the same `pipefail` plus `grep -q` false-failure pattern was removed; `release-dry-run.sh` passes locally on v0.1.0 and `helm-lifecycle.sh` passes against the local apiserver.

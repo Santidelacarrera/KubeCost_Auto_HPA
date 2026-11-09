@@ -36,6 +36,7 @@ p99 y el costo financiero por petición servida.
 | `operator/internal/{policy,kubecost,money,infra,ownership,resmetrics}` | Motor de decisión puro (Go), cliente KubeCost, dinero exacto, clasificación Spot, propiedad de réplicas y métricas de recursos del `KubeCostAutoscaler`. |
 | `operator/config/` | Kustomize: `default` (CRD, RBAC, operador, motor, Redis) y `overlays/local` (+ workload demo). |
 | `deploy/helm/kubecost-auto-hpa/` | Chart de Helm equivalente. |
+| `operator/cmd/recommend`, `operator/internal/recommend/` | Read-only rightsizing recommender (CLI, Prometheus history). Phase 1, unverified on a real cluster: [`docs/RECOMMENDER.md`](docs/RECOMMENDER.md). |
 | `docker-compose.yml` | Stack local: Redis, motor, Prometheus, Grafana (+ operador con `--profile operator`). |
 
 ## Flujo de reconciliación
