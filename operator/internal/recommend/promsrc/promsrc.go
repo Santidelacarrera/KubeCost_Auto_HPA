@@ -150,6 +150,15 @@ func (c *Client) Collect(ctx context.Context, t Target, window, step time.Durati
 	return in, nil
 }
 
+// Breached evaluates an SLO-breach expression at `at`: breached is true when the first value is > 0; known is false when it returned no data.
+func (c *Client) Breached(ctx context.Context, query string, at time.Time) (breached, known bool, err error) {
+	v, err := c.instant(ctx, query, at)
+	if err != nil || len(v) == 0 {
+		return false, false, err
+	}
+	return v[0] > 0, true, nil
+}
+
 func promDuration(d time.Duration) string { return strconv.FormatInt(int64(d.Seconds()), 10) + "s" }
 
 type response struct {

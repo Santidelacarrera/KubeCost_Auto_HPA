@@ -4,6 +4,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 
 ## [Unreleased]
 
+### Added (policy, execution, rollback, cost, capacity, lab)
+- `internal/safety` (fail-closed policy), `internal/execute` (apply with previous state on the object, observation, automatic rollback, audit JSONL), `cmd/rightsize` (`apply`, `rollback`, `nodes`, `cost`). ADR-0002, docs/SAFETY.md.
+- `internal/cost` (estimated / billed / allocated kept apart, reconciliation, CSV billing adapter, observed-savings comparison), `internal/capacity` (would a node actually be released). docs/COST.md. Not validated against a real invoice.
+- Reproducible lab: `hack/lab-up.sh`, `hack/lab-e2e.sh` (22 checks on a real Kubernetes 1.33.4), `hack/lab-helm.sh` (16 checks), `hack/lab-down.sh`; logs in `docs/reports/evidence/`. KubeCost is a mock there.
+- Docs: ARCHITECTURE, COMPATIBILITY, GITOPS, LAB, ROADMAP, SAFETY, TROUBLESHOOTING.
+### Fixed (found on the real cluster)
+- Rollback failed with a resourceVersion conflict when the Deployment controller updated status at the same moment, leaving the change in place. Rollback now retries on conflict; apply retries only while the spec generation is unchanged.
+
 ### Added (read-only recommender, phase 1)
 - `internal/recommend` (pure percentile/headroom algorithm with abstention and veto rules), `internal/recommend/promsrc` (Prometheus reader) and `cmd/recommend` (prints JSON; no Kubernetes client). See `docs/RECOMMENDER.md` and ADR-0001. Tested with a mock Prometheus only; defaults are untuned.
 

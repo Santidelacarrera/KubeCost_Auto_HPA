@@ -1,7 +1,7 @@
 # ADR-0001: A separate, read-only rightsizing recommender
 
 Status: accepted, phase 1 implemented 2026-11-09 (`internal/recommend`, `internal/recommend/promsrc`, `cmd/recommend`; see docs/RECOMMENDER.md).
-Phases 2 and 3 are not implemented. Phase 1 is IMPLEMENTED BUT NOT VERIFIED against a real Prometheus.
+Phase 3 (application) is ADR-0002. Phase 2 (CRD) is not implemented. Phase 1 ran once against a real Prometheus in the local lab (docs/LAB.md); the defaults are not validated on real workloads.
 
 ## Context
 

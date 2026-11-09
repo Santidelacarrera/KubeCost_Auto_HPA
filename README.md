@@ -37,6 +37,7 @@ p99 y el costo financiero por petición servida.
 | `operator/config/` | Kustomize: `default` (CRD, RBAC, operador, motor, Redis) y `overlays/local` (+ workload demo). |
 | `deploy/helm/kubecost-auto-hpa/` | Chart de Helm equivalente. |
 | `operator/cmd/recommend`, `operator/internal/recommend/` | Read-only rightsizing recommender (CLI, Prometheus history). Phase 1, unverified on a real cluster: [`docs/RECOMMENDER.md`](docs/RECOMMENDER.md). |
+| `operator/internal/{safety,execute,cost,capacity}`, `operator/cmd/rightsize` | Política fail-closed, aplicación con rollback y auditoría, asignación de costos, análisis de capacidad (ver más abajo). |
 | `docker-compose.yml` | Stack local: Redis, motor, Prometheus, Grafana (+ operador con `--profile operator`). |
 
 ## Flujo de reconciliación
@@ -264,6 +265,33 @@ Documentación de esta fase de validación: `docs/RBAC.md` (permisos y su justif
 y `docs/RELEASING.md` (ensayos y procedimiento de release). Para evaluarlo en un piloto: `docs/PILOT.md` (instalación,
 permisos, política de fallos, pausa, rollback y criterios de salida) y `docs/THREAT_MODEL.md` (amenazas, controles y riesgos
 residuales). Antes de ejecutar la suite completa, `make -C operator test-all` (requiere `KUBEBUILDER_ASSETS`).
+
+## Rightsizing seguro: recomendar, autorizar, aplicar, observar, revertir
+
+Segunda mitad del repositorio (ADR-0001 y ADR-0002), independiente del autoscaler de réplicas. **Por defecto no cambia nada**: el chart instala el operador en
+`observe-only` (`operator.observeOnly=true`) y la herramienta `rightsize` es dry-run salvo `--execute` con `--context` explícito.
+
+```
+cmd/recommend  -> recomendación JSON (percentiles + headroom; se abstiene sin datos fiables; no reduce con OOM, throttling, restarts o SLO roto)
+cmd/rightsize apply     -> política (fail-closed) + aprobación humana del ID exacto -> aplica con estado previo guardado -> observa -> rollback automático
+cmd/rightsize rollback  -> restaura el estado guardado y lo verifica
+cmd/rightsize nodes|cost-> informes de solo lectura: ¿se liberaría algún nodo? / asignación de costo (estimado vs facturado vs asignado)
+```
+
+Guías: [`docs/RECOMMENDER.md`](docs/RECOMMENDER.md), [`docs/SAFETY.md`](docs/SAFETY.md), [`docs/COST.md`](docs/COST.md), [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md),
+[`docs/GITOPS.md`](docs/GITOPS.md), [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md), [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md), [`docs/ROADMAP.md`](docs/ROADMAP.md), laboratorio y evidencia: [`docs/LAB.md`](docs/LAB.md).
+
+### Estado honesto de esta parte (2026-11-09)
+
+| Categoría | Qué |
+|---|---|
+| **Verificado en un clúster real de laboratorio** (Kubernetes 1.33.4, minikube, Prometheus + kube-state-metrics reales; `hack/lab-e2e.sh` 22/22, `hack/lab-helm.sh` 16/16) | recomendación desde métricas reales; denegaciones (política vacía, sin aprobación, kill switch); dry-run sin cambios; aplicación aprobada; no se aplica dos veces; rollback automático por reinicio de contenedor y por SLO (señal sintética); auditoría; instalación/actualización/rollback/desinstalación del chart; `observe-only` mantiene las réplicas y al desactivarlo el operador actúa |
+| **Implementado, solo con pruebas unitarias/fakes** | detección de HPA/VPA/GitOps (Argo CD, Flux), ventanas de mantenimiento, límite de tasa, asignación de costos y reconciliación, análisis de capacidad de nodos, lector de facturación CSV |
+| **Simulado** | KubeCost en el laboratorio (mock con costo inventado), datos de facturación del informe `cost` en el laboratorio, la señal de SLO del escenario de rollback, el fallo inyectado |
+| **Experimental / sin afinar** | los valores por defecto del recomendador (p95+15 %, p99+20 %, 200 muestras, 24 h) |
+| **Pendiente / bloqueado** | validación en EKS/GKE/AKS, KubeCost real, facturación real, tráfico y latencia reales, flujo GitOps por pull request, CRD de recomendaciones, controlador que aplique solo, StatefulSet/DaemonSet, multi-tenancy |
+
+No se afirma ahorro garantizado ni paridad con otros productos. Un "ahorro" de requests no es un ahorro de infraestructura hasta que un nodo se libera (`docs/COST.md`).
 
 ## Licencia
 

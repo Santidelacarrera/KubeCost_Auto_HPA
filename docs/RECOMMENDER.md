@@ -1,7 +1,7 @@
 # Rightsizing recommender (phase 1, read-only)
 
-Status: **IMPLEMENTED BUT NOT VERIFIED** against a real Prometheus/cluster. Unit tests plus a mock Prometheus only.
-Design and rationale: [ADR-0001](adr/0001-read-only-rightsizing-recommender.md). Not yet implemented: the CRD (phase 2) and any way to apply a recommendation (phase 3).
+Status: **verified once against a real Prometheus (cAdvisor + kube-state-metrics) in the local lab** (docs/LAB.md), and by unit tests plus a mock Prometheus. **Not validated on real workloads over real time**: the defaults below are untuned.
+Design and rationale: [ADR-0001](adr/0001-read-only-rightsizing-recommender.md). Applying a recommendation is a separate, policy-gated step ([ADR-0002](adr/0002-policy-gated-execution-with-rollback.md), docs/SAFETY.md). Not implemented: the recommendation CRD (phase 2).
 
 It cannot change a cluster: `internal/recommend` is pure and `cmd/recommend` has no Kubernetes client.
 

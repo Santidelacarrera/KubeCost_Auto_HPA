@@ -12,3 +12,4 @@ kubeconfig*
 *.kubeconfig
 *.key
 *.pem
+.lab/
