@@ -91,4 +91,4 @@ a second process refuses the same recommendation ID, and a brand-new process rol
 ## Also verified outside the lab: GitHub CI on the pushed branch
 
 Run 42681084642 (commit b7ba429): jobs `engine`, `operator` (includes `go test -race -p 2 ./...`, the integration tests and `govulncheck`), `manifests`, `envtest` (kube-apiserver 1.33.4 + etcd), `e2e-kind` and `e2e-kca`: all success.
-That closes the earlier NOT RUN items for `-race`, envtest and CI. It did not include the changes of the later commits listed in the CHANGELOG under "Added (second pass)".
+That closes the earlier NOT RUN items for `-race`, envtest and CI. The run on the later commit 2491f93 (StatefulSet/DaemonSet, identity-stamped approvals, propose, report, cost budgets) is also all success: engine, operator (race, integration, govulncheck), manifests, envtest, e2e-kind, e2e-kca.
