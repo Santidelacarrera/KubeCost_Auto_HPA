@@ -1,6 +1,6 @@
 # GitOps
 
-Status: **detection implemented (verified on a real cluster with the annotation only; Argo CD and Flux themselves were never installed); a local-git proposal flow (`rightsize propose`) is implemented and tested; opening a pull request is NOT implemented. No change is ever made directly to a GitOps-managed workload.**
+Status: **detection and the GitOps path are verified against a REAL Argo CD (core install) and a REAL Flux on Kubernetes 1.33.4 (docs/LAB.md result 6): both are detected from the marks they really write, a direct patch is reverted by both (which is why the tool refuses), and `rightsize propose` -> merge -> push makes both controllers apply the change. Opening a pull request on a hosted Git service is NOT implemented. No change is ever made directly to a GitOps-managed workload.**
 
 ## Detection
 

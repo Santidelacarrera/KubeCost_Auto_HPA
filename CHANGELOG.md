@@ -4,6 +4,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 
 ## [Unreleased]
 
+### Added (third pass: the rest that can be done without cloud credentials)
+- Opt-in **recommendation applier**: `WorkloadRecommendation` CRD, `rightsize plan --publish`, `rightsize approve --cr` (approval through the status subresource, own RBAC verb), operator controller behind `--enable-recommendation-applier` / chart `operator.recommendationApplier.enabled=false`, policy ConfigMap re-read on every reconcile, same-namespace rule, observe-only honoured, resume after operator restart. ADR-0003, docs/SAFETY.md. Roles in `deploy/rbac/rightsize.yaml`.
+- `rightsize backtest` (replays percentile/headroom settings on history; train on the past, test on the unseen recent part), FOCUS billing adapter (`cost --billing-format focus`, provider-id mapping), `hack/cloud-validate.sh` (read-only validation of any cluster) and docs/CLOUD_VALIDATION.md.
+- Lab evidence on real systems: Argo CD and Flux (15 checks), a two-node cluster compared with a real drain (9), the applier on a real cluster, real HTTP traffic and latency before/after (docs/LAB.md results 6-9).
+### Fixed (third pass, found on real clusters)
+- Applier: policy ConfigMap read with a direct GET (the cached client needed list/watch that the Role rightly denies); a final phase can no longer be overwritten by a stale cached read (RolledBack had been overwritten by Denied).
+- Recommender: variability below the configured floors (1 MB memory, 5-15 millicores) no longer lowers confidence; the "window shorter than 7 days" note shows minutes for short windows.
+- FOCUS parsing accepts negative credit rows (they are skipped and reported, not fatal).
+
 ### Added (second pass)
 - `execute` supports StatefulSet and DaemonSet (OnDelete update strategies are refused; the DaemonSet replica-count check is off because the desired count follows the node count).
 - `rightsize approve`: stamps the approval with the identity the API server reports (SelfSubjectReview); policy `approvers` restricts who may approve.

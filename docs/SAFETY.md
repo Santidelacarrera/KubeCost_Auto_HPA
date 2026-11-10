@@ -74,3 +74,24 @@ ship it to append-only storage in production. The previous state is also kept in
 * The actor in the tool's own audit log is the OS user (or `--actor`); it is not authenticated. The approver identity is.
 * OnDelete update strategies are refused. For DaemonSets the replica-count check is disabled (the desired count follows the node count).
 * Not a controller: nothing is applied unless a person runs the command.
+
+
+## The operator applier (opt-in, off by default)
+
+Design: [ADR-0003](adr/0003-recommendation-crd-and-opt-in-applier.md). Enable with the chart value `operator.recommendationApplier.enabled=true` (flag `--enable-recommendation-applier`).
+
+Flow: `rightsize plan --publish` creates a `WorkloadRecommendation` in the workload's namespace (changes nothing) -> a person with the `kubecost-rightsize-approve` role runs
+`rightsize approve --cr --recommendation rec.json` (writes `status.approval` through the status subresource, identity from the API server) -> the operator evaluates the **same policy** as the CLI.
+Phases: `Pending` (no approval), `Denied` (reasons in `status.reasons`), `DryRun` (approved and allowed, but the operator is in observe-only), `Applying`, `Verified`, `RolledBack`, `Failed`.
+
+What gates it, in addition to everything in the CLI path:
+
+* **Observe-only first.** The chart default is `operator.observeOnly=true`: an approved, allowed recommendation only becomes `DryRun`. Writing needs `--set operator.observeOnly=false` as a separate, deliberate step.
+* **A policy ConfigMap** (`<release>-applier-policy`, key `policy.yaml`, optional `slo.<name>` keys) read on every reconcile. The chart default authorises no namespace. A missing, unreadable or malformed ConfigMap means `Denied`. The kill switch takes effect on the next look, without a restart.
+* **Same-namespace rule.** The recommendation can only act on a workload in the namespace of the object that carries it.
+* **Separate permissions.** Publishing (`create workloadrecommendations`) and approving (`update workloadrecommendations/status`) are different roles (`deploy/rbac/rightsize.yaml`). Annotations on the workload are ignored by this path, so forging one does nothing.
+* **Narrow RBAC for the operator.** With `operator.recommendationApplier.namespaces` set, write access to workloads exists only as Roles in those namespaces; the default operator role is unchanged (tested in `internal/rbaccheck`).
+* **Crash safety.** If the operator stops while a change is being observed, it does not roll back (stopping to look is not evidence of a problem); on restart it resumes from the state recorded on the workload and never applies twice.
+
+Known limits: anyone holding both the publish and approve roles (or cluster-admin) can push a change through, so separation of duties is only as strong as your RBAC bindings; two reconcile workers, each blocked for up to `maxObserve` while a change is observed;
+terminal phases are not revisited (a new decision needs a new recommendation). Verified on the lab cluster only (docs/LAB.md).

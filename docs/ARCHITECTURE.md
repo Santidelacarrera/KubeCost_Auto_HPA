@@ -31,15 +31,16 @@ Global switch: `--observe-only` (chart default `true`) turns every decision into
  internal/capacity  "would a node actually be released?" (candidate analysis, no actions)
 ```
 
+Since ADR-0003 there is also an **opt-in** cluster path: `WorkloadRecommendation` objects (published with `plan --publish`, approved through their status subresource) applied by a controller inside the operator under a policy ConfigMap. It is off by default.
+
 Design rules (all enforced by tests):
 
 * The recommender has no Kubernetes client and no write path. The policy engine never computes numbers. The executor never decides alone.
 * Default is dry-run. `--execute` needs an explicit `--context`, a policy that names the namespace, and a human approval of the exact recommendation ID.
 * Unknown facts, missing metrics, a VPA that cannot be ruled out, a stale recommendation or any API error means **no change**.
 * The previous state is stored on the Deployment itself; a crashed tool can still roll back. A rolled-back ID is never retried.
-* Nothing in `execute` runs unless a person invokes `rightsize`; there is no controller applying recommendations (ADR-0002, section 3).
+* Nothing in `execute` runs unless a person invokes `rightsize` **or** the operator was installed with the applier enabled (ADR-0003); by default there is no controller applying recommendations.
 
 ## Not built (and why)
 
-No CRD for recommendations (phase 2 of ADR-0001, waiting for evidence the numbers are good), no controller that applies changes, no GitOps pull-request flow
-(GitOps-managed workloads are refused), no StatefulSet/DaemonSet apply, no multi-tenant isolation layer, no UI.
+No hosted pull-request integration (GitOps-managed workloads are refused; `rightsize propose` commits on a local branch), no admission webhook to forbid self-approval (separation of duties is by RBAC only), no multi-tenant isolation layer beyond the same-namespace rule, no UI.

@@ -1,7 +1,10 @@
 package main
 
 import (
+	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -122,5 +125,32 @@ func TestBudgetsAndBaselineParsing(t *testing.T) {
 	_ = os.WriteFile(p, []byte(`{"byNamespace":{"shop":"abc"}}`), 0o600)
 	if _, err := loadReport(p); err == nil {
 		t.Fatal("garbage money accepted")
+	}
+}
+
+// MOCK Prometheus: argument handling and output shape of the backtest, not a measurement.
+func TestBacktestAgainstAMockPrometheus(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		pts := make([]string, 1500)
+		for i := range pts {
+			v := "0.2"
+			if strings.Contains(r.URL.Query().Get("query"), "working_set") {
+				v = "104857600"
+			}
+			pts[i] = fmt.Sprintf(`[%d,"%s"]`, i, v)
+		}
+		fmt.Fprintf(w, `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{},"values":[%s]}]}}`, strings.Join(pts, ","))
+	}))
+	defer srv.Close()
+	var b strings.Builder
+	err := backtestCmd([]string{"--prometheus-url", srv.URL, "--namespace", "a", "--workload", "b", "--container", "c", "--window", "125h", "--holdout", "25h", "--step", "5m"}, &b)
+	if err != nil || !strings.Contains(b.String(), `"Best"`) || !strings.Contains(b.String(), `"cpu"`) || !strings.Contains(b.String(), `"memory"`) {
+		t.Fatalf("%v %s", err, b.String())
+	}
+	if err := backtestCmd([]string{"--prometheus-url", srv.URL, "--namespace", "a", "--workload", "b", "--container", "c", "--window", "1h", "--holdout", "2h"}, io.Discard); err == nil {
+		t.Fatal("holdout longer than the window accepted")
+	}
+	if err := backtestCmd(nil, io.Discard); err == nil {
+		t.Fatal("no arguments accepted")
 	}
 }

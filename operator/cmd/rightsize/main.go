@@ -37,7 +37,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: rightsize plan|approve|apply|rollback|propose|report|nodes|cost [flags]")
+		fmt.Fprintln(os.Stderr, "usage: rightsize plan|approve|apply|rollback|propose|report|backtest|nodes|cost [flags]")
 		os.Exit(2)
 	}
 	var err error
@@ -52,6 +52,8 @@ func main() {
 		err = planCmd(os.Args[2:], os.Stdout)
 	case "report":
 		err = reportCmd(os.Args[2:], os.Stdout)
+	case "backtest":
+		err = backtestCmd(os.Args[2:], os.Stdout)
 	case "propose":
 		err = proposeCmd(os.Args[2:], os.Stdout)
 	case "nodes":

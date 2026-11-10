@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"time"
 
@@ -43,7 +44,7 @@ func take(ctx context.Context, kc kubernetes.Interface, prices map[string]float6
 		if v, ok := prices[n.Name]; ok {
 			price = v
 		}
-		s.nodes = append(s.nodes, capacity.Node{Name: n.Name, CPUAllocatable: n.Status.Allocatable.Cpu().AsApproximateFloat64(),
+		s.nodes = append(s.nodes, capacity.Node{ProviderID: n.Spec.ProviderID, Name: n.Name, CPUAllocatable: n.Status.Allocatable.Cpu().AsApproximateFloat64(),
 			MemAllocatable: n.Status.Allocatable.Memory().AsApproximateFloat64(), HourlyUSD: price})
 	}
 	pdbs, err := kc.PolicyV1().PodDisruptionBudgets(metav1.NamespaceAll).List(ctx, metav1.ListOptions{})
@@ -156,10 +157,11 @@ func costCmd(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("cost", flag.ContinueOnError)
 	var c common
 	c.bind(fs)
-	var billing, label, startS, endS, shared, budgetList, baseline string
+	var billing, label, startS, endS, shared, budgetList, baseline, format string
 	var devPct float64
 	var hourly, cpuWeight float64
-	fs.StringVar(&billing, "billing-file", "", "CSV resource,cost_usd,start,end (real billing data, or labelled simulated).")
+	fs.StringVar(&billing, "billing-file", "", "billing CSV: resource,cost_usd,start,end, or a FOCUS export with --billing-format focus (real data, or labelled simulated).")
+	fs.StringVar(&format, "billing-format", "simple", "simple (resource,cost_usd,start,end) or focus (FinOps FOCUS CSV).")
 	fs.StringVar(&label, "billing-label", "", "label shown in the report, e.g. SIMULATED-lab or aws-cur-2026-10.")
 	fs.Float64Var(&hourly, "node-hourly-usd", 0, "ESTIMATED basis: hourly price of every node when there is no billing file.")
 	fs.StringVar(&startS, "start", "", "window start, RFC3339 (default: 24h before --end).")
@@ -204,7 +206,7 @@ func costCmd(args []string, out io.Writer) error {
 	var cn []cost.Node
 	var cp []cost.Pod
 	for _, n := range snap.nodes {
-		cn = append(cn, cost.Node{Name: n.Name, CPUAllocatable: n.CPUAllocatable, MemAllocatable: n.MemAllocatable})
+		cn = append(cn, cost.Node{ProviderID: n.ProviderID, Name: n.Name, CPUAllocatable: n.CPUAllocatable, MemAllocatable: n.MemAllocatable})
 	}
 	for _, p := range snap.pods {
 		cp = append(cp, cost.Pod{Namespace: p.Namespace, Node: p.Node, CPURequest: p.CPURequest, MemRequest: p.MemRequest})
@@ -217,13 +219,37 @@ func costCmd(args []string, out io.Writer) error {
 	}
 	cfg := cost.Config{CPUWeight: cpuWeight, SharedNamespaces: sharedList}
 	var rep cost.Report
+	var focusNotes []string
 	if billing != "" {
 		ad := cost.FileAdapter{Path: billing, Label: label}
-		items, err := ad.Billed(context.Background(), start, end)
-		if err != nil {
-			return err
+		var nc map[string]money.USD
+		var extra []cost.BillingItem
+		switch format {
+		case "simple":
+			items, err := ad.Billed(context.Background(), start, end)
+			if err != nil {
+				return err
+			}
+			nc, extra = cost.SplitByNode(items, cn)
+		case "focus":
+			f, err := os.Open(billing)
+			if err != nil {
+				return err
+			}
+			defer f.Close()
+			items, sum, err := cost.ParseFOCUS(f, start, end)
+			if err != nil {
+				return err
+			}
+			nc, extra = cost.SplitByNodeIdentity(items, cn)
+			focusNotes = sum.Notes
+			for cat, v := range sum.Skipped {
+				focusNotes = append(focusNotes, fmt.Sprintf("skipped %s charges: %s", cat, v.String()))
+			}
+		default:
+			return fmt.Errorf("--billing-format must be simple or focus")
 		}
-		nc, extra := cost.SplitByNode(items, cn)
+		var err error
 		rep, err = cost.Allocate(cost.BasisBilled, ad.Name(), start, end, cn, cp, nc, extra, cfg)
 		if err != nil {
 			return err
@@ -265,5 +291,5 @@ func costCmd(args []string, out io.Writer) error {
 	return printJSON(out, map[string]any{"basis": rep.Basis, "source": rep.Source, "start": rep.Start, "end": rep.End,
 		"total": rep.Total.String(), "accounted": rep.Accounted.String(), "difference": rep.Difference.String(), "reconciled": rep.Reconciled,
 		"shared": rep.Shared.String(), "byNamespace": view, "budgets": budgetView(cost.CheckBudgets(rep, budgets)),
-		"deviations": deviations, "notes": rep.Notes})
+		"deviations": deviations, "notes": append(rep.Notes, focusNotes...)})
 }

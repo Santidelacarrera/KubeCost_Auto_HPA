@@ -15,6 +15,7 @@ import (
 
 // Node is a schedulable node.
 type Node struct {
+	ProviderID                     string
 	Name                           string
 	CPUAllocatable, MemAllocatable float64
 	// HourlyUSD is an optional, caller-supplied price used only for the candidate estimate.

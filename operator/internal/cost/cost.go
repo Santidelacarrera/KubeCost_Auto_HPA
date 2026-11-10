@@ -47,6 +47,8 @@ type Adapter interface {
 
 // Node is a node's capacity as scheduled.
 type Node struct {
+	// ProviderID is the Kubernetes spec.providerID (aws:///zone/i-..., gce://..., azure:///...); it lets billed instance ids find their node.
+	ProviderID                     string
 	Name                           string
 	CPUAllocatable, MemAllocatable float64 // cores, bytes
 }

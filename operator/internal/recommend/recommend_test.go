@@ -294,3 +294,55 @@ func TestNonStationaryLoadLowersConfidence(t *testing.T) {
 		t.Fatal("too little data must give no spread")
 	}
 }
+
+func TestTinyLoadsAreNeverCalledNonStationary(t *testing.T) {
+	in := good()
+	in.WindowStart = in.WindowEnd.Add(-8 * 24 * time.Hour)
+	in.CPUSamples = series(600, 0.01)
+	in.Current.CPURequest = 0.5
+	quiet, busy := series(150, 0.003), series(150, 0.015) // 5x apart, but only 15 millicores at most
+	in.CPUSeries = [][]float64{append(append(append(append([]float64{}, quiet...), quiet...), busy...), busy...)}
+	r := mustRec(t, in, cfg())
+	if strings.Contains(strings.Join(r.Risks, " "), "not stationary") || r.Confidence == ConfLow {
+		t.Fatalf("noise on a 15 millicore load must not lower confidence: %s %v", r.Confidence, r.Risks)
+	}
+}
+
+func TestShortWindowIsShownInMinutesNotZeroHours(t *testing.T) {
+	in := good()
+	in.WindowStart = in.WindowEnd.Add(-14 * time.Minute)
+	c := cfg()
+	c.MinWindow = 5 * time.Minute
+	r := mustRec(t, in, c)
+	if !strings.Contains(strings.Join(r.Risks, " "), "(14m0s)") {
+		t.Fatalf("%v", r.Risks)
+	}
+}
+
+func TestVariabilityBelowTheConfiguredFloorsDoesNotLowerConfidence(t *testing.T) {
+	in := good()
+	in.WindowStart = in.WindowEnd.Add(-8 * 24 * time.Hour)
+	mem := make([]float64, 600)
+	cpu := make([]float64, 600)
+	for i := range mem {
+		mem[i], cpu[i] = 400e3, 0.004 // 400 KB and 4 millicores: far below the 32 MiB and 50 mc floors
+		if i%5 == 0 {
+			mem[i], cpu[i] = 3e6, 0.02 // coefficient of variation well above 1
+		}
+	}
+	in.MemSamples, in.CPUSamples = mem, cpu
+	if r := mustRec(t, in, cfg()); r.Confidence != ConfHigh {
+		t.Fatalf("noise below the floors must not lower confidence: %s", r.Confidence)
+	}
+	// the same variability on a quantity above its floor does lower it
+	for i := range mem {
+		mem[i] = 100e6
+		if i%5 == 0 {
+			mem[i] = 900e6
+		}
+	}
+	in.MemSamples = mem
+	if r := mustRec(t, in, cfg()); r.Confidence == ConfHigh {
+		t.Fatal("real variability above the floor must still count")
+	}
+}

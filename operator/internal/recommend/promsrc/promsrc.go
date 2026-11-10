@@ -272,3 +272,26 @@ func (c *Client) rangeSeries(ctx context.Context, query string, start, end time.
 	}
 	return out, nil
 }
+
+// Series returns the raw per-pod CPU and memory working-set series for a window (no kube-state-metrics needed). It is what the backtest uses.
+func (c *Client) Series(ctx context.Context, t Target, window, step time.Duration, now time.Time) (cpu, mem [][]float64, err error) {
+	if err := t.validate(); err != nil {
+		return nil, nil, err
+	}
+	pods, err := t.podRegex()
+	if err != nil {
+		return nil, nil, err
+	}
+	if step <= 0 || window <= 0 || float64(window)/float64(step) > maxPoints {
+		return nil, nil, fmt.Errorf("window/step must be positive and give at most %d points", maxPoints)
+	}
+	sel := fmt.Sprintf(`namespace="%s",pod=~"%s",container="%s"`, t.Namespace, pods, t.Container)
+	start := now.Add(-window)
+	if cpu, err = c.rangeSeries(ctx, fmt.Sprintf(`rate(container_cpu_usage_seconds_total{%s}[5m])`, sel), start, now, step); err != nil {
+		return nil, nil, fmt.Errorf("cpu usage: %w", err)
+	}
+	if mem, err = c.rangeSeries(ctx, fmt.Sprintf(`container_memory_working_set_bytes{%s}`, sel), start, now, step); err != nil {
+		return nil, nil, fmt.Errorf("memory working set: %w", err)
+	}
+	return cpu, mem, nil
+}

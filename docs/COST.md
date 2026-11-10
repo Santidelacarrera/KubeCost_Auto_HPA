@@ -50,9 +50,16 @@ spread, taints and volume zones, and says so in the report. It never drains or r
 `--baseline-report earlier.json --deviation-pct 20` lists namespaces whose cost **per hour** moved more than the threshold between two reports (windows of different length compare; mixed bases refuse).
 Both are unit-tested and ran on the lab with an estimated basis; nothing was compared with a real bill.
 
+## FOCUS billing exports
+
+`rightsize cost --billing-file export.csv --billing-format focus` reads a FOCUS CSV (`ResourceId`, `BilledCost`, `ChargePeriodStart`, `ChargePeriodEnd`, and optionally `BillingCurrency`, `ChargeCategory`).
+Only `Usage` rows become cost; credits, taxes, purchases and adjustments are listed as skipped in the notes. Only USD is accepted. Billed `ResourceId`s find their node by the last segment of `spec.providerID`
+(AWS instance id, GCE instance name, Azure VM name); the rest is `__unallocated__`. The parser follows the specification's column names and is tested on hand-written fixtures; **it has not seen a real AWS/GCP/Azure export**
+(see docs/CLOUD_VALIDATION.md for how to produce one and what to check).
+
 ## What is not done
 
-* No provider adapters (CUR/FOCUS/GCP/Azure exports must be reduced to the CSV columns `resource,cost_usd,start,end` by the user).
+* No provider API adapters: a FOCUS CSV (or the simple `resource,cost_usd,start,end` CSV) is read; Parquet must be converted to CSV first.
 * No discounts, reservations, savings plans, spot price history or amortisation; credits and refunds must be handled before export (negative lines are rejected).
 * No usage-based or GPU/storage/network allocation; no per-pod or per-controller breakdown (namespace only).
 * Not validated against a real invoice. Any statement about accuracy would be invented.

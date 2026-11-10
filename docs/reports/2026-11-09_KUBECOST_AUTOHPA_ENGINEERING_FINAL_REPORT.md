@@ -162,3 +162,28 @@ multi-tenancy; defaults of the recommender tuned on real workloads. The verdict 
 Maturity changes (0-5): Metrics collection 3 (unchanged); Recommendation engine 2 (unchanged); Cost intelligence 1 to 2 (real OpenCost contract + budgets, still no real bill); HPA/VPA compatibility 1 to 2 (real objects detected);
 GitOps 1 to 2 (proposal flow); Security 2 to 3 (identity-stamped approval, proven minimal RBAC); Reliability 2 to 3 (interruption recovery proven); Observability 2 (unchanged: report from audit only, no exported metrics);
 Testing 3 to 4 (CI incl. race/envtest green; 82 real-cluster checks over five scripts: 22 + 16 + 23 + 14 + 7); Node optimisation 1 (unchanged, single node).
+
+
+## M. Addendum 2 (third pass): what the owner asked for after section L, and what is still outside my reach
+
+The owner's list was: cloud (EKS/GKE/AKS), real billing and measured savings, real traffic and latency plus tuning the recommender defaults, Argo CD / Flux as real controllers, a multi-node cluster, and the CRD and applying controller that had been left out on purpose.
+
+| Item | Result | Evidence |
+|---|---|---|
+| Argo CD and Flux as real controllers | **Done and verified, twice from an empty cluster**: both detected from the marks they really write (Argo CD v3.6.1 annotation; Flux v1.10.1 labels), a direct patch is reverted by both, and `propose` -> merge -> push is applied by both. 15/15 and 15/15 | LAB result 6 |
+| A multi-node cluster | **Done**: real two-node cluster, the tool's prediction compared with a real drain, both the "fits" and the "does not fit" case. 9/9. (Two nodes, minikube; not a managed node pool) | LAB result 7 |
+| Real traffic and latency | **Done at lab scale**: 35-37 requests/s, real latency histogram, equivalent windows: p95 4.75 ms before and after, no throttling, no restarts, with the requests halved; rollback driven by the real latency metric. Trivial workload on a laptop VM, so it shows the mechanism, not production behaviour | LAB result 9 |
+| Tuning the recommender defaults | **Tool built, tuning NOT done**: `rightsize backtest` replays settings on your own history (train on the past, test on the unseen recent part). It needs weeks of real history, which only your clusters have. The defaults remain untuned | docs/RECOMMENDER.md |
+| Recommendation CRD and an applying controller | **Built as opt-in (off by default) and verified on a real cluster** (ADR-0003). Three real defects found there and fixed (ConfigMap read through the cache; final phase overwritten by a stale read; confidence lowered by noise below the floors). No single 26/26 run exists: scenarios 1-7 and scenario 8 passed in two runs of the same final code | LAB result 8 |
+| Real billing | **Adapter built, not validated**: a FOCUS CSV parser with provider-id mapping (negative credit rows handled after a unit test caught it failing). It has only seen hand-written fixtures. Needs your first real export | docs/COST.md, CLOUD_VALIDATION.md |
+| EKS / GKE / AKS | **Not done and cannot be done by me**: it needs your cloud account and credentials. Delivered instead: `docs/CLOUD_VALIDATION.md` (provider FOCUS export sources read on 2026-11-09, cluster templates marked as not executed) and `hack/cloud-validate.sh`, a **read-only** script you run against your own context | docs, script (the script itself was syntax-checked and its building blocks ran on the lab; it was not run against a cloud) |
+| Measured savings | **Still none.** The lab shows requests halved with unchanged latency and an ESTIMATED cost per 1k requests; no bill, no released node | |
+
+Verification of this pass: 25 Go test packages and 27 Python tests pass locally (Windows, no `-race`); the default Helm render contains nothing of the applier; GitHub CI is run on each pushed commit.
+Defects found by real systems during the pass (all fixed with tests): the applier's ConfigMap read, the applier's stale-cache overwrite, noise-driven low confidence (CPU and memory), the FOCUS credit-row parse failure, and the rollback conflict reported in section L.
+
+**What I need from you to go further:** (1) a cluster you own (managed or not) with Prometheus and at least a week of real traffic, and (2) one billing export in FOCUS CSV for the same period. With those, `hack/cloud-validate.sh` and `rightsize backtest` produce the evidence that turns the remaining "untuned" and "not validated" items into results.
+
+Updated maturity (0-5): Recommendation engine 2 (+ backtest tool, still untuned); Cost intelligence 2 (+ FOCUS adapter, unvalidated); HPA/VPA compatibility 2; GitOps 3 (real Argo CD and Flux); Node optimisation 2 (real two-node comparison);
+Execution engine 3; Rollback 3-4 (restart, SLO, real-latency trigger and applier rollback all exercised for real; OOM trigger unit-tested only); Policy & safety 3-4 (separate publish/approve permissions, per-namespace RBAC, kill switch without restart, all exercised); Security 3; Reliability 3 (restart resume, stale-cache guard);
+Observability 2; Testing 4; Documentation 4. Production readiness: still **no**.

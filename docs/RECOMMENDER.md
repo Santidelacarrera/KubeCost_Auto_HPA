@@ -40,6 +40,13 @@ Samples are all (pod, step) values in the window. Percentiles use linear interpo
 Every record contains the formula with the numbers substituted, the stats (p50/p90/p95/p99/max/CV), the config used, the window, the sample count,
 risks, conditions and a deterministic ID (cluster, kind, workload, container, window end).
 
+## Tuning the defaults on your own data: `rightsize backtest`
+
+The defaults are starting values. `rightsize backtest --prometheus-url ... --namespace ns --workload w --container c --window 336h --holdout 24h` replays a grid of (percentile, headroom) settings:
+it computes each recommendation from the training part of the history only and measures it on the unseen most-recent part: the share of test samples above the recommendation (`ExceedFraction`),
+the largest test sample over the recommendation (`PeakRatio`) and the waste. `Best` is the qualifying setting with the least waste under `--target-exceed` (default 1%). It also says when no setting can cover a peak the training period never saw.
+One split is one sample of the future: repeat it with several holdouts, including one with a weekly peak, before changing any default. It was unit-tested and run against a mock Prometheus; it has **not** been run on real multi-week history.
+
 ## Known limits
 
 * The defaults (percentiles, headroom, 200 samples, 24 h) are starting values, **not validated on real workloads**.

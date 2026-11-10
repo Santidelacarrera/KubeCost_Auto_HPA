@@ -317,12 +317,17 @@ func Recommend(in Input, cfg Config) (Recommendation, error) {
 
 	// ---- seasonality caveats: what the window cannot show ----
 	if w := in.WindowEnd.Sub(in.WindowStart); w < 7*24*time.Hour {
-		rec.Risks = append(rec.Risks, fmt.Sprintf("the window (%s) is shorter than 7 days: weekly seasonality is not observed", w.Round(time.Hour)))
+		shown := w.Round(time.Hour)
+		if w < 2*time.Hour {
+			shown = w.Round(time.Minute)
+		}
+		rec.Risks = append(rec.Risks, fmt.Sprintf("the window (%s) is shorter than 7 days: weekly seasonality is not observed", shown))
 		if rec.Confidence == ConfHigh {
 			rec.Confidence = ConfMed
 		}
 	}
-	if lo, hi := QuarterSpread(in.CPUSeries); lo > 0 && hi/lo > 2 {
+	// A ratio between tiny numbers is noise (3 millicores vs 9 millicores): only loads above five times the minimum CPU can be "not stationary".
+	if lo, hi := QuarterSpread(in.CPUSeries); lo > 0 && hi/lo > 2 && hi >= 5*cfg.MinCPU {
 		rec.Risks = append(rec.Risks, fmt.Sprintf("CPU load is not stationary: the p95 of the four quarters of the window ranges from %.3g to %.3g cores", lo, hi))
 		rec.Confidence = ConfLow
 	}
@@ -453,7 +458,15 @@ func raiseLimit(limit, req float64) float64 {
 }
 
 func grade(n int, cfg Config, cpu, mem Stats) Confidence {
-	cv := math.Max(cpu.CV, mem.CV)
+	// The coefficient of variation of a quantity far below its configured floor is noise (a 1 MB working set against a 32 MiB minimum):
+	// the recommendation is the floor either way, so the variability says nothing about how safe it is.
+	cv := 0.0
+	if cpu.P95 >= 5*cfg.MinCPU {
+		cv = math.Max(cv, cpu.CV)
+	}
+	if mem.P99 >= cfg.MinMem {
+		cv = math.Max(cv, mem.CV)
+	}
 	switch {
 	case n >= 3*cfg.MinSamples && cv < 0.5:
 		return ConfHigh

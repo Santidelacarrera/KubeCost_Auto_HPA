@@ -41,7 +41,9 @@ func approveCmd(args []string, out io.Writer) error {
 	var c common
 	c.bind(fs)
 	var recFile string
+	var viaCR bool
 	fs.StringVar(&recFile, "recommendation", "", "JSON written by cmd/recommend or rightsize plan (required).")
+	fs.BoolVar(&viaCR, "cr", false, "approve through the WorkloadRecommendation status subresource (for the operator applier) instead of annotating the workload.")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -57,7 +59,12 @@ func approveCmd(args []string, out io.Writer) error {
 		return err
 	}
 	defer closeAudit()
-	who, err := ex.Approve(context.Background(), rec)
+	var who string
+	if viaCR {
+		who, err = approveRecommendation(context.Background(), ex, rec)
+	} else {
+		who, err = ex.Approve(context.Background(), rec)
+	}
 	if err != nil {
 		return err
 	}
@@ -71,9 +78,12 @@ func planCmd(args []string, out io.Writer) error {
 	c.bind(fs)
 	d := recommend.Defaults()
 	cfg := d
-	var promURL, ns, wl, kind, container, slo, now, cluster string
+	var promURL, ns, wl, kind, container, slo, now, cluster, sloName string
+	var publish bool
 	var window, step time.Duration
 	var tls httpx.Options
+	fs.BoolVar(&publish, "publish", false, "also create a WorkloadRecommendation object in the namespace (changes nothing else).")
+	fs.StringVar(&sloName, "slo-query-name", "", "with --publish: name of an SLO query defined in the operator policy ConfigMap (slo.<name>).")
 	fs.StringVar(&promURL, "prometheus-url", os.Getenv("PROMETHEUS_URL"), "Prometheus base URL (or PROMETHEUS_URL).")
 	fs.StringVar(&ns, "namespace", "", "namespace (required).")
 	fs.StringVar(&wl, "workload", "", "workload name (required).")
@@ -137,6 +147,13 @@ func planCmd(args []string, out io.Writer) error {
 	rec, err := recommend.Recommend(in, cfg)
 	if err != nil {
 		return err
+	}
+	if publish {
+		name, err := publishRecommendation(ctx, ex.Dyn, rec, sloName)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(os.Stderr, "published WorkloadRecommendation %s/%s (nothing else was changed)\n", rec.Namespace, name)
 	}
 	return printJSON(out, rec)
 }
@@ -267,4 +284,66 @@ func deviationView(ds []cost.Deviation) []map[string]any {
 		v = append(v, map[string]any{"namespace": d.Namespace, "usdPerHourBefore": d.BeforePerHour, "usdPerHourAfter": d.After, "changePct": ch})
 	}
 	return v
+}
+
+// backtest replays the recommendation settings on history you already have: train on the past, test on the most recent part.
+func backtestCmd(args []string, out io.Writer) error {
+	fs := flag.NewFlagSet("backtest", flag.ContinueOnError)
+	var promURL, ns, wl, kind, container, now string
+	var window, step, holdout time.Duration
+	var target float64
+	var minSamples int
+	var tls httpx.Options
+	fs.StringVar(&promURL, "prometheus-url", os.Getenv("PROMETHEUS_URL"), "Prometheus base URL (or PROMETHEUS_URL).")
+	fs.StringVar(&ns, "namespace", "", "namespace (required).")
+	fs.StringVar(&wl, "workload", "", "workload name (required).")
+	fs.StringVar(&kind, "kind", "Deployment", "Deployment, StatefulSet or DaemonSet.")
+	fs.StringVar(&container, "container", "", "container name (required).")
+	fs.StringVar(&now, "now", "", "evaluation time, RFC3339 (default now).")
+	fs.DurationVar(&window, "window", 14*24*time.Hour, "total history to use.")
+	fs.DurationVar(&holdout, "holdout", 24*time.Hour, "the most recent part kept unseen as the test period.")
+	fs.DurationVar(&step, "step", 5*time.Minute, "sampling step.")
+	fs.Float64Var(&target, "target-exceed", 0.01, "tolerated share of test samples above the recommendation.")
+	fs.IntVar(&minSamples, "min-samples", 200, "minimum training samples.")
+	fs.StringVar(&tls.CAFile, "prometheus-ca-file", "", "PEM CA bundle to verify Prometheus.")
+	fs.StringVar(&tls.BearerTokenFile, "prometheus-bearer-token-file", "", "file with a bearer token for Prometheus.")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	tls.BearerToken = os.Getenv("PROMETHEUS_TOKEN")
+	if promURL == "" || ns == "" || wl == "" || container == "" {
+		return fmt.Errorf("--prometheus-url, --namespace, --workload and --container are required")
+	}
+	if holdout <= 0 || holdout >= window {
+		return fmt.Errorf("--holdout must be positive and shorter than --window")
+	}
+	at := time.Now().UTC()
+	if now != "" {
+		var err error
+		if at, err = time.Parse(time.RFC3339, now); err != nil {
+			return fmt.Errorf("--now: %w", err)
+		}
+	}
+	hc, err := httpx.NewClient(tls, 30*time.Second)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	cpu, mem, err := (&promsrc.Client{BaseURL: promURL, HTTP: hc}).Series(ctx, promsrc.Target{Namespace: ns, Workload: wl, Kind: kind, Container: container}, window, step, at)
+	if err != nil {
+		return err
+	}
+	frac := float64(holdout) / float64(window)
+	res := map[string]any{"window": window.String(), "holdout": holdout.String(), "targetExceed": target}
+	for name, series := range map[string][][]float64{"cpu": cpu, "memory": mem} {
+		tr, te := recommend.SplitSeries(series, frac)
+		b, err := recommend.Backtest(tr, te, recommend.DefaultGrid(), target, minSamples)
+		if err != nil {
+			res[name] = map[string]any{"error": err.Error()}
+			continue
+		}
+		res[name] = b
+	}
+	return printJSON(out, res)
 }

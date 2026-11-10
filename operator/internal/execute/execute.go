@@ -53,8 +53,12 @@ type Executor struct {
 	Dyn   dynamic.Interface
 	Audit Sink
 	Actor string
-	Now   func() time.Time
-	Sleep func(time.Duration)
+	// ApprovalOverride, if set, replaces the approval annotations on the workload as the source of the approval: it returns the approved
+	// recommendation ID and the approver identity, or ok=false for "not approved". The applier controller uses it so approval comes from
+	// a WorkloadRecommendation status (its own RBAC permission) and annotations on the workload are ignored.
+	ApprovalOverride func(kind, ns, name string) (id, by string, ok bool)
+	Now              func() time.Time
+	Sleep            func(time.Duration)
 }
 
 func (e *Executor) now() time.Time {
@@ -229,6 +233,12 @@ func (e *Executor) Inspect(ctx context.Context, kind, ns, name string) (safety.F
 	f.Labels = lbl
 	f.Approved = ann[AnnApproved]
 	f.ApprovedBy = ann[AnnApprovedBy]
+	if e.ApprovalOverride != nil {
+		f.Approved, f.ApprovedBy = "", ""
+		if id, by, ok := e.ApprovalOverride(kind, ns, name); ok {
+			f.Approved, f.ApprovedBy = id, by
+		}
+	}
 	f.AlreadyApplied = ann[AnnApplied]
 	f.RolledBack = ann[AnnRolledBack]
 	f.GitOps = gitops(w.obj)
@@ -788,20 +798,31 @@ func (e *Executor) ApplyWatchRollback(ctx context.Context, rec recommend.Recomme
 	if err != nil || !res.Applied {
 		return res, Verdict{}, err
 	}
+	v, err := e.WatchAndRollback(ctx, rec, th)
+	return res, v, err
+}
+
+// WatchAndRollback observes a change that is already applied and restores the previous state if it degrades. It is also how an
+// interrupted run is resumed: the state it needs lives on the workload. If the context is cancelled (the process is shutting down)
+// it returns the context error WITHOUT rolling back, because "we stopped looking" is not evidence that the workload is unhealthy.
+func (e *Executor) WatchAndRollback(ctx context.Context, rec recommend.Recommendation, th Thresholds) (Verdict, error) {
 	v, err := e.Watch(ctx, rec, th)
 	if err != nil {
+		if ctx.Err() != nil {
+			return v, ctx.Err()
+		}
 		// we cannot tell whether it is healthy: fail safe and restore
 		if rerr := e.Rollback(ctx, rec.Kind, rec.Namespace, rec.Workload, []string{"watch failed: " + err.Error()}, th.def().RolloutTimeout); rerr != nil {
-			return res, v, fmt.Errorf("watch failed (%v) and rollback failed: %w", err, rerr)
+			return v, fmt.Errorf("watch failed (%v) and rollback failed: %w", err, rerr)
 		}
-		return res, v, fmt.Errorf("watch failed, change rolled back: %w", err)
+		return v, fmt.Errorf("watch failed, change rolled back: %w", err)
 	}
 	if !v.Healthy {
 		if rerr := e.Rollback(ctx, rec.Kind, rec.Namespace, rec.Workload, v.Reasons, th.def().RolloutTimeout); rerr != nil {
-			return res, v, rerr
+			return v, rerr
 		}
 	}
-	return res, v, nil
+	return v, nil
 }
 
 // ---------------------------------------------------------------- approval with identity
@@ -856,4 +877,21 @@ func (e *Executor) Approve(ctx context.Context, rec recommend.Recommendation) (s
 	}
 	e.record("approved", rec, map[string]any{"approvedBy": who})
 	return who, nil
+}
+
+// Fresh reports whether the live workload still has the values the recommendation was computed for (and the container exists).
+// It reads only.
+func (e *Executor) Fresh(ctx context.Context, rec recommend.Recommendation) error {
+	w, err := e.get(ctx, rec.Kind, rec.Namespace, rec.Workload)
+	if err != nil {
+		return err
+	}
+	c := findContainer(w.tmpl, rec.Container)
+	if c == nil {
+		return fmt.Errorf("container %q not found", rec.Container)
+	}
+	if why := stale(*c, rec); why != "" {
+		return errors.New(why)
+	}
+	return nil
 }
