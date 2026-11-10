@@ -145,3 +145,34 @@ func TestApplierAndObserveOnlyAreRenderedIntoTheOperatorArgs(t *testing.T) {
 		t.Fatal("enabling the applier must not switch observe-only off")
 	}
 }
+
+func TestSeparationOfDutiesPoliciesExistOnlyWithTheApplierAndCanBeSwitchedOff(t *testing.T) {
+	count := func(out string) int { return strings.Count(out, "kind: ValidatingAdmissionPolicy\n") }
+	if n := count(render(t)); n != 0 {
+		t.Fatalf("the default install must not create admission policies, found %d", n)
+	}
+	on := render(t, "--set", "operator.recommendationApplier.enabled=true")
+	if n := count(on); n != 3 {
+		t.Fatalf("want 3 policies (published-by, approval, immutability), found %d", n)
+	}
+	for _, want := range []string{"request.userInfo.username", "separation of duties", "failurePolicy: Fail", "validationActions: [Deny]"} {
+		if !strings.Contains(on, want) {
+			t.Errorf("rendered policies lack %q", want)
+		}
+	}
+	off := render(t, "--set", "operator.recommendationApplier.enabled=true", "--set", "operator.recommendationApplier.enforceSeparationOfDuties=false")
+	if count(off) != 0 {
+		t.Fatal("enforceSeparationOfDuties=false must remove the policies")
+	}
+}
+
+func TestApplierAlertsAreRenderedOnlyWithTheApplier(t *testing.T) {
+	base := []string{"--set", "prometheusRule.enabled=true"}
+	if strings.Contains(render(t, base...), "KubeCostRecommendationRolledBack") {
+		t.Fatal("applier alerts must not exist by default")
+	}
+	on := render(t, append(base, "--set", "operator.recommendationApplier.enabled=true")...)
+	if !strings.Contains(on, "KubeCostRecommendationRolledBack") || !strings.Contains(on, "KubeCostRecommendationFailed") {
+		t.Fatal("applier alerts missing when enabled")
+	}
+}

@@ -5,6 +5,7 @@ package controller
 import (
 	"context"
 	"encoding/json"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"strings"
 	"testing"
 	"time"
@@ -362,4 +363,56 @@ func TestSetRefusesToLeaveAFinalPhase(t *testing.T) {
 	if _, err := e.r.set(context.Background(), &cur, v1alpha1.RecPhaseRolledBack, "again", nil, true); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestAnamespaceOwnPolicyReplacesTheGlobalOne(t *testing.T) {
+	cm := policyCM("allowNamespaces: [shop]\nmaxChangeFraction: 0.9\n")
+	cm.Data["policy.shop.yaml"] = "allowNamespaces: [shop]\nmaxChangeFraction: 0.1\n" // the shop team allows only 10% steps
+	e := newAppEnv(t, false, []client.Object{appCR("shop", appRec("shop"), true), cm}, healthy("shop")...)
+	e.reconcile(t, "shop", "api-rec1")
+	got := e.phase(t, "shop", "api-rec1")
+	if got.Status.Phase != v1alpha1.RecPhaseDenied || !strings.Contains(strings.Join(got.Status.Reasons, " "), "maxChangeFraction") || e.cpu(t, "shop") != "2" {
+		t.Fatalf("the namespace policy (10%%) must win over the global one (90%%): %+v", got.Status)
+	}
+	// a namespace with no policy of its own falls back to the global key
+	cm2 := policyCM("allowNamespaces: [shop]\n")
+	cm2.Data["policy.other.yaml"] = "allowNamespaces: [other]\nkillSwitch: true\n"
+	e = newAppEnv(t, false, []client.Object{appCR("shop", appRec("shop"), true), cm2}, healthy("shop")...)
+	e.reconcile(t, "shop", "api-rec1")
+	if e.phase(t, "shop", "api-rec1").Status.Phase != v1alpha1.RecPhaseVerified {
+		t.Fatal("another namespace's policy must not affect shop")
+	}
+}
+
+func TestAMalformedNamespacePolicyDeniesRatherThanFallingBack(t *testing.T) {
+	cm := policyCM(okPolicy)
+	cm.Data["policy.shop.yaml"] = "allowNamespace: [shop]\n" // typo in the key
+	e := newAppEnv(t, false, []client.Object{appCR("shop", appRec("shop"), true), cm}, healthy("shop")...)
+	e.reconcile(t, "shop", "api-rec1")
+	if e.phase(t, "shop", "api-rec1").Status.Phase != v1alpha1.RecPhaseDenied || e.cpu(t, "shop") != "2" {
+		t.Fatal("a broken team policy must deny, not silently use the global one")
+	}
+}
+
+func TestMetricsCountPhasesAndSeparateKeptFromRolledBackSavings(t *testing.T) {
+	rec := appRec("shop")
+	rec.CPU.PotentialMonthlyUSD, rec.Memory.PotentialMonthlyUSD = 10, 2
+	kept0 := promValue(t, "kept")
+	e := newAppEnv(t, false, []client.Object{appCR("shop", rec, true), policyCM(okPolicy)}, healthy("shop")...)
+	e.reconcile(t, "shop", "api-rec1")
+	if got := promValue(t, "kept") - kept0; got != 12 {
+		t.Fatalf("kept estimated saving should grow by 12, grew by %v", got)
+	}
+	rb0 := promValue(t, "rolled_back")
+	objs := []runtime.Object{appDeployment("shop"), appPod("p1", "shop", 0, false), appPod("p2", "shop", 1, true)}
+	e = newAppEnv(t, false, []client.Object{appCR("shop", rec, true), policyCM(okPolicy)}, objs...)
+	e.reconcile(t, "shop", "api-rec1")
+	if got := promValue(t, "rolled_back") - rb0; got != 12 {
+		t.Fatalf("rolled-back estimated saving should grow by 12, grew by %v", got)
+	}
+}
+
+func promValue(t *testing.T, outcome string) float64 {
+	t.Helper()
+	return testutil.ToFloat64(mRecSavings.WithLabelValues(outcome))
 }

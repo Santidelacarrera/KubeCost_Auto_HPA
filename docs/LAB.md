@@ -166,3 +166,19 @@ The error ratio is `NaN` in both windows because the app produced no non-2xx ser
 
 What this does **not** show: any saving on a bill (the numbers above are allocation of requests at flag prices, and one node cannot release capacity), behaviour of a real application under load spikes, a weekly cycle, or tail latency beyond p95 on a trivial route.
 The first check of the script ("the app serves real traffic") failed in that log because of a quoting bug in the check itself (traffic was 35 rps in the next snapshot); it is fixed in the script.
+
+
+## Result 10: hardening on a real cluster (`hack/lab-hardening.sh`)
+
+Evidence: `evidence/2026-11-09-lab-hardening.log`. Lean minikube profile, Kubernetes 1.33.4, hand-made recommendations (no Prometheus).
+
+| Check | Result |
+|---|---|
+| **Helm upgrade from the previous chart** (git commit 534c64d, before all this work) to the current one, `helm rollback`, and upgrade again | PASS |
+| **Known limitation, verified:** `helm upgrade` does not install a CRD that is new in `crds/`; the new CRD has to be applied by hand (`kubectl apply -f deploy/helm/kubecost-auto-hpa/crds/`) and the operator restarted. Rollback keeps the CRD (Helm never deletes CRDs) | PASS |
+| **Separation of duties by the API server** (alice publishes, bob approves, by impersonation): forged `published-by` denied; alice approving her own denied; bob writing an approval in alice's name denied; bob's proper approval accepted; the operator's own status writes still pass (phase DryRun); `published-by` cannot be rewritten even by an admin; with the switch off alice can approve her own | PASS |
+| **60 approved recommendations at once** (observe-only): published and approved in about 37 s, all reach `DryRun`, the workload is never written, the DryRun metric counted them, no reconcile errors, operator about 50 MiB | PASS |
+| **kube-apiserver stopped for about 40 s** while two changes were being observed: after it returned both finished `Verified`, each applied exactly once, no `Failed` | PASS |
+
+Notes: the operator image used for the old-chart install is the current one (this checks chart upgrade mechanics, not an upgrade between operator versions); the run shown is the last of several runs of the same script after fixing script bugs (readiness label, `patch` vs `update` verb, pod selection), and the first complete run also produced all but those checks.
+Not covered: an outage longer than the tolerance on a real cluster (unit-tested), more than two simultaneous observations during the outage, a multi-replica operator with leader election.

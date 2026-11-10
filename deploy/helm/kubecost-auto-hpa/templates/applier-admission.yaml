@@ -1,0 +1,96 @@
+{{- $a := .Values.operator.recommendationApplier }}
+{{- if and $a.enabled $a.enforceSeparationOfDuties }}
+# Separation of duties for WorkloadRecommendation, enforced by the API server itself (ValidatingAdmissionPolicy, CEL, GA since Kubernetes 1.30):
+# no webhook, no certificates, nothing that can be down. Three rules:
+#   1. a recommendation can only be created with published-by equal to the authenticated user (the stamp cannot be forged);
+#   2. an approval must name the authenticated user as approver, must be for this recommendation, and the approver can NOT be the publisher;
+#   3. published-by cannot be changed afterwards.
+# The operator's own status updates (phases) do not change status.approval, so they are not affected.
+# Needs Kubernetes 1.30+ (ValidatingAdmissionPolicy GA). Turn off with operator.recommendationApplier.enforceSeparationOfDuties=false.
+{{- $name := include "kch.name" . }}
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ $name }}-rec-published-by
+  labels: {{- include "kch.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+    - apiGroups: [autoscaling.kubecost.io]
+      apiVersions: ["*"]
+      operations: [CREATE]
+      resources: [workloadrecommendations]
+  validations:
+  - expression: "has(object.metadata.annotations) && 'autoscaling.kubecost.io/published-by' in object.metadata.annotations && object.metadata.annotations['autoscaling.kubecost.io/published-by'] == request.userInfo.username"
+    message: "autoscaling.kubecost.io/published-by must be present and equal to the authenticated user (rightsize plan --publish sets it)"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ $name }}-rec-published-by
+  labels: {{- include "kch.labels" . | nindent 4 }}
+spec:
+  policyName: {{ $name }}-rec-published-by
+  validationActions: [Deny]
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ $name }}-rec-approval
+  labels: {{- include "kch.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+    - apiGroups: [autoscaling.kubecost.io]
+      apiVersions: ["*"]
+      operations: [UPDATE]
+      resources: [workloadrecommendations/status]
+  # only when status.approval is being set or changed
+  matchConditions:
+  - name: approval-is-being-written
+    expression: "has(object.status) && has(object.status.approval) && (!has(oldObject.status) || !has(oldObject.status.approval) || object.status.approval != oldObject.status.approval)"
+  validations:
+  - expression: "object.status.approval.by == request.userInfo.username"
+    message: "status.approval.by must equal the authenticated user: an approval cannot be written in somebody else's name"
+  - expression: "object.status.approval.recommendationID == object.spec.recommendationID"
+    message: "the approval must be for this exact recommendation"
+  - expression: "has(object.metadata.annotations) && 'autoscaling.kubecost.io/published-by' in object.metadata.annotations && object.metadata.annotations['autoscaling.kubecost.io/published-by'] != request.userInfo.username"
+    message: "the approver cannot be the publisher of the recommendation (separation of duties), and the publisher must be known"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ $name }}-rec-approval
+  labels: {{- include "kch.labels" . | nindent 4 }}
+spec:
+  policyName: {{ $name }}-rec-approval
+  validationActions: [Deny]
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ $name }}-rec-published-by-immutable
+  labels: {{- include "kch.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+    - apiGroups: [autoscaling.kubecost.io]
+      apiVersions: ["*"]
+      operations: [UPDATE]
+      resources: [workloadrecommendations]
+  validations:
+  - expression: "(has(oldObject.metadata.annotations) && 'autoscaling.kubecost.io/published-by' in oldObject.metadata.annotations) ? (has(object.metadata.annotations) && object.metadata.annotations['autoscaling.kubecost.io/published-by'] == oldObject.metadata.annotations['autoscaling.kubecost.io/published-by']) : true"
+    message: "autoscaling.kubecost.io/published-by cannot be changed or removed"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ $name }}-rec-published-by-immutable
+  labels: {{- include "kch.labels" . | nindent 4 }}
+spec:
+  policyName: {{ $name }}-rec-published-by-immutable
+  validationActions: [Deny]
+{{- end }}

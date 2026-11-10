@@ -46,7 +46,7 @@ func TestNameIsStableDNSSafeAndShort(t *testing.T) {
 
 func TestPublishCreatesOneObjectAndIsIdempotent(t *testing.T) {
 	dyn := newDyn()
-	name, err := publishRecommendation(context.Background(), dyn, recFor(), "latency")
+	name, err := publishRecommendation(context.Background(), dyn, recFor(), "latency", "alice@example.com")
 	if err != nil || name != "api-rec-1" {
 		t.Fatalf("%v %q", err, name)
 	}
@@ -61,17 +61,17 @@ func TestPublishCreatesOneObjectAndIsIdempotent(t *testing.T) {
 	if id != "Rec_1" || slo != "latency" || !strings.Contains(cpu, "2000m -> 1000m") || !strings.Contains(rec, `"Rec_1"`) {
 		t.Fatalf("%v", obj.Object["spec"])
 	}
-	if _, err := publishRecommendation(context.Background(), dyn, recFor(), "latency"); err != nil {
+	if _, err := publishRecommendation(context.Background(), dyn, recFor(), "latency", "alice@example.com"); err != nil {
 		t.Fatalf("publishing the same recommendation twice must be a no-op: %v", err)
 	}
 	r := recFor()
 	r.Abstained = true
-	if _, err := publishRecommendation(context.Background(), dyn, r, ""); err == nil {
+	if _, err := publishRecommendation(context.Background(), dyn, r, "", "alice@example.com"); err == nil {
 		t.Fatal("an abstention was published")
 	}
 	r = recFor()
 	r.CPU.Action = recommend.NoChange
-	if _, err := publishRecommendation(context.Background(), dyn, r, ""); err == nil {
+	if _, err := publishRecommendation(context.Background(), dyn, r, "", "alice@example.com"); err == nil {
 		t.Fatal("a no-op was published")
 	}
 }
@@ -87,7 +87,7 @@ func TestApproveWritesTheStatusWithTheServerIdentity(t *testing.T) {
 		return true, &authv1.SelfSubjectReview{Status: authv1.SelfSubjectReviewStatus{UserInfo: authv1.UserInfo{Username: "alice@example.com"}}}, nil
 	})
 	dyn := newDyn()
-	if _, err := publishRecommendation(context.Background(), dyn, recFor(), ""); err != nil {
+	if _, err := publishRecommendation(context.Background(), dyn, recFor(), "", "alice@example.com"); err != nil {
 		t.Fatal(err)
 	}
 	ex := &execute.Executor{KC: kc, Dyn: dyn}
@@ -110,5 +110,20 @@ func TestApproveWritesTheStatusWithTheServerIdentity(t *testing.T) {
 	// nothing published: nothing to approve
 	if _, err := approveRecommendation(context.Background(), &execute.Executor{KC: kc, Dyn: newDyn()}, recFor()); err == nil {
 		t.Fatal("approved a recommendation that was never published")
+	}
+}
+
+func TestPublishStampsThePublisherAndRefusesWithoutOne(t *testing.T) {
+	dyn := newDyn()
+	name, err := publishRecommendation(context.Background(), dyn, recFor(), "", "alice@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	obj, _ := dyn.Resource(wrecGVR).Namespace("shop").Get(context.Background(), name, metav1.GetOptions{})
+	if obj.GetAnnotations()["autoscaling.kubecost.io/published-by"] != "alice@example.com" {
+		t.Fatalf("%v", obj.GetAnnotations())
+	}
+	if _, err := publishRecommendation(context.Background(), newDyn(), recFor(), "", ""); err == nil {
+		t.Fatal("published without knowing the publisher")
 	}
 }

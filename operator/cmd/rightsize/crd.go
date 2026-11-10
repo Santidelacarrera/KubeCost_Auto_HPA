@@ -50,7 +50,10 @@ func summaryOf(rec recommend.Recommendation) map[string]any {
 }
 
 // publishRecommendation creates the WorkloadRecommendation object. It changes nothing else in the cluster.
-func publishRecommendation(ctx context.Context, dyn dynamic.Interface, rec recommend.Recommendation, sloQueryName string) (string, error) {
+func publishRecommendation(ctx context.Context, dyn dynamic.Interface, rec recommend.Recommendation, sloQueryName, publisher string) (string, error) {
+	if publisher == "" {
+		return "", errors.New("cannot publish without knowing who you are (the publisher is recorded and, with separation of duties on, checked by the API server)")
+	}
 	if rec.Abstained || !(isChange(rec.CPU) || isChange(rec.Memory)) {
 		return "", errors.New("the recommendation changes nothing (or abstained): there is nothing to publish")
 	}
@@ -69,8 +72,9 @@ func publishRecommendation(ctx context.Context, dyn dynamic.Interface, rec recom
 	}
 	obj := &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": "autoscaling.kubecost.io/v1alpha1", "kind": "WorkloadRecommendation",
-		"metadata": map[string]any{"name": wrecName(rec), "namespace": rec.Namespace},
-		"spec":     spec,
+		"metadata": map[string]any{"name": wrecName(rec), "namespace": rec.Namespace,
+			"annotations": map[string]any{"autoscaling.kubecost.io/published-by": publisher}},
+		"spec": spec,
 	}}
 	_, err = dyn.Resource(wrecGVR).Namespace(rec.Namespace).Create(ctx, obj, metav1.CreateOptions{})
 	if apierrors.IsAlreadyExists(err) {

@@ -76,7 +76,7 @@ func TestParsePrices(t *testing.T) {
 
 func TestNewCommandsGuardTheirArguments(t *testing.T) {
 	for name, f := range map[string]func([]string, io.Writer) error{
-		"approve": approveCmd, "plan": planCmd, "report": reportCmd, "propose": proposeCmd,
+		"approve": approveCmd, "plan": planCmd, "report": reportCmd, "propose": proposeCmd, "publish": publishCmd,
 	} {
 		if err := f(nil, io.Discard); err == nil {
 			t.Errorf("%s accepted no arguments", name)

@@ -561,6 +561,10 @@ type Thresholds struct {
 	ObserveFor     time.Duration // 5m: how long the stable state must hold
 	Poll           time.Duration // 10s
 	MaxRestarts    int           // 0: any container restart of the new pods counts
+	// ObserveErrorTolerance (2m): how long reads of the workload (or the SLO query) may keep failing before Watch gives up and the change is
+	// rolled back as a precaution. Not being able to look is not evidence of a problem, so short outages of the API server or of Prometheus are
+	// ridden out; but the unobserved time never counts as healthy time: the observation window restarts once reads work again.
+	ObserveErrorTolerance time.Duration
 	// SLO, if set, is polled each round. breached=true degrades; known=false is ignored (but reported).
 	SLO func(ctx context.Context) (breached, known bool, err error)
 }
@@ -574,6 +578,9 @@ func (t Thresholds) def() Thresholds {
 	}
 	if t.Poll == 0 {
 		t.Poll = 10 * time.Second
+	}
+	if t.ObserveErrorTolerance == 0 {
+		t.ObserveErrorTolerance = 2 * time.Minute
 	}
 	return t
 }
@@ -667,21 +674,46 @@ func (e *Executor) Watch(ctx context.Context, rec recommend.Recommendation, th T
 	th = th.def()
 	start := e.now()
 	var baseline int32
-	var stableSince time.Time
+	var stableSince, failingSince time.Time
+	// blind handles a failed read: ride it out for a bounded time, never counting the unobserved time as healthy.
+	blind := func(err error) error {
+		if failingSince.IsZero() {
+			failingSince = e.now()
+			e.record("observe_error", rec, map[string]any{"error": err.Error(), "tolerating": th.ObserveErrorTolerance.String()})
+		}
+		stableSince = time.Time{}
+		if e.now().Sub(failingSince) >= th.ObserveErrorTolerance {
+			return err
+		}
+		e.sleep(th.Poll)
+		return nil
+	}
 	for {
 		if err := ctx.Err(); err != nil {
 			return Verdict{}, err
 		}
 		o, err := e.observe(ctx, rec.Kind, rec.Namespace, rec.Workload)
 		if err != nil {
-			return Verdict{}, err
+			if berr := blind(err); berr != nil {
+				return Verdict{}, berr
+			}
+			continue
 		}
 		if th.SLO != nil {
 			if b, known, err := th.SLO(ctx); err != nil {
-				return Verdict{}, fmt.Errorf("slo check: %w", err)
+				if berr := blind(fmt.Errorf("slo check: %w", err)); berr != nil {
+					return Verdict{}, berr
+				}
+				continue
 			} else if known {
 				o.SLOBreached = b
 			}
+		}
+		if !failingSince.IsZero() {
+			// While the API (or the SLO source) was unreachable the rollout could not be judged and the control plane may not have
+			// been able to progress it either: that time must not count against the rollout timeout (found in a real API-server outage).
+			start = start.Add(e.now().Sub(failingSince))
+			failingSince = time.Time{}
 		}
 		if o.RolloutComplete && stableSince.IsZero() {
 			stableSince, baseline = e.now(), o.Replicas

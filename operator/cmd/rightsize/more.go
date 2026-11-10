@@ -149,7 +149,11 @@ func planCmd(args []string, out io.Writer) error {
 		return err
 	}
 	if publish {
-		name, err := publishRecommendation(ctx, ex.Dyn, rec, sloName)
+		who, err := ex.Identity(ctx)
+		if err != nil {
+			return err
+		}
+		name, err := publishRecommendation(ctx, ex.Dyn, rec, sloName, who)
 		if err != nil {
 			return err
 		}
@@ -346,4 +350,38 @@ func backtestCmd(args []string, out io.Writer) error {
 		res[name] = b
 	}
 	return printJSON(out, res)
+}
+
+// publish creates a WorkloadRecommendation from a saved recommendation JSON (the same thing plan --publish does, without computing anything).
+func publishCmd(args []string, out io.Writer) error {
+	fs := flag.NewFlagSet("publish", flag.ContinueOnError)
+	var c common
+	c.bind(fs)
+	var recFile, sloName string
+	fs.StringVar(&recFile, "recommendation", "", "recommendation JSON (required).")
+	fs.StringVar(&sloName, "slo-query-name", "", "name of an SLO query defined in the operator policy ConfigMap (slo.<name>).")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if recFile == "" || c.kctx == "" {
+		return fmt.Errorf("--recommendation and --context are required")
+	}
+	rec, err := readRecommendation(recFile)
+	if err != nil {
+		return err
+	}
+	ex, closeAudit, err := c.executor()
+	if err != nil {
+		return err
+	}
+	defer closeAudit()
+	who, err := ex.Identity(context.Background())
+	if err != nil {
+		return err
+	}
+	name, err := publishRecommendation(context.Background(), ex.Dyn, rec, sloName, who)
+	if err != nil {
+		return err
+	}
+	return printJSON(out, map[string]any{"published": name, "namespace": rec.Namespace, "publisher": who, "changedNothingElse": true})
 }

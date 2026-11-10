@@ -95,3 +95,29 @@ What gates it, in addition to everything in the CLI path:
 
 Known limits: anyone holding both the publish and approve roles (or cluster-admin) can push a change through, so separation of duties is only as strong as your RBAC bindings; two reconcile workers, each blocked for up to `maxObserve` while a change is observed;
 terminal phases are not revisited (a new decision needs a new recommendation). Verified on the lab cluster only (docs/LAB.md).
+
+
+### Separation of duties enforced by the API server (applier path)
+
+With `operator.recommendationApplier.enforceSeparationOfDuties=true` (the default when the applier is on; Kubernetes 1.30+) the chart installs three `ValidatingAdmissionPolicy` objects (CEL, `failurePolicy: Fail`, no webhook, no certificates):
+
+1. **Creating** a `WorkloadRecommendation` requires the annotation `autoscaling.kubecost.io/published-by` to equal the authenticated user. The stamp cannot be forged (`rightsize publish` / `plan --publish` set it from the identity the API server reports).
+2. **Writing `status.approval`** requires `approval.by` to equal the authenticated user, the approval to be for this exact recommendation, and the approver to be **different from the publisher**. A recommendation with no known publisher cannot be approved.
+3. `published-by` **cannot be changed or removed** afterwards, not even by a cluster admin.
+
+The operator's own status updates (phases) do not change `status.approval`, so they are not affected. Self-approval is therefore impossible for anyone, including people who hold both the publish and approve roles; a second, different person is needed. (Someone with two accounts can still use both: identity is whatever your authentication says.)
+Verified on a real Kubernetes 1.33.4 cluster with users `alice` and `bob` by impersonation (docs/LAB.md result 10). Not enforced on the CLI path (`rightsize approve` without `--cr` writes an annotation on the workload).
+
+### Per-team policies (applier)
+
+A key `policy.<namespace>.yaml` in the policy ConfigMap **replaces** the global `policy.yaml` for that namespace (it must itself allow the namespace). A malformed team policy denies; it never falls back silently to the global one.
+
+### Observability of the applier
+
+Metrics (all labels are closed sets; no namespaces, names or IDs): `kubecost_recommendation_phase_transitions_total{phase}`, `kubecost_recommendation_estimated_savings_usd_total{outcome="kept|rolled_back"}` (an ESTIMATE, never a bill),
+`kubecost_recommendation_apply_duration_seconds`. Alerts (with `prometheusRule.enabled`): `KubeCostRecommendationRolledBack`, `KubeCostRecommendationFailed`. Seen on a real cluster: the DryRun counter matched 60 objects; operator memory about 50 MiB with those 60 objects.
+
+### Outages while a change is observed
+
+If the workload (or the SLO query) cannot be read during observation, the executor keeps trying for `ObserveErrorTolerance` (2 minutes) before giving up. Unobserved time never counts as healthy time: the observation window restarts when reads work again.
+If the outage outlasts the tolerance the change is rolled back as a precaution (fail safe); if that rollback also fails the object ends `Failed` and a human must look. Verified with the API server stopped for about 40 s during two observations (docs/LAB.md result 10).

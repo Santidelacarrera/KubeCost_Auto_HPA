@@ -32,6 +32,7 @@ import (
 var errTerminal = errors.New("the recommendation already reached a final phase")
 
 // PolicyKey is the ConfigMap key holding the safety.Policy; "slo.<name>" keys hold the named SLO breach queries.
+// A key "policy.<namespace>.yaml" replaces PolicyKey for that namespace (per-team limits); it must itself allow the namespace.
 const PolicyKey = "policy.yaml"
 
 // RecommendationApplier applies approved WorkloadRecommendations. It is OPT-IN (--enable-recommendation-applier), and every gate of
@@ -99,7 +100,7 @@ func (r *RecommendationApplier) Reconcile(ctx context.Context, req ctrl.Request)
 		return r.set(ctx, &cr, v1alpha1.RecPhasePending, "waiting for an approval of this exact recommendation (rightsize approve --cr)", nil, false)
 	}
 
-	pol, slo, err := r.policy(ctx)
+	pol, slo, err := r.policy(ctx, cr.Namespace)
 	if err != nil {
 		lg.Info("no usable policy: nothing will be applied", "error", err.Error())
 		return r.finish(ctx, &cr, v1alpha1.RecPhaseDenied, "no usable policy: "+err.Error(), []string{err.Error()}, time.Minute)
@@ -156,7 +157,21 @@ func (r *RecommendationApplier) Reconcile(ctx context.Context, req ctrl.Request)
 }
 
 func (r *RecommendationApplier) afterWatch(ctx context.Context, cr *v1alpha1.WorkloadRecommendation, rec recommend.Recommendation, ex *execute.Executor, th execute.Thresholds) (ctrl.Result, error) {
+	started := r.now()
+	if cr.Status.AppliedAt != nil {
+		started = cr.Status.AppliedAt.Time
+	}
 	v, err := ex.WatchAndRollback(ctx, rec, th)
+	saving := rec.CPU.PotentialMonthlyUSD + rec.Memory.PotentialMonthlyUSD
+	if ctx.Err() == nil {
+		mRecApplySeconds.Observe(r.now().Sub(started).Seconds())
+		switch {
+		case err == nil && v.Healthy && saving > 0:
+			mRecSavings.WithLabelValues("kept").Add(saving)
+		case err == nil && !v.Healthy && saving > 0:
+			mRecSavings.WithLabelValues("rolled_back").Add(saving)
+		}
+	}
 	switch {
 	case ctx.Err() != nil:
 		// shutting down: leave the phase as Applying so the next process resumes
@@ -196,7 +211,7 @@ func (r *RecommendationApplier) parse(cr *v1alpha1.WorkloadRecommendation) (reco
 }
 
 // policy reads the ConfigMap fresh each time (the kill switch must not need a restart).
-func (r *RecommendationApplier) policy(ctx context.Context) (safety.Policy, map[string]string, error) {
+func (r *RecommendationApplier) policy(ctx context.Context, namespace string) (safety.Policy, map[string]string, error) {
 	var pol safety.Policy
 	if r.PolicyName == "" {
 		return pol, nil, errors.New("no policy ConfigMap is configured (--applier-policy-configmap)")
@@ -207,9 +222,13 @@ func (r *RecommendationApplier) policy(ctx context.Context) (safety.Policy, map[
 	if err != nil {
 		return pol, nil, fmt.Errorf("policy ConfigMap %s/%s: %v", r.PolicyNamespace, r.PolicyName, err)
 	}
-	raw, ok := cm.Data[PolicyKey]
+	key := PolicyKey
+	if _, ok := cm.Data["policy."+namespace+".yaml"]; ok {
+		key = "policy." + namespace + ".yaml" // this namespace's own policy replaces the global one entirely
+	}
+	raw, ok := cm.Data[key]
 	if !ok {
-		return pol, nil, fmt.Errorf("policy ConfigMap %s/%s has no %q key", r.PolicyNamespace, r.PolicyName, PolicyKey)
+		return pol, nil, fmt.Errorf("policy ConfigMap %s/%s has no %q key", r.PolicyNamespace, r.PolicyName, key)
 	}
 	if err := yaml.UnmarshalStrict([]byte(raw), &pol); err != nil {
 		return pol, nil, fmt.Errorf("policy is not valid: %v", err)
@@ -267,6 +286,7 @@ func (r *RecommendationApplier) set(ctx context.Context, cr *v1alpha1.WorkloadRe
 		}
 		return ctrl.Result{}, err
 	}
+	mRecPhase.WithLabelValues(phase).Inc()
 	if r.Recorder != nil {
 		et := corev1.EventTypeNormal
 		if phase == v1alpha1.RecPhaseFailed || phase == v1alpha1.RecPhaseRolledBack {

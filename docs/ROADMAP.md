@@ -15,7 +15,7 @@ Ordered by what unlocks real use, not by what looks impressive. Items marked BLO
 * GitOps: Helm-values and Kustomize editors, and opening the pull request (docs/GITOPS.md).
 * Billing adapters that read provider exports (CUR/FOCUS, GCP, Azure) into the `cost` CSV shape; discounts/reservations; reconciliation against a real invoice. BLOCKED: real billing data.
 * Outcome metrics exported to Prometheus and *observed* savings from two equivalent periods. (`rightsize report` already derives acceptance rate, rollback rate and kept ESTIMATED savings from the audit trail.)
-* (Done, opt-in) Recommendation CRD and applier controller: ADR-0003. Remaining: an admission webhook to forbid self-approval, load testing with many objects, API-outage chaos tests, and turning it on anywhere only after item 1 above.
+* (Done, opt-in) Recommendation CRD and applier controller: ADR-0003. Remaining: turning it on anywhere only after item 1 above. (Self-approval is now blocked by ValidatingAdmissionPolicy, and 60-object load and a 40 s API outage were exercised: docs/LAB.md result 10.)
 * Audit shipping to append-only storage; a signed approval instead of an annotation. (Approver identity from SelfSubjectReview and an `approvers` allow-list are done.)
 * Node-level optimisation beyond the candidate report (affinity, topology, PDB budgets) and integration with Karpenter/Cluster Autoscaler.
 

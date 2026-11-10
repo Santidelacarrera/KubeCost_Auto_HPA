@@ -17,6 +17,8 @@ operator:
     enabled: false
     namespaces: []
     maxObserve: 15m
+    # ValidatingAdmissionPolicies (Kubernetes 1.30+): the approver must be the authenticated user and cannot be the publisher.
+    enforceSeparationOfDuties: true
     # The safety policy (docs/SAFETY.md). The default authorises nothing: no namespace is allowed.
     policy: |
       allowNamespaces: []

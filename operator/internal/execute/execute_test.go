@@ -457,3 +457,80 @@ func TestApplyRetriesStatusConflictButNotASpecChange(t *testing.T) {
 		t.Fatalf("%v %+v", err, res)
 	}
 }
+
+// A short outage of the API server must not roll a healthy change back, and the unobserved time must not count as healthy time.
+func TestWatchRidesOutAShortReadOutageAndRestartsTheObservationWindow(t *testing.T) {
+	e := newEnv(dep(), pod("p1", true, 0, false), pod("p2", true, 0, false))
+	if res, err := e.ex.Apply(context.Background(), rec(), pol(), true); err != nil || !res.Applied {
+		t.Fatalf("%v %+v", err, res)
+	}
+	var failUntil time.Time
+	e.kc.PrependReactor("get", "deployments", func(ktesting.Action) (bool, runtime.Object, error) {
+		if e.clk.t.Before(failUntil) {
+			return true, nil, errors.New("the server is currently unable to handle the request")
+		}
+		return false, nil, nil
+	})
+	failUntil = e.clk.t.Add(50 * time.Second)
+	start := e.clk.t
+	v, err := e.ex.Watch(context.Background(), rec(), Thresholds{ObserveFor: time.Minute, Poll: 10 * time.Second, ObserveErrorTolerance: 2 * time.Minute})
+	if err != nil || !v.Healthy {
+		t.Fatalf("a 50 s outage inside the 2 min tolerance must be ridden out: %v %+v", err, v)
+	}
+	if took := e.clk.t.Sub(start); took < 50*time.Second+time.Minute {
+		t.Fatalf("the full observation window must be re-counted after the outage; only %s elapsed", took)
+	}
+	if !contains(e.aud.Types(), "observe_error") {
+		t.Fatal("the outage was not audited")
+	}
+}
+
+// During an API outage the control plane cannot progress a rollout either: the blind time must not count against the rollout timeout.
+func TestWatchDoesNotCountBlindTimeAgainstTheRolloutTimeout(t *testing.T) {
+	d := dep()
+	d.Status.AvailableReplicas = 1 // rollout in progress when the outage starts
+	e := newEnv(d, pod("p1", true, 0, false), pod("p2", true, 0, false))
+	if res, err := e.ex.Apply(context.Background(), rec(), pol(), true); err != nil || !res.Applied {
+		t.Fatalf("%v %+v", err, res)
+	}
+	begin := e.clk.t
+	e.kc.PrependReactor("get", "deployments", func(ktesting.Action) (bool, runtime.Object, error) {
+		el := e.clk.t.Sub(begin)
+		switch {
+		case el < 50*time.Second:
+			return true, nil, errors.New("connection refused")
+		case el < 75*time.Second:
+			return false, nil, nil // reachable again, rollout still in progress (1 of 2 available)
+		}
+		done := dep()
+		done.Status.AvailableReplicas = 2
+		return true, done, nil
+	})
+	v, err := e.ex.Watch(context.Background(), rec(), Thresholds{RolloutTimeout: time.Minute, ObserveFor: 20 * time.Second, Poll: 10 * time.Second, ObserveErrorTolerance: 2 * time.Minute})
+	if err != nil || !v.Healthy {
+		t.Fatalf("a 50 s outage must not eat the 60 s rollout timeout (rollout finished 75 s after the start): %v %+v", err, v)
+	}
+}
+
+func TestWatchGivesUpAfterThePersistentOutageAndTheCallerFailsSafe(t *testing.T) {
+	e := newEnv(dep(), pod("p1", true, 0, false), pod("p2", true, 0, false))
+	if res, err := e.ex.Apply(context.Background(), rec(), pol(), true); err != nil || !res.Applied {
+		t.Fatalf("%v %+v", err, res)
+	}
+	broken := true
+	e.kc.PrependReactor("get", "deployments", func(ktesting.Action) (bool, runtime.Object, error) {
+		if broken {
+			return true, nil, errors.New("connection refused")
+		}
+		return false, nil, nil
+	})
+	_, err := e.ex.Watch(context.Background(), rec(), Thresholds{ObserveFor: time.Minute, Poll: 10 * time.Second, ObserveErrorTolerance: 90 * time.Second})
+	if err == nil {
+		t.Fatal("an outage longer than the tolerance must make Watch give up")
+	}
+	// once the API is back, WatchAndRollback restores the previous state (fail safe) because the change could not be observed
+	broken = false
+	if _, err := e.ex.WatchAndRollback(context.Background(), rec(), Thresholds{ObserveFor: time.Minute, Poll: 10 * time.Second}); err != nil {
+		t.Fatal(err)
+	}
+}

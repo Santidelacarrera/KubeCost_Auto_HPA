@@ -27,13 +27,13 @@ running a command. The reasons were (a) no evidence yet that the numbers are goo
 ## Alternatives considered
 
 * **Approval as a spec field or annotation on the CR:** anyone with `update` on the object could approve their own recommendation. The status subresource gives approval its own RBAC verb.
-* **A webhook that validates approvals:** stronger (could forbid self-approval), but adds an admission component and certificates. Left as a follow-up; today separation of duties is by RBAC only.
+* **A webhook that validates approvals:** replaced by native ValidatingAdmissionPolicy (CEL), which needs no component or certificates and has no availability risk beyond the API server itself.
 * **Applying through server-side apply to cooperate with GitOps:** does not solve the reconciler fight; GitOps-managed workloads are refused instead (docs/GITOPS.md).
 * **Free-form SLO query in the CR:** rejected (see 3).
 
 ## Consequences and known limits
 
-* Anyone who can both publish and approve (cluster-admin, or both roles) can push a change through. Separation of duties is only as good as the RBAC bindings.
+* Separation of duties is enforced by the API server with three ValidatingAdmissionPolicies (published-by must be the real user, the approver must be a different real user, published-by is immutable); it needs Kubernetes 1.30+ and can be switched off. One person with two identities can still publish as one and approve as the other.
 * Two workers; an observation blocks one for up to `maxObserve`. Many simultaneous approvals queue.
 * Terminal phases (`Verified`, `RolledBack`, `Failed`) are not revisited; a new decision needs a new recommendation (new ID).
 * The controller has not been run against more than a handful of objects, nor under API server failures beyond what the unit tests inject.
