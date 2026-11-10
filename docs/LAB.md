@@ -73,7 +73,7 @@ Evidence: `evidence/2026-11-09-lab-e2e2.log`, `evidence/2026-11-09-lab-audit2.js
 | **Live KubeCost-contract test against a REAL OpenCost** (chart opencost 2.5.33, app 1.121.3; default pricing, so the numbers are not a bill): the client parsed a real allocation response | PASS |
 
 Notes on the OpenCost run: OpenCost serves `/allocation/compute`; `/model/allocation` (the path this client uses, as KubeCost does) answered 404 directly on the API port but 200 through the OpenCost UI service
-(port 9090), whose proxy exposes `/model/`. Point `--kubecost-url` at that service when using OpenCost. This is **OpenCost**, not Kubecost: Kubecost itself was not installed.
+(port 9090), whose proxy exposes `/model/`. Point `--kubecost-url` at that service when using OpenCost. This is **OpenCost**, not Kubecost (a real Kubecost was run later: result 11).
 Prometheus needed an extra scrape job for OpenCost's own metrics, otherwise the allocation is empty (`hack/lab/` notes in docs/TROUBLESHOOTING.md).
 A first attempt failed because my own lab workloads requested more memory than the node had (two pods Pending): the tool refused to plan without kube-state-metrics data and the StatefulSet rollout timed out and rolled back, which is the intended behaviour; the manifests were then shrunk.
 
@@ -186,3 +186,20 @@ Notes: the operator image used for the old-chart install is the current one (thi
 Earlier runs of the script, kept honest: three runs failed on script bugs (readiness label, `patch` vs `update` verb, pod selection; later a race where the API server still enforced the admission policy a few seconds after Helm removed it, now retried for up to 60 s).
 **One earlier run ended with both outage changes `RolledBack`** instead of `Verified`; that run did not record the reason. The likely cause, reproduced in a unit test, was that `Watch` counted the time it could not read the cluster against the 60 s rollout timeout used in the lab, so a rollout stalled by the outage looked like "rollout did not complete". That was fixed (`TestWatchDoesNotCountBlindTimeAgainstTheRolloutTimeout`) before the final run. Because the earlier failure was intermittent (the run before it ended `Verified`), one green run does not prove the fix; it is consistent with it.
 Not covered: an outage longer than the tolerance on a real cluster (unit-tested), more than two simultaneous observations during the outage, a multi-replica operator with leader election.
+
+
+## Result 11: a real Kubecost (`hack/lab-kubecost.sh`)
+
+Evidence: `evidence/2026-11-10-kubecost-live-contract.log`. Minikube profile `kubecost-real`, Kubernetes 1.33.4, chart `kubecost/cost-analyzer` **2.8.7** (free tier, its own Prometheus), plus a real OpenCost 1.121.3 on the same cluster. Default prices for a laptop VM: no number here is a bill.
+
+| Check | Result |
+|---|---|
+| Kubecost 2.9.7 (newest chart) installs standalone | **BLOCKED by the chart**: it refuses without a federated object store (S3-like); 2.9 only prepares the move to 3.0. 2.8.7 used instead |
+| Kubecost 2.8.7 installs and prices the workload in `/model/allocation` | PASS (after about 6 min) |
+| Live contract test, client as it was (`aggregate=controller`) | **FAIL: real defect found.** Kubecost returns only the `controller` property for that aggregation, so the workload was "not present" (fail closed); two same-named controllers in different namespaces would have been merged into one cost |
+| Fix: aggregate by `cluster,namespace,controllerKind,controller`; both real answers kept as test fixtures | done, unit-tested |
+| Contract after the fix against Kubecost (workload found, positive hourly cost 0.00684 USD/h) | PASS (sample at 12:34 UTC) |
+| Freshness/coverage check against Kubecost (`maxMetricAge` 5m, coverage >= 50% of the window) | **FAIL, and correctly so**: Kubecost published in batches (data ending 12:10, then 12:30) and then published nothing more: its ingestion started at 12:29:37 and had not finished at 13:45. The sample aged out, then the 1 h window no longer contained the workload. Cause of the stall not determined |
+| Same live test against the real OpenCost with the new aggregation | PASS (31.7 of 60 min covered, age 1 s) |
+
+What this proves: the client's request and parsing now match a real Kubecost 2.8.7 and a real OpenCost. What it does not: that the operator can run on Kubecost data with the default `maxMetricAge` of 5 minutes. On this install it would have frozen (fail closed), which is safe but useless. Before using Kubecost as the cost source, measure its refresh cadence on your installation and set `failurePolicy.maxMetricAge` above it, knowing that older cost data means slower reactions.

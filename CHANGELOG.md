@@ -6,6 +6,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 
 ### Added (fourth pass)
 - Applier: separation of duties enforced by three ValidatingAdmissionPolicies (no webhook), per-namespace policies (`policy.<ns>.yaml`), metrics and alerts, `rightsize publish`. Executor: reads of the workload or the SLO query may fail for up to 2 minutes during observation without a rollback, and unobserved time never counts as healthy.
+### Fixed (fifth pass: real Kubecost)
+- KubeCost client: asks `/model/allocation` with `aggregate=cluster,namespace,controllerKind,controller` instead of `aggregate=controller`. A real Kubecost 2.8.7 answers the old query with the controller property only, so the workload was never found (fail closed) and same-named controllers in different namespaces were merged. Found by running a real Kubecost (`hack/lab-kubecost.sh`, docs/LAB.md result 11); real answers kept as fixtures. Re-verified against a real OpenCost.
 ### Fixed (fourth pass)
 - Executor `Watch`: time during which the cluster could not be read no longer counts against the rollout timeout (a control-plane outage stalls the rollout too); before, a 40 s API-server outage could roll back a healthy change with "rollout did not complete". Regression test `TestWatchDoesNotCountBlindTimeAgainstTheRolloutTimeout`.
 ### Added (fourth pass, lab)

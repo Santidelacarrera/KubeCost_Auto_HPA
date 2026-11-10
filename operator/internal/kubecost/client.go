@@ -279,10 +279,16 @@ func (c *Client) backoff(attempt int) time.Duration {
 	return time.Duration(d * c.jit()) // full jitter
 }
 
+// AllocationAggregate is the aggregation the client asks for. A real Kubecost 2.8.7 answers `aggregate=controller` with ONLY the
+// controller property (no namespace, kind or cluster), which both hides the workload from the namespace match and merges
+// same-named controllers of different namespaces into one cost (testdata/kubecost_2.8.7_aggregate_controller.json).
+// Aggregating by all four keys keeps each property and one allocation per workload, in Kubecost and in OpenCost.
+const AllocationAggregate = "cluster,namespace,controllerKind,controller"
+
 func (c *Client) once(ctx context.Context, q Query) (Sample, error) {
 	v := url.Values{}
 	v.Set("window", formatWindow(q.Window))
-	v.Set("aggregate", "controller")
+	v.Set("aggregate", AllocationAggregate)
 	v.Set("accumulate", "true")
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+"/model/allocation?"+v.Encode(), nil)
 	if err != nil {

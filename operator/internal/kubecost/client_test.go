@@ -58,7 +58,7 @@ func TestValidResponseNormalisesToHourly(t *testing.T) {
 	if s.HourlyCost.String() != "5.000000" || s.TotalCost.String() != "2.500000" || s.Minutes != 30 {
 		t.Fatalf("%+v", s)
 	}
-	if gotPath != "/model/allocation" || !strings.Contains(gotQuery, "aggregate=controller") ||
+	if gotPath != "/model/allocation" || !strings.Contains(gotQuery, "aggregate=cluster%2Cnamespace%2CcontrollerKind%2Ccontroller") ||
 		!strings.Contains(gotQuery, "accumulate=true") || !strings.Contains(gotQuery, "window=1h") {
 		t.Fatalf("request: %s?%s", gotPath, gotQuery)
 	}

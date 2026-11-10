@@ -6,7 +6,7 @@ Ordered by what unlocks real use, not by what looks impressive. Items marked BLO
 
 1. **Validate the recommender on real workloads over real time** (days, real traffic, real latency). The defaults (p95 + 15%, p99 + 20%, 200 samples, 24 h) are untuned. BLOCKED: needs a staging cluster with traffic.
 2. **Run the pipeline on a managed cluster** (EKS/GKE/AKS) and with a real FOCUS export: the procedure and a read-only script are ready (docs/CLOUD_VALIDATION.md, `hack/cloud-validate.sh`); running them needs YOUR cloud account. BLOCKED.
-3. **Run the live contract test against Kubecost** (it passed against OpenCost in the lab; Kubecost itself is not installed). BLOCKED: a Kubecost installation.
+3. **Kubecost as a cost source on a healthy installation**: the contract now holds against a real Kubecost 2.8.7 (a defect was found and fixed, docs/LAB.md result 11), but its data went stale on the lab install, so the freshness behaviour with Kubecost is unproven. Next: measure Kubecost's refresh cadence on a real cluster and decide `maxMetricAge`; try Kubecost 3.x.
 4. ~~Seasonality~~ partly done: windows under 7 days cap confidence and add a risk note; a four-quarter stationarity check lowers confidence. A real weekly-pattern model is not built.
 
 ## P1: product completeness

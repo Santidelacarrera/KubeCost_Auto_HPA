@@ -203,3 +203,17 @@ Final lab run: **26/26**. After the fix: 25 Go test packages and 27 Python tests
 Nothing in this pass changes the verdict: **not production-ready**; no measured saving; recommender defaults untuned; EKS/GKE/AKS and real billing need the owner's account (section M).
 
 Maturity changes: Security 3 to 4 (admission-enforced separation of duties); Reliability 3 to 3-4 (API outage ridden out, one defect fixed); Observability 2 to 3 (exported applier metrics and alerts).
+
+
+## O. Addendum 4 (fifth pass): the owner's five remaining items
+
+| Item | Result |
+|---|---|
+| 1. EKS / GKE / AKS | **NOT DONE.** The AWS CLI and gcloud on this machine are installed, but both sessions are expired (`aws login`, `gcloud auth login`); signing in is the owner's action, and creating a managed cluster spends the owner's money, which needs the owner's explicit go-ahead with a cost estimate. Runbook and read-only script unchanged (docs/CLOUD_VALIDATION.md, `hack/cloud-validate.sh`) |
+| 2. Real FOCUS billing export | **NOT DONE**: no export exists on this machine; it comes from the owner's cloud billing account |
+| 3. Measured savings over two equivalent periods | **NOT DONE**: needs 1 and 2 and real workloads over time. Nothing is claimed |
+| 4. Tuning the recommender with `rightsize backtest` on weeks of real traffic | **NOT DONE**: there are no weeks of real traffic here. Running it on lab minutes would produce numbers that look like evidence and are not |
+| 5. A real Kubecost | **PARTLY DONE** (docs/LAB.md result 11): a real Kubecost 2.8.7 found a real defect in the client (the aggregation dropped namespace and kind, so the workload was never found and same-named controllers would merge), fixed with captured fixtures and re-verified against a real OpenCost. The contract holds; the freshness check failed because Kubecost stopped publishing data on the lab install (ingestion did not finish in 75 min), so running the operator on Kubecost data is still unproven |
+
+Verification: full Go suite (25 packages) passes after the client change; GitHub CI runs on the pushed commit.
+Verdict unchanged: **not production-ready**, no measured saving.

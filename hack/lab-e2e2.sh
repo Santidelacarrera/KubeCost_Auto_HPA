@@ -105,7 +105,7 @@ check "namespace budget exceeded is flagged and labelled estimated" "grep -q '\"
 check "doubling the node price shows up as a deviation" "grep -q '\"changePct\"' $LAB/cost2.out"
 
 echo "== 9. KubeCost client against a REAL OpenCost (default pricing; the response format is real, the prices are not a bill)"
-if curl -fs -m 10 "$OPENCOST/model/allocation?window=15m&aggregate=controller&accumulate=true" >/dev/null 2>&1; then
+if curl -fs -m 10 "$OPENCOST/model/allocation?window=15m&aggregate=cluster,namespace,controllerKind,controller&accumulate=true" >/dev/null 2>&1; then
   (cd "$HERE/operator" && KUBECOST_LIVE_URL="$OPENCOST" KUBECOST_LIVE_NAMESPACE=lab KUBECOST_LIVE_CONTROLLER=api KUBECOST_LIVE_WINDOW=15m \
      go test -tags kubecost_live -count=1 -run Live -v ./internal/kubecost > "$LAB/live.out" 2>&1)
   tail -6 "$LAB/live.out"
