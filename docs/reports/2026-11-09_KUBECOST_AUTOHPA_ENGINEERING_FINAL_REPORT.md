@@ -187,3 +187,19 @@ Defects found by real systems during the pass (all fixed with tests): the applie
 Updated maturity (0-5): Recommendation engine 2 (+ backtest tool, still untuned); Cost intelligence 2 (+ FOCUS adapter, unvalidated); HPA/VPA compatibility 2; GitOps 3 (real Argo CD and Flux); Node optimisation 2 (real two-node comparison);
 Execution engine 3; Rollback 3-4 (restart, SLO, real-latency trigger and applier rollback all exercised for real; OOM trigger unit-tested only); Policy & safety 3-4 (separate publish/approve permissions, per-namespace RBAC, kill switch without restart, all exercised); Security 3; Reliability 3 (restart resume, stale-cache guard);
 Observability 2; Testing 4; Documentation 4. Production readiness: still **no**.
+
+
+## N. Addendum 3 (fourth pass): hardening of the opt-in applier
+
+| Item | Result | Evidence |
+|---|---|---|
+| Separation of duties | **Enforced by the API server**: three ValidatingAdmissionPolicies (CEL, no webhook). The publisher stamp must be the real user, the approver must be a different real user, the stamp is immutable. Verified with two real users by impersonation, and the switch-off verified too | LAB result 10 |
+| Chart upgrade from the pre-work chart (534c64d), rollback, re-upgrade | **PASS**. Known limitation verified: `helm upgrade` does not install a new CRD from `crds/`; the operator restarts until `kubectl apply -f deploy/helm/kubecost-auto-hpa/crds/` (docs/TROUBLESHOOTING.md) | LAB result 10 |
+| Load: 60 approved recommendations at once (observe-only) | **PASS**: all reach DryRun, no reconcile errors, operator 49 MiB | LAB result 10 |
+| kube-apiserver stopped ~40 s during two observations | **PASS** in the final run (both Verified, applied once). One earlier run rolled both back; a probable cause (blind time counted against the rollout timeout) was found, reproduced in a unit test and fixed. Intermittent before, so one green run is consistent with the fix, not proof of it | LAB result 10 |
+| Per-namespace policy, applier metrics and alerts | implemented; metrics seen on the real cluster; per-namespace policy unit-tested | unit tests, LAB result 10 |
+
+Final lab run: **26/26**. After the fix: 25 Go test packages and 27 Python tests pass locally (Windows, no `-race`), gofmt and go vet clean, `go mod tidy` without changes, `helm lint` passes with the applier off and on. CI runs on the pushed commit. Not covered: an outage longer than the 2-minute tolerance on a real cluster, a multi-replica operator with leader election, any managed cloud.
+Nothing in this pass changes the verdict: **not production-ready**; no measured saving; recommender defaults untuned; EKS/GKE/AKS and real billing need the owner's account (section M).
+
+Maturity changes: Security 3 to 4 (admission-enforced separation of duties); Reliability 3 to 3-4 (API outage ridden out, one defect fixed); Observability 2 to 3 (exported applier metrics and alerts).

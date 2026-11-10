@@ -36,5 +36,5 @@ running a command. The reasons were (a) no evidence yet that the numbers are goo
 * Separation of duties is enforced by the API server with three ValidatingAdmissionPolicies (published-by must be the real user, the approver must be a different real user, published-by is immutable); it needs Kubernetes 1.30+ and can be switched off. One person with two identities can still publish as one and approve as the other.
 * Two workers; an observation blocks one for up to `maxObserve`. Many simultaneous approvals queue.
 * Terminal phases (`Verified`, `RolledBack`, `Failed`) are not revisited; a new decision needs a new recommendation (new ID).
-* The controller has not been run against more than a handful of objects, nor under API server failures beyond what the unit tests inject.
+* The controller was exercised with 60 objects at once and with the API server stopped for about 40 s during two observations (docs/LAB.md result 10), on a single-node lab cluster with one operator replica only.
 * Rate limiting counts workloads with a recent `last-applied-at` (docs/SAFETY.md known limits).

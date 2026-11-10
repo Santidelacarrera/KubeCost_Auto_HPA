@@ -170,7 +170,7 @@ echo "phases after the outage: $($K -n lab get wrec -o jsonpath='{range .items[*
 echo "why (status.reasons / message of each object):"
 $K -n lab get wrec -o jsonpath='{range .items[*]}{.metadata.name}{": "}{.status.reasons}{" | "}{.status.message}{"\n"}{end}'
 echo "operator log lines about the applier (last 40):"
-echo "operator restarts: $($K -n "$NS" get pod "$(OPPOD)" -o jsonpath='{.status.containerStatuses[0].restartCount}')"
+echo "operator restarts: $($K -n "$NS" get "$(OPPOD)" -o jsonpath='{.status.containerStatuses[0].restartCount}')"
 { $K -n "$NS" logs "$(OPPOD)" --previous --tail=300 2>&1; $K -n "$NS" logs "$(OPPOD)" --tail=400 2>&1; } | grep -iE 'applier|recommendation|rollback|degrad|observe|w1|w2' | cut -c1-400 | tail -40
 check "both finished Verified (none Failed, none stuck)"            "[ \"\$($K -n lab get wrec -o jsonpath='{range .items[*]}{.status.phase}{\"\\n\"}{end}' | grep -c '^Verified$')\" = 2 ]"
 AT_AFTER="$(for w in w1 w2; do $K -n lab get deploy $w -o jsonpath='{.metadata.annotations.autoscaling\.kubecost\.io/last-applied-at}'; done)"

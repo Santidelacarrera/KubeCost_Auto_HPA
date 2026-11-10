@@ -1,0 +1,56 @@
+== A. chart upgrade from the previous version (534c64d) and back
+PASS  the OLD chart installs and its operator is ready
+PASS  the new CRD does not exist yet
+PASS  helm upgrade completed (revision 2)
+PASS  KNOWN LIMITATION: helm upgrade does NOT install the new CRD from crds/
+operator after the upgrade WITHOUT the new CRD: hard-kubecost-auto-hpa-operator-584bbc7686-7zgsz ready=true restarts=1
+its log says: {"level":"info","ts":"2026-11-10T04:18:42Z","msg":"Starting EventSource","controller":"recommendation-applier","controllerGroup":"autoscaling.kubecost.io","controllerKind":"WorkloadRecommendation","source":"kind source: *v1alpha1.WorkloadRe
+{"level":"info","ts":"2026-11-10T04:18:42Z","msg":"Starting Controller","controller":"recommendation-applier","controllerGroup":"autoscaling.kubecost.io","controllerKind":"WorkloadRecommendation"}
+{"level":"error","ts":"2026-11-10T04:18:42Z","logger":"controller-runtime.source.EventHandler","msg":"if kind is a CRD, it should be installed before calling Start","kind":"WorkloadRecommendation.autoscaling.kubecost.io","error":"no matches
+PASS  after kubectl apply -f crds/ and a restart the operator is ready with the applier
+PASS  the pre-existing CRDs were not touched (KubeCostAutoscaler still served)
+PASS  helm rollback to the old chart works and its operator is ready
+PASS  the new CRD is kept by the rollback (Helm never deletes CRDs)
+PASS  upgrading again lands on the current chart, applier on
+== workloads and users
+== B. separation of duties enforced by the API server (alice publishes, bob approves)
+PASS  alice publishes; published-by is stamped with her identity
+PASS  alice cannot create an object claiming bob published it
+PASS  alice cannot approve her own recommendation (admission)
+PASS  so it is still Pending
+PASS  bob cannot write an approval in alice's name (admission)
+PASS  bob approves properly
+PASS  the operator's own status writes still pass admission: phase DryRun (observe-only)
+PASS  published-by cannot be rewritten afterwards, even by a cluster admin
+PASS  with enforceSeparationOfDuties=false alice CAN approve her own (the switch works)
+== C. 60 approved recommendations at once (observe-only on)
+published and approved 60 objects in 30 s
+objects in DryRun: 62
+PASS  all 60 load objects (plus the earlier ones) reach DryRun
+PASS  the web workload was never written (observe-only)
+PASS  the metric counted the DryRun transitions (>= 60)
+PASS  no reconcile errors of the applier
+operator resident memory: 49 MiB
+== D. the API server is stopped while changes are being observed (operator out of observe-only, 3 workloads)
+phases at the moment of the outage: Applying Applying 
+stopping kube-apiserver
+the API server was unreachable for about 40 s (kubelet restarts the static pod)
+PASS  the API server came back
+phases after the outage: w1-out-w1=Verified w2-out-w2=Verified 
+why (status.reasons / message of each object):
+w1-out-w1:  | applied and healthy for the whole observation window
+w2-out-w2:  | applied and healthy for the whole observation window
+operator log lines about the applier (last 40):
+operator restarts: 
+{"level":"info","ts":"2026-11-10T04:21:36Z","logger":"setup","msg":"recommendation applier enabled","policy":"kubecost-auto-hpa-system/hard-kubecost-auto-hpa-applier-policy","observeOnly":false}
+{"level":"info","ts":"2026-11-10T04:21:36Z","msg":"Starting EventSource","controller":"recommendation-applier","controllerGroup":"autoscaling.kubecost.io","controllerKind":"WorkloadRecommendation","source":"kind source: *v1alpha1.WorkloadRecommendation"}
+{"level":"info","ts":"2026-11-10T04:21:36Z","msg":"Starting Controller","controller":"recommendation-applier","controllerGroup":"autoscaling.kubecost.io","controllerKind":"WorkloadRecommendation"}
+{"level":"info","ts":"2026-11-10T04:21:36Z","msg":"Starting workers","controller":"recommendation-applier","controllerGroup":"autoscaling.kubecost.io","controllerKind":"WorkloadRecommendation","worker count":2}
+E1110 04:21:59.283060       1 reflector.go:158] "Unhandled Error" err="k8s.io/client-go@v0.31.14/tools/cache/reflector.go:243: Failed to watch *v1alpha1.WorkloadRecommendation: unknown (get workloadrecommendations.autoscaling.kubecost.io) - error from a previous attempt: read tcp 10.244.0.42:44250->10.96.0.1:443: read: connection reset by peer" logger="UnhandledError"
+PASS  both finished Verified (none Failed, none stuck)
+PASS  each change was applied exactly once (last-applied-at unchanged)
+PASS  the workloads carry the new requests
+== cleanup
+
+RESULT: 26 passed, 0 failed
+exit=0

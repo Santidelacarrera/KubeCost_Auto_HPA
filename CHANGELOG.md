@@ -6,6 +6,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 
 ### Added (fourth pass)
 - Applier: separation of duties enforced by three ValidatingAdmissionPolicies (no webhook), per-namespace policies (`policy.<ns>.yaml`), metrics and alerts, `rightsize publish`. Executor: reads of the workload or the SLO query may fail for up to 2 minutes during observation without a rollback, and unobserved time never counts as healthy.
+### Fixed (fourth pass)
+- Executor `Watch`: time during which the cluster could not be read no longer counts against the rollout timeout (a control-plane outage stalls the rollout too); before, a 40 s API-server outage could roll back a healthy change with "rollout did not complete". Regression test `TestWatchDoesNotCountBlindTimeAgainstTheRolloutTimeout`.
+### Added (fourth pass, lab)
 - `hack/lab-hardening.sh`: chart upgrade from the pre-work chart and rollback, admission checks with real users, 60 objects at once, kube-apiserver stopped for ~40 s.
 ### Added (third pass: the rest that can be done without cloud credentials)
 - Opt-in **recommendation applier**: `WorkloadRecommendation` CRD, `rightsize plan --publish`, `rightsize approve --cr` (approval through the status subresource, own RBAC verb), operator controller behind `--enable-recommendation-applier` / chart `operator.recommendationApplier.enabled=false`, policy ConfigMap re-read on every reconcile, same-namespace rule, observe-only honoured, resume after operator restart. ADR-0003, docs/SAFETY.md. Roles in `deploy/rbac/rightsize.yaml`.
