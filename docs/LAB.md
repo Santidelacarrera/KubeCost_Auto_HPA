@@ -225,3 +225,10 @@ What this is and is not:
 * The backtest used under two hours of constant synthetic traffic. It shows the defaults are safe on that series; it is **not** a basis for tuning them, so they were not changed. Tuning still needs weeks of real traffic with daily/weekly patterns.
 * Not covered: EKS, AKS, the opt-in applier and the Helm chart on GKE, Kubecost on GKE, a FOCUS export (billing export not set up; the owner will do it).
 * Clean-up: cluster deleted; no instances, disks, addresses or load balancers left. Fourteen APIs enabled with GKE stay enabled (the GKE API refused to be disabled right after the deletion, "service has resources"); enabled APIs without resources do not bill.
+
+## Result 13: seven-day soak on GKE (`hack/gke-soak.sh`) — IN PROGRESS, no results yet
+
+Started 2026-11-10T19:37:03Z: GKE zonal us-central1-a, `e2-standard-2`, autoscaler 1-3 nodes, cost allocation on; Prometheus 10 d retention on a 10 GiB disk; the app over-provisioned (4 x 500m) under a **synthetic** daily/weekly schedule (peak 12-21 UTC on weekdays, about 46 req/s measured at start; quiet nights and weekends). It is a schedule against a trivial app, not real users.
+Billing: Google's detailed export and its native FOCUS export (preview) to BigQuery were enabled on 2026-11-10 at about 20:00 UTC, so the first hour of the run is not in them.
+Plan: day 1 (2026-11-11) `approve` with production defaults (it may abstain or be refused by policy: that is a valid outcome); daily read-only checks; day 7 (2026-11-17) `report`, then the cluster is deleted. Until that report exists nothing here is a result.
+

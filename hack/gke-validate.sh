@@ -15,9 +15,11 @@
 set -u
 : "${CTX:?set CTX}"; : "${NODE_HOURLY_USD:?set NODE_HOURLY_USD (list price of one node, USD/h)}"
 WINDOW="${WINDOW:-20}"; REPLICAS="${REPLICAS:-6}"; SETTLE="${SETTLE:-25}"
-HERE="$(cd "$(dirname "$0")/.." && pwd)"; LAB="$HERE/.lab/gke"; mkdir -p "$LAB"
+HERE="$(cd "$(dirname "$0")/.." && pwd)"; LAB="$HERE/.lab/${LABDIR:-gke}"; mkdir -p "$LAB"
+PP="${PROM_PORT:-9090}"   # local port for the Prometheus port-forward (another run may hold 9090)
 K="kubectl --context $CTX"; H="helm --kube-context $CTX"
-case "$($K get nodes -o jsonpath='{.items[0].spec.providerID}' 2>/dev/null)" in gce://*) ;; *) echo "refusing: $CTX is not a GKE cluster"; exit 2;; esac
+# Managed clusters only (GKE gce://, EKS aws://, AKS azure://): the name is historical, the steps are provider-neutral.
+case "$($K get nodes -o jsonpath='{.items[0].spec.providerID}' 2>/dev/null)" in gce://*|aws://*|azure://*) ;; *) echo "refusing: $CTX is not a managed GKE/EKS/AKS cluster"; exit 2;; esac
 PASS=0; FAILN=0
 ok()  { echo "PASS  $*"; PASS=$((PASS+1)); }
 bad() { echo "FAIL  $*"; FAILN=$((FAILN+1)); }
@@ -27,7 +29,7 @@ sample() { # $1 = label, writes "epoch nodes" lines for WINDOW minutes
   : > "$LAB/nodes-$1.txt"
   for _ in $(seq 1 $((WINDOW * 2))); do echo "$(date +%s) $(nodes)" >> "$LAB/nodes-$1.txt"; sleep 30; done; }
 nodehours() { awk '{s+=$2} END {printf "%.4f", s*30/3600}' "$LAB/nodes-$1.txt"; }
-pf() { curl -fs -m 3 http://localhost:9090/-/ready >/dev/null || { ($K -n monitoring port-forward svc/prom-prometheus-server 9090:80 >/dev/null 2>&1 &); sleep 5; }; }
+pf() { curl -fs -m 3 http://localhost:$PP/-/ready >/dev/null || { ($K -n monitoring port-forward svc/prom-prometheus-server $PP:80 >/dev/null 2>&1 &); sleep 5; }; }
 
 echo "== cluster: $($K version -o json 2>/dev/null | python -c "import json,sys; print(json.load(sys.stdin)['serverVersion']['gitVersion'])"), nodes $(nodes), node price $NODE_HOURLY_USD USD/h (list)"
 echo "== 0. Prometheus and the over-provisioned app"
@@ -49,7 +51,7 @@ sample before; echo "node-hours before: $(nodehours before) (nodes seen: $(awk '
 
 echo "== 2. hack/lab-traffic.sh on GKE (recommend, approve, apply with real-latency SLO, before/after, forced rollback)"
 pf
-CTX="$CTX" ALLOW_CTX=1 PROM=http://localhost:9090 REPLICAS="$REPLICAS" bash "$HERE/hack/lab-traffic.sh" > "$LAB/traffic.log" 2>&1
+CTX="$CTX" ALLOW_CTX=1 PROM=http://localhost:$PP REPLICAS="$REPLICAS" bash "$HERE/hack/lab-traffic.sh" > "$LAB/traffic.log" 2>&1
 grep -E "^(==|PASS|FAIL|SKIP|RESULT|requests:)|metric|requests/s|p95|error ratio|throttled|usage p95|restarts|USD" "$LAB/traffic.log"
 PASS=$((PASS+$(grep -c '^PASS' "$LAB/traffic.log"))); FAILN=$((FAILN+$(grep -c '^FAIL' "$LAB/traffic.log")))
 echo "requests after the run: $($K -n lab get deploy shop -o jsonpath='{.spec.template.spec.containers[0].resources.requests.cpu}') x $REPLICAS"
@@ -73,9 +75,9 @@ check "the autoscaler removed at least one node after the change (infrastructure
 
 echo "== 5. read-only cloud-validate and backtest on this run's history"
 pf
-CTX="$CTX" CONFIRM_CTX="$CTX" PROM=http://localhost:9090 NS=lab WORKLOAD=shop CONTAINER=app NODE_HOURLY_USD="$NODE_HOURLY_USD" bash "$HERE/hack/cloud-validate.sh" > "$LAB/cloud-validate.log" 2>&1
+CTX="$CTX" CONFIRM_CTX="$CTX" PROM=http://localhost:$PP NS=lab WORKLOAD=shop CONTAINER=app NODE_HOURLY_USD="$NODE_HOURLY_USD" bash "$HERE/hack/cloud-validate.sh" > "$LAB/cloud-validate.log" 2>&1
 grep -E "^(PASS|FAIL|RESULT|- )" "$LAB/cloud-validate.log"
-"$HERE/.lab/rightsize.exe" backtest --prometheus-url http://localhost:9090 --namespace lab --workload shop --container app \
+"$HERE/.lab/rightsize.exe" backtest --prometheus-url http://localhost:$PP --namespace lab --workload shop --container app \
   --window "${BT_WINDOW:-100m}" --holdout "${BT_HOLDOUT:-30m}" --step 15s --min-samples 40 > "$LAB/backtest.json" 2> "$LAB/backtest.err"
 check "backtest ran on the real history of this run" "[ -s $LAB/backtest.json ]"
 head -c 3000 "$LAB/backtest.json"; echo; head -c 300 "$LAB/backtest.err"

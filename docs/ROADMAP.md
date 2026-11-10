@@ -5,7 +5,7 @@ Ordered by what unlocks real use, not by what looks impressive. Items marked BLO
 ## P0: before anyone relies on a recommendation or an apply
 
 1. **Validate the recommender on real workloads over real time** (days, real traffic, real latency). The defaults (p95 + 15%, p99 + 20%, 200 samples, 24 h) are untuned: a backtest on GKE (100 min of constant synthetic traffic) found them safe there but is no basis for tuning. BLOCKED: needs weeks of real traffic.
-2. **Managed clusters and real billing**: GKE done (docs/LAB.md result 12, a real defect found and fixed there). Remaining: EKS and AKS, the applier and chart on a managed cluster, and a real FOCUS export (GCP billing export to BigQuery, set up by the owner).
+2. **Managed clusters and real billing**: GKE done (docs/LAB.md result 12, a real defect found and fixed there). Remaining: EKS and AKS (scripts ready, waiting for the owner's cloud sign-in), the applier and chart on a managed cluster. A seven-day GKE soak with Google's native FOCUS export and detailed export is running (docs/LAB.md result 13, report due 2026-11-17).
 3. **Kubecost as a cost source on a healthy installation**: the contract now holds against a real Kubecost 2.8.7 (a defect was found and fixed, docs/LAB.md result 11), but its data went stale on the lab install, so the freshness behaviour with Kubecost is unproven. Next: measure Kubecost's refresh cadence on a real cluster and decide `maxMetricAge`; try Kubecost 3.x.
 4. ~~Seasonality~~ partly done: windows under 7 days cap confidence and add a risk note; a four-quarter stationarity check lowers confidence. A real weekly-pattern model is not built.
 
