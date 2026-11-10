@@ -534,6 +534,17 @@ class Handler(BaseHTTPRequestHandler):
         if n < 0:
             raise InputValidationError("Content-Length cannot be negative")
         if n > max_bytes:
+            # Drain socket gracefully so client doesn't get WinError 10053 ConnectionAbortedError
+            try:
+                remaining = n
+                while remaining > 0:
+                    chunk_size = min(remaining, 65536)
+                    chunk = self.rfile.read(chunk_size)
+                    if not chunk:
+                        break
+                    remaining -= len(chunk)
+            except Exception:
+                pass
             raise PayloadTooLargeError("payload too large")
         if n == 0:
             raise InputValidationError("request body cannot be empty")
