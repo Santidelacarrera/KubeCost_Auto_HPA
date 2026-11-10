@@ -1,0 +1,45 @@
+== 0. baseline
+requests before: 1/1Gi
+== 1. recommendation from real Prometheus
+PASS  recommendation is not an abstention
+PASS  CPU decrease proposed
+== 2. negative cases (nothing may change)
+PASS  empty policy denies
+PASS  no approval -> needs approval
+PASS  kill switch denies even when approved
+PASS  approved + allowed dry-run reports allowed
+PASS  dry-run changed nothing
+PASS  --execute without --context is refused
+== 3. controlled apply (observe 60s)
+{"allowed":true,"applied":true,"degradedReasons":null,"healthy":true,"mode":"execute","reasons":null,"rolledBack":false}
+requests after: 500m/512Mi
+PASS  applied and healthy
+PASS  requests changed on the live object
+PASS  pods run with the new requests
+PASS  same recommendation is not applied twice
+== 4. SLO breach (synthetic signal through real Prometheus) -> automatic rollback
+{"allowed":true,"applied":true,"degradedReasons":["SLObreached"],"healthy":false,"mode":"execute","reasons":null,"rolledBack":true}
+PASS  SLO breach detected
+PASS  rolled back
+PASS  previous requests are back
+== 5. injected fault: a container crashes after the change -> automatic rollback
+{"allowed":true,"applied":true,"degradedReasons":["1containerrestart(s)(max0)"],"healthy":false,"mode":"execute","reasons":null,"rolledBack":true}
+PASS  degradation detected (restart)
+PASS  rolled back automatically
+PASS  previous requests are back
+PASS  rolled-back marker recorded
+PASS  rolled-back recommendation is not retried
+== 6. audit trail
+18 events: Counter({'decision': 9, 'applied': 3, 'degraded': 2, 'rolled_back': 2, 'dry_run': 1, 'verified': 1})
+  20:03:05 applied f4eafd579e677276 lab-e2e {"approvedBy": "minikube-user", "cpu": 0.5, "cpuPotentialMonthlyUSD": 0, "memory": 536870912, "memoryPotentialMonthlyUSD": 0, "previous": {"
+  20:04:11 verified f4eafd579e677276 lab-e2e {"observedFor": "1m0s"}
+  20:04:30 applied 0be30c431ecda864 lab-e2e {"approvedBy": "minikube-user", "cpu": 0.33, "cpuPotentialMonthlyUSD": 0, "memory": 268435456, "memoryPotentialMonthlyUSD": 0, "previous": {
+  20:04:30 degraded 0be30c431ecda864 lab-e2e {"reasons": ["SLO breached"]}
+  20:04:31 rolled_back 0be30c431ecda864 lab-e2e {"reasons": ["SLO breached"], "restored": {"app": {"cpuRequest": "500m", "cpuLimit": "2", "memRequest": "512Mi", "memLimit": "1Gi"}}, "verif
+  20:04:38 applied 853865d2594f6776 lab-e2e {"approvedBy": "minikube-user", "cpu": 0.33, "cpuPotentialMonthlyUSD": 0, "memory": 268435456, "memoryPotentialMonthlyUSD": 0, "previous": {
+  20:05:28 degraded 853865d2594f6776 lab-e2e {"reasons": ["1 container restart(s) (max 0)"]}
+  20:05:28 rolled_back 853865d2594f6776 lab-e2e {"reasons": ["1 container restart(s) (max 0)"], "restored": {"app": {"cpuRequest": "500m", "cpuLimit": "2", "memRequest": "512Mi", "memLimit
+PASS  audit has applied + verified
+PASS  audit has degraded + rolled_back
+
+RESULT: 22 passed, 0 failed

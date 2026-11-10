@@ -1,0 +1,19 @@
+== 1. two real nodes
+PASS  two Ready nodes
+== 2. a workload that fits on one node
+placement:       2 kubecost-multi       2 kubecost-multi-m02 
+tool says removable: [kubecost-multi-m02]
+PASS  the tool reports a removable candidate
+PASS  the report flags the PodDisruptionBudget
+PASS  the report says a candidate is not a saving
+draining kubecost-multi-m02 to test the prediction
+PASS  after the drain all workload pods run on the other node (kubecost-multi)
+PASS  no workload pod is Pending
+== 3. a workload that does NOT fit on one node
+placement:       5 kubecost-multi       2 kubecost-multi-m02 
+tool says removable: []
+PASS  the tool reports nothing removable
+PASS  the report explains why (does not fit)
+PASS  draining anyway leaves pods Pending (the prediction was right; none were Pending before)
+
+RESULT: 9 passed, 0 failed

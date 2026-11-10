@@ -1,0 +1,33 @@
+== 0. deploy the app and the load, wait for history
+FAIL  the app serves real traffic (requests per second > 5)
+== 1. BEFORE window (last 5 minutes), requests 500m/128Mi
+{"p95": 0.004750492375578397, "rps": 35.416210019743936, "err": NaN, "thr": 0.0, "cpu95": 0.031712877799313734, "rst": 0.0}
+PASS  the recommendation proposes a CPU decrease
+== 2. approve and apply, SLO driven by the REAL latency histogram (p95 > 250 ms breaches)
+{"allowed":true,"applied":true,"degradedReasons":null,"healthy":true,"mode":"execute","reasons":null,"rolledBack":false}
+requests: 500m/128Mi -> 250m/64Mi
+PASS  applied and healthy under real traffic
+PASS  the requests really changed
+== 3. AFTER window: wait 6 minutes so the 5-minute window is entirely after the change
+{"p95": 0.004749999999999999, "rps": 37.00344034459822, "err": NaN, "thr": 0.0, "cpu95": 0.0307789764303729, "rst": 0.0}
+metric                       before        after
+requests/s                 35.41621     37.00344
+p95 latency (s)             0.00475      0.00475
+error ratio                     nan          nan
+cpu throttled ratio         0.00000      0.00000
+cpu usage p95 (cores)       0.03171      0.03078
+restarts (5m)               0.00000      0.00000
+requested USD/hour          0.03200      0.01600   ESTIMATE (flag prices, requests x replicas)
+cost per 1k requests (before): 0.00025098 USD  ESTIMATE
+cost per 1k requests (after): 0.00012011 USD  ESTIMATE
+PASS  traffic is comparable (rps within 25 percent)
+PASS  p95 latency did not regress (<= max(1.5x, +5 ms))
+PASS  error ratio did not increase
+PASS  throttling did not increase by more than 2 points
+PASS  no restarts after the change
+== 4. a rollback driven by the REAL latency metric (threshold made absurdly tight on purpose)
+{"allowed":true,"applied":true,"degradedReasons":["SLObreached"],"healthy":false,"mode":"execute","reasons":null,"rolledBack":true}
+PASS  the real-latency SLO query breached and the change was rolled back
+PASS  the previous requests are back
+
+RESULT: 10 passed, 1 failed

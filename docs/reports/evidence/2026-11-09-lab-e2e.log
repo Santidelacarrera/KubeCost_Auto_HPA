@@ -1,0 +1,45 @@
+== 0. baseline
+requests before: 1/1Gi
+== 1. recommendation from real Prometheus
+PASS  recommendation is not an abstention
+PASS  CPU decrease proposed
+== 2. negative cases (nothing may change)
+PASS  empty policy denies
+PASS  no approval -> needs approval
+PASS  kill switch denies even when approved
+PASS  approved + allowed dry-run reports allowed
+PASS  dry-run changed nothing
+PASS  --execute without --context is refused
+== 3. controlled apply (observe 60s)
+{"allowed":true,"applied":true,"degradedReasons":null,"healthy":true,"mode":"execute","reasons":null,"rolledBack":false}
+requests after: 500m/512Mi
+PASS  applied and healthy
+PASS  requests changed on the live object
+PASS  pods run with the new requests
+PASS  same recommendation is not applied twice
+== 4. SLO breach (synthetic signal through real Prometheus) -> automatic rollback
+{"allowed":true,"applied":true,"degradedReasons":["SLObreached"],"healthy":false,"mode":"execute","reasons":null,"rolledBack":true}
+PASS  SLO breach detected
+PASS  rolled back
+PASS  previous requests are back
+== 5. injected fault: a container crashes after the change -> automatic rollback
+{"allowed":true,"applied":true,"degradedReasons":["1containerrestart(s)(max0)"],"healthy":false,"mode":"execute","reasons":null,"rolledBack":true}
+PASS  degradation detected (restart)
+PASS  rolled back automatically
+PASS  previous requests are back
+PASS  rolled-back marker recorded
+PASS  rolled-back recommendation is not retried
+== 6. audit trail
+18 events: Counter({'decision': 9, 'applied': 3, 'degraded': 2, 'rolled_back': 2, 'dry_run': 1, 'verified': 1})
+  18:37:50 applied a46e2bc49797eec1 lab-e2e {"cpu": 0.5, "memory": 536870912, "previous": {"app": {"cpuRequest": "1", "cpuLimit": "2", "memRequest": "1Gi", "memLimit": "1Gi"}}}
+  18:39:00 verified a46e2bc49797eec1 lab-e2e {"observedFor": "1m0s"}
+  18:39:03 applied bf62e7faef63cf11 lab-e2e {"cpu": 0.28, "memory": 268435456, "previous": {"app": {"cpuRequest": "500m", "cpuLimit": "2", "memRequest": "512Mi", "memLimit": "1Gi"}}}
+  18:39:03 degraded bf62e7faef63cf11 lab-e2e {"reasons": ["SLO breached"]}
+  18:39:03 rolled_back bf62e7faef63cf11 lab-e2e {"reasons": ["SLO breached"], "restored": {"app": {"cpuRequest": "500m", "cpuLimit": "2", "memRequest": "512Mi", "memLimit": "1Gi"}}, "verif
+  18:39:10 applied ccd2730803e054f1 lab-e2e {"cpu": 0.28, "memory": 268435456, "previous": {"app": {"cpuRequest": "500m", "cpuLimit": "2", "memRequest": "512Mi", "memLimit": "1Gi"}}}
+  18:40:00 degraded ccd2730803e054f1 lab-e2e {"reasons": ["1 container restart(s) (max 0)"]}
+  18:40:00 rolled_back ccd2730803e054f1 lab-e2e {"reasons": ["1 container restart(s) (max 0)"], "restored": {"app": {"cpuRequest": "500m", "cpuLimit": "2", "memRequest": "512Mi", "memLimit
+PASS  audit has applied + verified
+PASS  audit has degraded + rolled_back
+
+RESULT: 22 passed, 0 failed

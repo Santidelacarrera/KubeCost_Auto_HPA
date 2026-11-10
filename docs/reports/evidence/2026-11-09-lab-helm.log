@@ -1,0 +1,28 @@
+== images
+== mock KubeCost (NOT KubeCost) + workload
+== 1. install (chart default: observe-only)
+PASS  release deployed
+PASS  both CRDs exist
+PASS  operator, engine, redis are ready
+PASS  operator started
+PASS  operator announces observe-only
+PASS  operator arg is --observe-only=true
+PASS  Spot drain controller not started
+== 2. observe-only: decisions are reported, replicas stay
+decision message: observe-only: would scale 4 -> 1. utilisation 2% needs only 1 replicas
+replicas=4 reason=ObserveOnly decision=ScaleDown dryRun=true
+PASS  replicas unchanged (4)
+PASS  ScalingActive reason is ObserveOnly
+PASS  a scale-down decision was reported
+PASS  the decision is marked dry-run
+== 3. observe-only off (helm upgrade): the same resource now acts
+replicas=1 reason=Owner
+PASS  replicas were reduced by the operator
+PASS  scaling is active (single writer)
+== 4. rollback of the release, then uninstall
+PASS  rolled back to revision 1 (observe-only again)
+PASS  workloads removed by uninstall
+PASS  CRDs kept (Helm keeps crds/)
+== cleanup (lab objects only)
+
+RESULT: 16 passed, 0 failed
