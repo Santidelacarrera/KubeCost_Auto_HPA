@@ -7,6 +7,7 @@ set -u
 CTX="${CTX:-kubecost-lab}"; PROM="${PROM:-http://localhost:9090}"
 HERE="$(cd "$(dirname "$0")/.." && pwd)"; LAB="$HERE/.lab"; mkdir -p "$LAB"
 K="kubectl --context $CTX"
+REPLICAS="${REPLICAS:-2}"   # replicas of the app (the GKE run uses more, so the requests force extra nodes)
 CPU_PRICE="${CPU_PRICE:-0.031}"; MEM_PRICE="${MEM_PRICE:-0.004}"   # USD per core-hour / GiB-hour: ESTIMATE inputs
 PASS=0; FAILN=0
 ok()  { echo "PASS  $*"; PASS=$((PASS+1)); }
@@ -44,6 +45,7 @@ jv() { python -c "import json,sys; print(json.loads(sys.argv[1])[sys.argv[2]])" 
 
 echo "== 0. deploy the app and the load, wait for history"
 $K create ns lab >/dev/null 2>&1; $K apply -f "$HERE/hack/lab/traffic.yaml" >/dev/null
+[ "$REPLICAS" = 2 ] || $K -n lab scale deploy/shop --replicas="$REPLICAS" >/dev/null
 $K -n lab rollout status deploy/shop deploy/loadgen --timeout=240s >/dev/null 2>&1 || $K -n lab rollout status deploy/shop --timeout=240s >/dev/null
 plan() { "$RS" plan --context "$CTX" --prometheus-url "$PROM" --namespace lab --workload shop --container app --window 14m --step 15s --min-window 8m --min-samples 40 \
   --cpu-price-per-core-hour "$CPU_PRICE" --mem-price-per-gib-hour "$MEM_PRICE" > "$LAB/rec-shop.json" 2>"$LAB/plan-shop.err"; }
@@ -69,14 +71,14 @@ check "the requests really changed"                      "[ \"$REQ_AFTER\" != \"
 echo "== 3. AFTER window: wait 6 minutes so the 5-minute window is entirely after the change"
 sleep 360
 AFTER="$(snapshot)"; echo "$AFTER"
-python - "$BEFORE" "$AFTER" "$REQ_BEFORE" "$REQ_AFTER" "$CPU_PRICE" "$MEM_PRICE" <<'PYEOF'
+python - "$BEFORE" "$AFTER" "$REQ_BEFORE" "$REQ_AFTER" "$CPU_PRICE" "$MEM_PRICE" "$REPLICAS" <<'PYEOF'
 import json, sys
 b, a = json.loads(sys.argv[1]), json.loads(sys.argv[2])
 def money(req, cpu_p, mem_p):
     c, m = req.split('/')
     cores = float(c[:-1]) / 1000 if c.endswith('m') else float(c)
     gib = float(m[:-2]) / 1024 if m.endswith('Mi') else float(m[:-2])
-    return 2 * (cores * cpu_p + gib * mem_p)          # 2 replicas, USD per hour of REQUESTED capacity (an estimate)
+    return int(sys.argv[7]) * (cores * cpu_p + gib * mem_p)   # replicas x requests, USD per hour of REQUESTED capacity (an estimate)
 cp, mp = float(sys.argv[5]), float(sys.argv[6])
 hb, ha = money(sys.argv[3], cp, mp), money(sys.argv[4], cp, mp)
 print("%-22s %12s %12s" % ("metric", "before", "after"))

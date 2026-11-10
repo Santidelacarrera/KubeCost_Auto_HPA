@@ -217,3 +217,17 @@ Maturity changes: Security 3 to 4 (admission-enforced separation of duties); Rel
 
 Verification: full Go suite (25 packages) passes after the client change; GitHub CI runs on the pushed commit.
 Verdict unchanged: **not production-ready**, no measured saving.
+
+
+## P. Addendum 5 (sixth pass): GKE, measured saving, backtest on real cluster data
+
+The owner signed in to GCP and asked for the cloud run and for points 3 and 4. Billing export was left to the owner.
+
+| Item | Result | Evidence |
+|---|---|---|
+| 1. Managed cluster | **GKE: run for real** (1.36.4, two hours, owner's account, cluster deleted afterwards): read-only checks 9/9, recommend/approve/apply/observe with an SLO on real latency, and rollback. **A real defect found only there** (rollback gave up on write conflicts during a 6-replica rollout and left a degraded change in place), fixed with a test and re-run on GKE: 11/11. EKS and AKS: not run. Short of the validation criteria in CLOUD_VALIDATION section 5 | LAB result 12 |
+| 3. Measured saving | **Done at small scale**: after the change the GKE autoscaler went from 3 to 2 nodes; node-hours measured in two equivalent 20-minute windows: **0.0670 USD/hour less at list price (-33 %)**. List price from the Cloud Billing Catalog API, not an invoice; trivial over-provisioned app; no claim about real workloads | LAB result 12 |
+| 4. Tuning with backtest | **Backtest run on real GKE data, defaults deliberately not changed**: 100 minutes of constant synthetic traffic show the defaults are safe there (no exceedance) but cannot support tuning; weeks of real, patterned traffic are still required | LAB result 12, RECOMMENDER.md |
+| 2. FOCUS billing | Not done (owner's choice, later) | |
+
+Maturity changes: Execution engine 3 to 3-4 and Rollback 3-4 (proven on a managed cluster after a fix); Cost intelligence 2 (one measured, list-priced infrastructure change; still no invoice). Verdict: **still not production-ready**: no week-long run, no invoice, EKS/AKS not run, defaults untuned.

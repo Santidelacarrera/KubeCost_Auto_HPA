@@ -423,6 +423,28 @@ func TestRollbackRetriesOnConflict(t *testing.T) {
 	}
 }
 
+// Seen on a real GKE cluster: during a 6-replica rollout the Deployment controller updated the status so often that the 5 tries of
+// retry.DefaultBackoff all conflicted and the rollback left the degraded change in place. A burst of 12 conflicts must still succeed.
+func TestRollbackSurvivesABurstOfConflictsDuringARollout(t *testing.T) {
+	e := newEnv(dep(), pod("p1", true, 0, false), pod("p2", true, 0, false))
+	if res, err := e.ex.Apply(context.Background(), rec(), pol(), true); err != nil || !res.Applied {
+		t.Fatalf("%v %+v", err, res)
+	}
+	var conflicts int32
+	e.kc.PrependReactor("update", "deployments", func(ktesting.Action) (bool, runtime.Object, error) {
+		if atomic.AddInt32(&conflicts, 1) <= 12 {
+			return true, nil, apierrors.NewConflict(schema.GroupResource{Group: "apps", Resource: "deployments"}, "api", errors.New("the object has been modified"))
+		}
+		return false, nil, nil
+	})
+	if err := e.ex.Rollback(context.Background(), "Deployment", "shop", "api", []string{"test"}, 0); err != nil {
+		t.Fatalf("a burst of conflicts must not make the rollback give up: %v", err)
+	}
+	if cpuReq(e.container(t)) != "2" {
+		t.Fatalf("not restored: %s", cpuReq(e.container(t)))
+	}
+}
+
 func TestApplyRetriesStatusConflictButNotASpecChange(t *testing.T) {
 	e := newEnv(dep())
 	var n int32

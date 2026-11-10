@@ -203,3 +203,25 @@ Evidence: `evidence/2026-11-10-kubecost-live-contract.log`. Minikube profile `ku
 | Same live test against the real OpenCost with the new aggregation | PASS (31.7 of 60 min covered, age 1 s) |
 
 What this proves: the client's request and parsing now match a real Kubecost 2.8.7 and a real OpenCost. What it does not: that the operator can run on Kubecost data with the default `maxMetricAge` of 5 minutes. On this install it would have frozen (fail closed), which is safe but useless. Before using Kubecost as the cost source, measure its refresh cadence on your installation and set `failurePolicy.maxMetricAge` above it, knowing that older cost data means slower reactions.
+
+
+## Result 12: a REAL managed cluster, GKE (`hack/gke-validate.sh`)
+
+Evidence: `evidence/2026-11-10-gke-validation.log` (account, project and user names redacted). GKE 1.36.4-gke.2377000, zonal us-central1-a, `e2-standard-2` nodes, GKE cluster autoscaler 1-3 nodes, created in the owner's account for this run and deleted after it. Node price: **list price** from the Cloud Billing Catalog API (E2 core 0.02181159 USD/h + 8 x E2 RAM 0.00292353 USD/GiB-h = 0.06701142 USD/h).
+
+| Check | Result |
+|---|---|
+| The pipeline's prerequisites and read-only analysis on GKE (`hack/cloud-validate.sh`: cluster, provider detection `gce://`, cAdvisor and kube-state-metrics series, plan, backtest, nodes, cost) | **9/9 PASS**. With production defaults (200 samples, 24 h) the planner correctly **abstained**: the cluster had 101 samples |
+| Recommendation from real GKE metrics, approval with the identity GKE reports, controlled apply, SLO on the app's real latency histogram | PASS: 500m/128Mi -> 250m/64Mi on 6 replicas |
+| Equivalent 5-minute windows before/after under real traffic (about 37 requests/s) | PASS: p95 4.75 ms before and after, no errors, no throttling, no restarts |
+| **Measured infrastructure saving** (point 3): node count sampled every 30 s in two equivalent 20-minute windows | **3 nodes before, 2 after** (the GKE autoscaler removed one about 15 min after the change). 1.0000 -> 0.6667 node-hours: **0.0670 USD/hour less at list price (-33 %)** |
+| Forced rollback (SLO threshold made absurdly tight) | **Run 1: FAIL, real defect.** The rollback started 1 s after the change, during the 6-replica rollout; every write conflicted with the Deployment controller's status updates, `retry.DefaultBackoff` (5 tries, ~50 ms) gave up, and the **degraded change stayed in place** (`rollback_failed` in the audit). Never seen on minikube with 2 replicas. **Fixed** (60 tries over ~12-18 s, each re-reading the object; regression test with a burst of 12 conflicts) |
+| Same scenario again on GKE with the fix (run 2: full `hack/lab-traffic.sh`) | **11/11 PASS**: SLO breached, change rolled back, previous requests back |
+| Backtest on this run's real history (point 4): 100 min, 70 train / 30 held out | CPU p95 +15 % (default): never exceeded, about 15 % waste; memory p99 +20 % (default): never exceeded, about 18 % waste; memory p90/p95 +5 % exceeded 1 % of the time. **Defaults kept** |
+
+What this is and is not:
+* It is the first run on a managed cloud cluster: the recommender, the policy, apply, observation, rollback and the read-only checks work on GKE, and a rightsizing change led the real cluster autoscaler to remove a real node.
+* The saving is **measured** (node count from the cluster) and **priced at list price**: not an invoice (no credits, discounts, free tier, disks or network). It is a 20-minute window on a trivial, deliberately over-provisioned app; it says nothing about how much a real workload would save.
+* The backtest used under two hours of constant synthetic traffic. It shows the defaults are safe on that series; it is **not** a basis for tuning them, so they were not changed. Tuning still needs weeks of real traffic with daily/weekly patterns.
+* Not covered: EKS, AKS, the opt-in applier and the Helm chart on GKE, Kubecost on GKE, a FOCUS export (billing export not set up; the owner will do it).
+* Clean-up: cluster deleted; no instances, disks, addresses or load balancers left. Fourteen APIs enabled with GKE stay enabled (the GKE API refused to be disabled right after the deletion, "service has resources"); enabled APIs without resources do not bill.

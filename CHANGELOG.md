@@ -6,6 +6,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 
 ### Added (fourth pass)
 - Applier: separation of duties enforced by three ValidatingAdmissionPolicies (no webhook), per-namespace policies (`policy.<ns>.yaml`), metrics and alerts, `rightsize publish`. Executor: reads of the workload or the SLO query may fail for up to 2 minutes during observation without a rollback, and unobserved time never counts as healthy.
+### Fixed (sixth pass: real GKE)
+- Executor rollback (and approval): conflict retries now 60 tries over ~12-18 s instead of `retry.DefaultBackoff` (5 tries, ~50 ms). On a real GKE cluster a rollback started during a 6-replica rollout gave up on "the object has been modified" and left a degraded change in place. Regression test `TestRollbackSurvivesABurstOfConflictsDuringARollout`; the same scenario then passed on GKE.
+### Added (sixth pass)
+- `hack/gke-validate.sh`: end-to-end run on a real GKE cluster with the cluster autoscaler, measuring node-hours in equivalent windows priced at list price; `hack/lab-traffic.sh` takes `REPLICAS`.
 ### Fixed (fifth pass: real Kubecost)
 - KubeCost client: asks `/model/allocation` with `aggregate=cluster,namespace,controllerKind,controller` instead of `aggregate=controller`. A real Kubecost 2.8.7 answers the old query with the controller property only, so the workload was never found (fail closed) and same-named controllers in different namespaces were merged. Found by running a real Kubecost (`hack/lab-kubecost.sh`, docs/LAB.md result 11); real answers kept as fixtures. Re-verified against a real OpenCost.
 ### Fixed (fourth pass)

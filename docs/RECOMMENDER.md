@@ -1,6 +1,6 @@
 # Rightsizing recommender (phase 1, read-only)
 
-Status: **verified once against a real Prometheus (cAdvisor + kube-state-metrics) in the local lab** (docs/LAB.md), and by unit tests plus a mock Prometheus. **Not validated on real workloads over real time**: the defaults below are untuned.
+Status: **verified once against a real Prometheus (cAdvisor + kube-state-metrics) in the local lab** (docs/LAB.md), and by unit tests plus a mock Prometheus. **Not validated on real workloads over real time**: the defaults below are untuned. On a real GKE cluster (docs/LAB.md result 12) a backtest over 100 minutes of constant synthetic traffic found the defaults never exceeded (about 15 % CPU and 18 % memory waste); that is too short and too regular to tune them, so they were not changed.
 Design and rationale: [ADR-0001](adr/0001-read-only-rightsizing-recommender.md). Applying a recommendation is a separate, policy-gated step ([ADR-0002](adr/0002-policy-gated-execution-with-rollback.md), docs/SAFETY.md). Not implemented: the recommendation CRD (phase 2).
 
 It cannot change a cluster: `internal/recommend` is pure and `cmd/recommend` has no Kubernetes client.

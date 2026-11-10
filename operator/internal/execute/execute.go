@@ -24,6 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/util/retry"
@@ -738,11 +739,17 @@ func (e *Executor) Watch(ctx context.Context, rec recommend.Recommendation, th T
 	}
 }
 
+// conflictBackoff bounds the retries of a write that conflicts with a concurrent update of the workload. retry.DefaultBackoff (5 tries
+// in about 50 ms) was not enough on a real GKE cluster: a rollback started one second after a change, while the Deployment controller
+// was updating the status of a 6-replica rollout, failed with "the object has been modified" and left the degraded change in place.
+// This allows 60 tries over roughly 12-18 s; each try re-reads the object, so it never writes a stale copy.
+var conflictBackoff = wait.Backoff{Steps: 60, Duration: 200 * time.Millisecond, Factor: 1, Jitter: 0.5} // no Cap: in wait.Backoff a Cap ends the retries
+
 // Rollback restores the saved state, waits for the rollout and verifies the restored values by reading them back.
 func (e *Executor) Rollback(ctx context.Context, kind, ns, name string, reasons []string, wait time.Duration) error {
 	rec := recommend.Recommendation{Namespace: ns, Workload: name, Kind: kind}
 	var prev Previous
-	err := retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+	err := retry.RetryOnConflict(conflictBackoff, func() error {
 		w, err := e.get(ctx, kind, ns, name)
 		if err != nil {
 			return err
@@ -882,7 +889,7 @@ func (e *Executor) Approve(ctx context.Context, rec recommend.Recommendation) (s
 	if err != nil {
 		return "", err
 	}
-	err = retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+	err = retry.RetryOnConflict(conflictBackoff, func() error {
 		w, err := e.get(ctx, rec.Kind, rec.Namespace, rec.Workload)
 		if err != nil {
 			return err
