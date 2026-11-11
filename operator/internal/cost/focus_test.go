@@ -1,8 +1,9 @@
 package cost
 
-// SYNTHETIC fixtures that follow the FOCUS column names. They are not exports from AWS, GCP or Azure.
+// SYNTHETIC fixtures that follow the FOCUS column names, except testdata/gcp-native-focus-converted.csv (a real GCP export row).
 
 import (
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -82,5 +83,30 @@ func TestFOCUSRejectsWhatItCannotInterpretHonestly(t *testing.T) {
 	items, sum, err := ParseFOCUS(strings.NewReader("BilledCost,ResourceId,ChargePeriodStart,ChargePeriodEnd\n3,x,2026-11-01T00:00:00Z,2026-11-02T00:00:00Z\n"), t0, t0.Add(24*time.Hour))
 	if err != nil || len(items) != 1 || !strings.Contains(strings.Join(sum.Notes, " "), "ASSUMED to be USD") {
 		t.Fatalf("a missing currency column must be flagged, not guessed silently: %v %+v", err, sum)
+	}
+}
+
+// testdata/gcp-native-focus-converted.csv is the REAL output (2026-11-10, CRLF line ends as bq writes them) of the native-FOCUS
+// query in hack/gke-soak.sh on Google's FOCUS export for an account billed in CLP: the per-row conversion to USD and the extra
+// LocalCost/LocalCurrency columns must parse, and the non-Usage row must be reported, not allocated.
+func TestFOCUSParsesTheRealGoogleNativeExportAfterConversion(t *testing.T) {
+	f, err := os.Open("testdata/gcp-native-focus-converted.csv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	s, e := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 9, 2, 0, 0, 0, 0, time.UTC)
+	items, sum, err := ParseFOCUS(f, s, e)
+	if err != nil || len(items) != 0 || sum.Rows != 1 {
+		t.Fatalf("%v %v %+v", err, items, sum)
+	}
+	if _, ok := sum.Skipped["Adjustment"]; !ok {
+		t.Fatalf("the Adjustment row must be listed in Skipped: %+v", sum)
+	}
+	// The same export WITHOUT the conversion (BillingCurrency CLP) must be refused, never read as dollars.
+	raw := "ResourceId,BilledCost,BillingCurrency,ChargeCategory,ChargePeriodStart,ChargePeriodEnd\r\n" +
+		"gke-x-node,923.32,CLP,Usage,2026-09-01T07:00:00Z,2026-09-01T08:00:00Z\r\n"
+	if _, _, err := ParseFOCUS(strings.NewReader(raw), s, e); err == nil || !strings.Contains(err.Error(), "not USD") {
+		t.Fatalf("a CLP export must be refused: %v", err)
 	}
 }

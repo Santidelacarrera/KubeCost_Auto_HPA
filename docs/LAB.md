@@ -230,6 +230,7 @@ What this is and is not:
 
 Started 2026-11-10T19:37:03Z: GKE zonal us-central1-a, `e2-standard-2`, autoscaler 1-3 nodes, cost allocation on; Prometheus 10 d retention on a 10 GiB disk; the app over-provisioned (4 x 500m) under a **synthetic** daily/weekly schedule (peak 12-21 UTC on weekdays, about 46 req/s measured at start; quiet nights and weekends). It is a schedule against a trivial app, not real users.
 Billing: Google's detailed export and its native FOCUS export (preview) to BigQuery were enabled on 2026-11-10 at about 20:00 UTC, so the first hour of the run is not in them.
+First look at the exports (2026-11-11 ~01:30 UTC): both tables exist, each with a single zero-cost `Adjustment` placeholder row; no usage yet. That row showed the account bills in **CLP** (rate 923.32 CLP/USD in the row), which the USD-only parser refuses: the report queries now convert per row with Google's rate and keep the CLP totals for the invoice.
 Plan: day 1 (2026-11-11) `approve` with production defaults (it may abstain or be refused by policy: that is a valid outcome); daily read-only checks; day 7 (2026-11-17) `report`, then the cluster is deleted. Until that report exists nothing here is a result.
 
 

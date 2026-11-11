@@ -4,6 +4,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 
 ## [Unreleased]
 
+### Fixed (eighth pass: real billing export, found before the soak report)
+- The account's Google billing exports are in **CLP**, and `ParseFOCUS` (correctly) refuses non-USD rows, so the day-7 soak report would have failed. `hack/gke-soak.sh` now converts each row to USD with Google's own per-row rate (`currency_conversion_rate`, `x_CurrencyConversionRate`) and also reports the totals in the billing currency for the invoice. Test `TestFOCUSParsesTheRealGoogleNativeExportAfterConversion` on a real export row (`testdata/gcp-native-focus-converted.csv`). The exports held only one placeholder row on 2026-11-10; no usage rows had arrived yet.
+
 ### Added (seventh pass: 7-day soak, in progress)
 - `hack/gke-soak.sh` (up/status/approve/report/down) and `hack/lab/traffic-diurnal.yaml`: a seven-day run on a real GKE cluster with a synthetic daily/weekly load schedule, Prometheus with 10 days of retention on a disk, a day-1 approve/apply with production defaults, and a day-7 report (health through the cycles, node-hours before/after, 7-day backtest, cost report from Google's billing export: the native FOCUS export and the detailed export as a cross-check). Started 2026-11-10T19:37Z; **no results yet** (docs/LAB.md result 13).
 - `hack/gke-validate.sh` accepts EKS (`aws://`) and AKS (`azure://`) clusters and a `PROM_PORT`, and dumps per-node requests and the autoscaler status when no node is removed.

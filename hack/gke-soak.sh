@@ -92,14 +92,17 @@ print("- the two periods have different lengths and different weekday/weekend mi
 PYEOF
   echo "## billing export (Google's own numbers) for the cluster's resources, $S .. $E" | tee -a "$LAB/report.md"
   bq --project_id "$PROJECT" query --use_legacy_sql=false --format=csv --max_rows=1000000 "
-    SELECT IFNULL(resource.name, service.description) AS ResourceId, cost AS BilledCost, currency AS BillingCurrency,
+    SELECT IFNULL(resource.name, service.description) AS ResourceId,
+           IF(currency = 'USD', cost, IF(currency_conversion_rate > 0, cost / currency_conversion_rate, cost)) AS BilledCost,
+           IF(currency = 'USD' OR currency_conversion_rate > 0, 'USD', currency) AS BillingCurrency, cost AS LocalCost, currency AS LocalCurrency,
            FORMAT_TIMESTAMP('%Y-%m-%dT%H:%M:%SZ', usage_start_time) AS ChargePeriodStart,
            FORMAT_TIMESTAMP('%Y-%m-%dT%H:%M:%SZ', usage_end_time) AS ChargePeriodEnd, 'Usage' AS ChargeCategory
     FROM \`$PROJECT.$BILLING_TABLE\`
     WHERE usage_start_time >= TIMESTAMP('$S') AND usage_end_time <= TIMESTAMP('$E') AND cost > 0
       AND (resource.name LIKE 'gke-$NAME-%' OR resource.name = '$NAME' OR EXISTS (SELECT 1 FROM UNNEST(labels) l WHERE l.key = 'goog-k8s-cluster-name' AND l.value = '$NAME'))
     UNION ALL
-    SELECT 'credit:' || c.type, c.amount, currency, FORMAT_TIMESTAMP('%Y-%m-%dT%H:%M:%SZ', usage_start_time),
+    SELECT 'credit:' || c.type, IF(currency = 'USD', c.amount, IF(currency_conversion_rate > 0, c.amount / currency_conversion_rate, c.amount)),
+           IF(currency = 'USD' OR currency_conversion_rate > 0, 'USD', currency), c.amount, currency, FORMAT_TIMESTAMP('%Y-%m-%dT%H:%M:%SZ', usage_start_time),
            FORMAT_TIMESTAMP('%Y-%m-%dT%H:%M:%SZ', usage_end_time), 'Credit'
     FROM \`$PROJECT.$BILLING_TABLE\`, UNNEST(credits) c
     WHERE usage_start_time >= TIMESTAMP('$S') AND usage_end_time <= TIMESTAMP('$E')
@@ -111,7 +114,10 @@ rows = list(csv.DictReader(open(sys.argv[1])))
 cur = {r["BillingCurrency"] for r in rows}
 by = collections.defaultdict(float)
 for r in rows: by[r["ChargeCategory"]] += float(r["BilledCost"])
-print("- rows: %d, currency: %s, usage %.4f, credits %.4f, net %.4f" % (len(rows), ",".join(sorted(cur)), by["Usage"], by["Credit"], by["Usage"] + by["Credit"]))
+loc = collections.defaultdict(float)
+for r in rows: loc[(r["LocalCurrency"], r["ChargeCategory"])] += float(r["LocalCost"])
+print("- rows: %d, currency: %s, usage %.4f, credits %.4f, net %.4f (converted per row with Google's currency_conversion_rate)" % (len(rows), ",".join(sorted(cur)), by["Usage"], by["Credit"], by["Usage"] + by["Credit"]))
+print("- in the billing currency (what the invoice shows): %s" % dict((k[0] + " " + k[1], round(v, 2)) for k, v in loc.items()))
 PYEOF
   USE="$LAB/focus.csv"   # the detailed export reduced to FOCUS column names
   if [ -n "${FOCUS_TABLE:-}" ]; then
@@ -119,7 +125,10 @@ PYEOF
     # compared with the detailed export above as a cross-check. Rows are selected by the cluster name anywhere in the row.
     echo "## native FOCUS export ($FOCUS_TABLE)" | tee -a "$LAB/report.md"
     bq --project_id "$PROJECT" query --use_legacy_sql=false --format=csv --max_rows=1000000 "
-      SELECT ResourceId, BilledCost, BillingCurrency, ChargeCategory,
+      SELECT ResourceId,
+             IF(BillingCurrency = 'USD', BilledCost, IF(x_CurrencyConversionRate > 0, BilledCost / x_CurrencyConversionRate, BilledCost)) AS BilledCost,
+             IF(BillingCurrency = 'USD' OR x_CurrencyConversionRate > 0, 'USD', BillingCurrency) AS BillingCurrency, ChargeCategory,
+             BilledCost AS LocalCost, BillingCurrency AS LocalCurrency,
              FORMAT_TIMESTAMP('%Y-%m-%dT%H:%M:%SZ', ChargePeriodStart) AS ChargePeriodStart,
              FORMAT_TIMESTAMP('%Y-%m-%dT%H:%M:%SZ', ChargePeriodEnd) AS ChargePeriodEnd
       FROM \`$PROJECT.$FOCUS_TABLE\` f
@@ -131,7 +140,10 @@ import csv, sys, collections
 rows = list(csv.DictReader(open(sys.argv[1])))
 by = collections.defaultdict(float)
 for r in rows: by[r["ChargeCategory"]] += float(r["BilledCost"] or 0)
-print("- rows: %d, currency: %s, by ChargeCategory: %s" % (len(rows), ",".join(sorted({r["BillingCurrency"] for r in rows})), dict((k, round(v, 4)) for k, v in by.items())))
+loc = collections.defaultdict(float)
+for r in rows: loc[(r["LocalCurrency"], r["ChargeCategory"])] += float(r["LocalCost"] or 0)
+print("- rows: %d, currency: %s, by ChargeCategory: %s (converted per row with x_CurrencyConversionRate)" % (len(rows), ",".join(sorted({r["BillingCurrency"] for r in rows})), dict((k, round(v, 4)) for k, v in by.items())))
+print("- in the billing currency (what the invoice shows): %s" % dict((k[0] + " " + k[1], round(v, 2)) for k, v in loc.items()))
 PYEOF
       USE="$LAB/focus-native.csv"
     fi
