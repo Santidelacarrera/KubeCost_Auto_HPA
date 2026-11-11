@@ -1,0 +1,82 @@
+# AKS node-saving retry (hack/aks-validate.sh, CA_PROFILE=skip-nodes-with-system-pods=false, REPLICAS=2), 2026-11-11. Redacted.
+== cluster-autoscaler profile: skip-nodes-with-system-pods=false
+WARNING: Merged "kubecost-validate" as current context in <home>\.kube\config
+== AKS v1.36.5
+== cluster: v1.36.5, nodes 1, node price 0.096 USD/h (list)
+== 0. Prometheus and the over-provisioned app
+PASS  Prometheus installed
+PASS  all 2 replicas run (the autoscaler added nodes for their requests if needed)
+nodes now: 2; waiting 5 min for the node count to settle
+== 1. BEFORE window (20 min), requests 500m x 2
+node-hours before: 0.6667 (nodes seen: 2 )
+== 2. hack/lab-traffic.sh on GKE (recommend, approve, apply with real-latency SLO, before/after, forced rollback)
+== 0. deploy the app and the load, wait for history
+PASS  the app serves real traffic (requests per second > 5)
+== 1. BEFORE window (last 5 minutes), requests 500m/128Mi
+{"p95": 0.004750000000000001, "rps": 37.50526315789473, "err": NaN, "thr": 0.0, "cpu95": 0.01524199342099389, "rst": 0.0}
+PASS  the recommendation proposes a CPU decrease
+== 2. approve and apply, SLO driven by the REAL latency histogram (p95 > 250 ms breaches)
+requests: 500m/128Mi -> 250m/64Mi
+PASS  applied and healthy under real traffic
+PASS  the requests really changed
+== 3. AFTER window: wait 6 minutes so the 5-minute window is entirely after the change
+{"p95": NaN, "rps": NaN, "err": NaN, "thr": NaN, "cpu95": NaN, "rst": NaN}
+metric                       before        after
+requests/s                 37.50526          nan
+p95 latency (s)             0.00475          nan
+error ratio                     nan          nan
+cpu throttled ratio         0.00000          nan
+cpu usage p95 (cores)       0.01524          nan
+restarts (5m)               0.00000          nan
+requested USD/hour          0.03200      0.01600   ESTIMATE (flag prices, requests x replicas)
+cost per 1k requests (before): 0.00023700 USD  ESTIMATE
+cost per 1k requests (after): nan USD  ESTIMATE
+FAIL  traffic is comparable (rps within 25 percent)
+FAIL  p95 latency did not regress (<= max(1.5x, +5 ms))
+PASS  error ratio did not increase
+PASS  throttling did not increase by more than 2 points
+FAIL  no restarts after the change
+== 4. a rollback driven by the REAL latency metric (threshold made absurdly tight on purpose)
+SKIP  no further decrease is proposed (already right-sized)
+RESULT: 6 passed, 3 failed
+requests after the run: 250m x 2
+== 3. letting the GKE cluster autoscaler react (up to 25 min; scale-down needs ~10 min of a node being unneeded)
+nodes now: 1 (before: 2)
+== 4. AFTER window (20 min, same length)
+node-hours after: 0.3333 (nodes seen: 1 )
+node-hours in 20 min: before 0.6667, after 0.3333
+cost of those windows at LIST price: before 0.0640 USD, after 0.0320 USD
+measured change: 0.0320 USD per 20 min = 0.0960 USD/hour (50.0%)
+MEASURED from the cluster's node count, priced at list price: NOT an invoice (no discounts, credits, free tier, disks or network).
+PASS  the autoscaler removed at least one node after the change (infrastructure saving measured)
+== 5. read-only cloud-validate and backtest on this run's history
+- server version: v1.36.5
+- nodes: 1; provider id example: azure:///subscriptions/<subscription>/resourceGroups/mc_kubecost-validate-rg_kubecost-validate_eastus/providers/Microsoft.Compute/virtualMachineScaleSets/aks-nodepool1-27712614-vmss/virtualMachines/0; cloud detected: azure
+PASS  the cluster answers
+PASS  Prometheus is reachable at http://localhost:9092
+PASS  cAdvisor CPU series exist for the container
+PASS  cAdvisor memory series exist
+PASS  kube-state-metrics series exist
+- samples of history (30d, scrape-interval dependent): 109
+PASS  plan produced a record
+- abstained: True | confidence: Low | samples: 30
+- CPU: Abstain current=0.25 recommended=0.25 reasons=['insufficient samples: cpu=30 memory=31, need 200']
+- Memory: Abstain current=6.71089e+07 recommended=6.71089e+07 reasons=['insufficient samples: cpu=30 memory=31, need 200']
+- risks: no recommendation: insufficient samples: cpu=30 memory=31, need 200
+PASS  backtest ran (read it: <repo>/.cloud-evidence/backtest-kubecost-validate.json)
+PASS  nodes report produced
+- removable candidates: None
+- stranded cpu/mem: 0.37 4.28 GiB
+PASS  ESTIMATED-basis cost report produced (a model, not a bill)
+- basis: estimated | source: flag --node-hourly-usd=0.096
+- total: 2.304000 | reconciled: True
+- unallocated: 0
+- notes: None
+RESULT: 9 passed, 0 failed. Evidence file: <repo>/.cloud-evidence/kubecost-validate-20261111T182258Z.md
+PASS  backtest ran on the real history of this run
+{
+RESULT: 10 passed, 3 failed
+
+== resource groups left after cleanup
+azure-signup-rg
+NetworkWatcherRG

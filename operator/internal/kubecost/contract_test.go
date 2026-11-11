@@ -43,7 +43,7 @@ func TestContractOpenCostShapedResponse(t *testing.T) {
 		t.Fatalf("request %s %s", gotReq.Method, gotReq.URL)
 	}
 	v := gotReq.URL.Query()
-	if len(v) != 3 || v.Get("window") != "1h" || v.Get("aggregate") != "cluster,namespace,controllerKind,controller" || v.Get("accumulate") != "true" {
+	if len(v) != 3 || v.Get("window") != "60m" || v.Get("aggregate") != "cluster,namespace,controllerKind,controller" || v.Get("accumulate") != "true" {
 		t.Fatalf("query %v", v)
 	}
 	if err := s.Validate(t0, 5*time.Minute, 0.5); err != nil {
