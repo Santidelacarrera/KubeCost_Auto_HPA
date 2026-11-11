@@ -5,7 +5,6 @@
 # scaling need a kubelet and are covered by hack/helm-rehearsal.sh (kind) and the envtest suite.
 # Needs: kubectl, helm and a KUBECONFIG with admin rights on a DISPOSABLE cluster.
 set -euo pipefail
-PY=$(command -v python3 || command -v python)   # Windows has only "python"
 cd "$(dirname "$0")/.."
 : "${KUBECONFIG:?set KUBECONFIG to a disposable cluster}"
 CHART=deploy/helm/kubecost-auto-hpa
