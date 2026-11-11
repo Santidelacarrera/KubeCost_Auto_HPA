@@ -26,11 +26,15 @@ import (
 
 	v1alpha1 "github.com/santidelacarrera/kubecost_auto_hpa/operator/api/v1alpha1"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/actuator"
+	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/arbitrator"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/cache"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/config"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/engine"
+	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/execution"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/metrics"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/ownership"
+	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/pricing"
+	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/stability"
 )
 
 // Finalizer makes the operator restore the original pod resources before a
@@ -63,6 +67,7 @@ type KubeCostHPAReconciler struct {
 	Store       cache.Store
 	Recorder    record.EventRecorder
 	Defaults    config.Defaults
+	Stability   *stability.Controller
 	Now         func() time.Time
 }
 
@@ -189,8 +194,22 @@ func (r *KubeCostHPAReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return fail("InvalidSpec", "replicas: require 1 <= min <= max")
 	}
 
+	// --- resolve dynamic cloud instance pricing when node labels are available and spec uses defaults ---
+	if hpa.Spec.UnitEconomics.CPUPricePerCoreHour == "" && len(pods) > 0 && pods[0].Spec.NodeName != "" {
+		var node corev1.Node
+		if nerr := r.Get(ctx, types.NamespacedName{Name: pods[0].Spec.NodeName}, &node); nerr == nil {
+			prices.cpu, prices.mem, _ = pricing.ResolveNodePricing(&node, prices.cpu, prices.mem)
+		}
+	}
+
+	execMode := execution.ParseMode(
+		hpa.Annotations["autoscaling.kubecost.io/execution-mode"],
+		hpa.Spec.DryRun,
+		hpa.Annotations["autoscaling.kubecost.io/emergency-stop"] == "true",
+	)
+
 	// --- converge existing/new pods to the desired values ---
-	if !r.dryRun(&hpa) && (hpa.Status.DesiredCPUMillicores != 0 || hpa.Status.DesiredMemoryMiB != 0) {
+	if !r.dryRun(&hpa) && execMode.AllowsKubernetesWrites() && (hpa.Status.DesiredCPUMillicores != 0 || (hpa.Spec.Memory != nil && hpa.Status.DesiredMemoryMiB != 0)) {
 		r.converge(ctx, &hpa, pods, cname, actuator.Target{CPUMillis: desired, MemoryBytes: memBytes(hpa.Spec.Memory, desiredMem)})
 	}
 
@@ -271,6 +290,21 @@ func (r *KubeCostHPAReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			HasPDB: r.hasPDB(ctx, &dep), MinReplicas: int(hpa.Spec.Spot.MinReplicas),
 		}
 	}
+	if hpa.Spec.Predictive != nil && hpa.Spec.Predictive.Enabled {
+		ereq.Predictive = &engine.PredictiveReq{
+			WarmupLeadTimeSeconds: hpa.Spec.Predictive.WarmupLeadTimeSeconds,
+			TargetRPSPerPod:       float64(hpa.Spec.Predictive.TargetRPSPerPod),
+		}
+	}
+	if hpa.Spec.OOMProtection != nil && hpa.Spec.OOMProtection.Enabled {
+		crit := float64(hpa.Spec.OOMProtection.CriticalThresholdPercent) / 100.0
+		warn := float64(hpa.Spec.OOMProtection.WarningThresholdPercent) / 100.0
+		ereq.OOMProtection = &engine.OOMProtectionReq{
+			CriticalThreshold: crit,
+			WarningThreshold:  warn,
+			MaxLimitMiB:       hpa.Spec.OOMProtection.MaxLimitMiB,
+		}
+	}
 	dec, err := r.Engine.Evaluate(ctx, ereq)
 	if err != nil {
 		r.event(&hpa, corev1.EventTypeWarning, "EngineError", err.Error())
@@ -300,12 +334,19 @@ func (r *KubeCostHPAReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if ereq.Memory != nil && dec.Memory != nil && dec.Memory.Action != "hold" { // only act on what was asked for
 		newMem = dec.Memory.MiB
 	}
+	oomInflate := dec.OOMProtection != nil && dec.OOMProtection.Action == "inflate" && dec.OOMProtection.RecommendedLimitMiB > newMem
+	if oomInflate {
+		newMem = dec.OOMProtection.RecommendedLimitMiB
+	}
 	newReplicas := curReplicas
 	if ereq.Replicas != nil && dec.Replicas != nil { // never act on a recommendation that was not requested
 		newReplicas = dec.Replicas.Target
 	}
+	if dec.Predictive != nil && dec.Predictive.IsPrewarming && dec.Predictive.RecommendedReplicas > newReplicas {
+		newReplicas = dec.Predictive.RecommendedReplicas
+	}
 	cpuChange := dec.Action != "hold" && dec.CPUMillicores != desired
-	memChange := newMem != desiredMem
+	memChange := (ereq.Memory != nil && newMem != desiredMem) || oomInflate
 	repChange := newReplicas != curReplicas
 	if cpuChange || memChange || repChange {
 		var parts []string
@@ -313,16 +354,54 @@ func (r *KubeCostHPAReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			parts = append(parts, fmt.Sprintf("cpu %dm->%dm (%s)", desired, dec.CPUMillicores, dec.Reason))
 		}
 		if memChange {
-			parts = append(parts, fmt.Sprintf("memory %dMi->%dMi (%s)", desiredMem, newMem, dec.Memory.Reason))
+			reason := "resize"
+			if dec.Memory != nil && dec.Memory.Reason != "" {
+				reason = dec.Memory.Reason
+			} else if dec.OOMProtection != nil && dec.OOMProtection.Action == "inflate" {
+				reason = dec.OOMProtection.Reason
+			}
+			parts = append(parts, fmt.Sprintf("memory %dMi->%dMi (%s)", desiredMem, newMem, reason))
 		}
 		if repChange {
-			parts = append(parts, fmt.Sprintf("replicas %d->%d (%s)", curReplicas, newReplicas, dec.Replicas.Reason))
+			repReason := "scaling"
+			if dec.Replicas != nil && dec.Replicas.Reason != "" {
+				repReason = dec.Replicas.Reason
+			} else if dec.Predictive != nil && dec.Predictive.IsPrewarming {
+				repReason = dec.Predictive.Reason
+			}
+			parts = append(parts, fmt.Sprintf("replicas %d->%d (%s)", curReplicas, newReplicas, repReason))
 		}
 		summary := strings.Join(parts, "; ")
-		isGrow := (cpuChange && dec.Action == "grow") || (memChange && dec.Memory.Action == "grow") || newReplicas > curReplicas
+		memAction := "hold"
+		if dec.Memory != nil {
+			memAction = dec.Memory.Action
+		} else if dec.OOMProtection != nil {
+			memAction = dec.OOMProtection.Action
+		}
+		isGrow := (cpuChange && dec.Action == "grow") || (memChange && (memAction == "grow" || memAction == "inflate")) || newReplicas > curReplicas
+		arb := arbitrator.NewArbitrator().Evaluate(arbitrator.WorkloadTelemetry{
+			SampleCount:           5,
+			CurrentReplicas:       curReplicas,
+			MinReplicas:           1,
+			MaxReplicas:           max(curReplicas, newReplicas),
+			CurrentCPUMillicores:  desired,
+			CPUUsageMillicores:    int64(snap.CPUUsageMillicores),
+			MinCPUMillicores:      minCPU,
+			MaxCPUMillicores:      maxCPU,
+			CurrentMemoryMiB:      desiredMem,
+			MemoryUsageMiB:        int64(snap.MemUsageMiB),
+			CurrentRPS:            snap.RPS,
+			P99LatencyMs:          snap.P99Ms,
+			SLOP99LatencyMs:       float64(hpa.Spec.SLO.P99LatencyMs),
+			CPUCoreHourPriceUSD:   prices.cpu,
+			MemoryGiBHourPriceUSD: prices.mem,
+		})
+		_ = arb
 		switch {
 		case r.dryRun(&hpa):
 			hpa.Status.LastReason = "dry-run: would " + summary
+		case !execMode.AllowsKubernetesWrites():
+			hpa.Status.LastReason = strings.ToLower(string(execMode)) + ": would " + summary
 		case r.inCooldown(ctx, key, &hpa, isGrow):
 			hpa.Status.LastReason = "suppressed by cooldown: " + summary
 		default:
@@ -330,11 +409,13 @@ func (r *KubeCostHPAReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				desired = dec.CPUMillicores
 				hpa.Status.DesiredCPUMillicores = desired
 				cResizes.WithLabelValues(hpa.Namespace, hpa.Name, dec.Action).Inc()
+				aoResizeOpsTotal.WithLabelValues(hpa.Namespace, hpa.Name, dec.Action).Inc()
 			}
 			if memChange {
 				desiredMem = newMem
 				hpa.Status.DesiredMemoryMiB = desiredMem
-				cResizes.WithLabelValues(hpa.Namespace, hpa.Name, "memory-"+dec.Memory.Action).Inc()
+				cResizes.WithLabelValues(hpa.Namespace, hpa.Name, "memory-"+memAction).Inc()
+				aoResizeOpsTotal.WithLabelValues(hpa.Namespace, hpa.Name, "memory-"+memAction).Inc()
 			}
 			if repChange {
 				if err := r.Resizer.SetReplicas(ctx, hpa.Namespace, dep.Name, newReplicas); err != nil {
@@ -351,7 +432,11 @@ func (r *KubeCostHPAReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				hpa.Status.LastResizeAction = "grow"
 			}
 			if cpuChange || memChange {
-				r.converge(ctx, &hpa, pods, cname, actuator.Target{CPUMillis: desired, MemoryBytes: memBytes(hpa.Spec.Memory, desiredMem)})
+				targetMem := memBytes(hpa.Spec.Memory, desiredMem)
+				if hpa.Spec.Memory == nil && oomInflate {
+					targetMem = newMem << 20
+				}
+				r.converge(ctx, &hpa, pods, cname, actuator.Target{CPUMillis: desired, MemoryBytes: targetMem})
 			}
 			if serr := r.Store.Set(ctx, key+":decision", storedDecision{dec.Action, desired, r.now()}, hpa.Spec.Cooldown.Duration); serr != nil {
 				lg.Info("cache write failed", "error", serr.Error())
@@ -447,6 +532,7 @@ func (r *KubeCostHPAReconciler) converge(ctx context.Context, h *v1alpha1.KubeCo
 	for i := range pods {
 		if _, err := r.Resizer.Resize(ctx, &pods[i], container, t); err != nil {
 			lg.Info("pod resize skipped", "pod", pods[i].Name, "reason", err.Error())
+			aoResizeFailuresTotal.WithLabelValues(h.Namespace, h.Name, "resize_skipped").Inc()
 			if err == actuator.ErrWouldRestart {
 				r.event(h, corev1.EventTypeWarning, "ResizeRefused", pods[i].Name+": "+err.Error())
 			}
@@ -473,6 +559,7 @@ func (r *KubeCostHPAReconciler) accrueSavings(h *v1alpha1.KubeCostHPA, prev *met
 		return
 	}
 	cSavings.WithLabelValues(h.Namespace, h.Name).Add(rate * hours)
+	aoRealizedSavingsUSD.WithLabelValues(h.Namespace, h.Name).Add(rate * hours)
 }
 
 func (r *KubeCostHPAReconciler) hasPDB(ctx context.Context, dep *appsv1.Deployment) bool {

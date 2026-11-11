@@ -71,6 +71,26 @@ tls:
     secretName: ""         # server cert/key for the engine; enables https
     clientSecretName: ""   # operator client cert/key + ca.crt; enables mTLS when the server secret has ca.crt
 
+# ScaleOps Parity Capabilities (Predictive Scaling, OOM Shield, Node Bin-Packing)
+features:
+  predictiveScaling:
+    enabled: true
+    warmupLeadTimeSeconds: 120
+  oomProtection:
+    enabled: true
+    criticalThresholdPercent: 88
+    warningThresholdPercent: 78
+    maxLimitMiB: 16384
+  nodeBinPacking:
+    enabled: true
+    consolidationThresholdPercent: 35
+
+telemetry:
+  enabled: false
+  redisUrl: ""
+  stream: "nexus:telemetry"
+  tenantId: ""
+
 networkPolicy:
   enabled: false           # restrict engine/redis ingress to the operator
   # Egress policy for the operator itself. The operator needs: DNS, the Kubernetes API

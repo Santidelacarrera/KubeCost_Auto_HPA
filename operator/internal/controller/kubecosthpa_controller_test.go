@@ -502,3 +502,52 @@ func TestObserveOnlyOperatorDoesNotTouchPodsEvenWithoutSpecDryRun(t *testing.T) 
 		t.Fatalf("expected a would-do reason, got %q", got)
 	}
 }
+
+func TestScaleOpsPredictiveAndOOMProtectionActuation(t *testing.T) {
+	hpa := replicasHPA()
+	hpa.Spec.Predictive = &v1alpha1.PredictivePolicy{
+		Enabled:               true,
+		WarmupLeadTimeSeconds: 120,
+		TargetRPSPerPod:       50,
+	}
+	hpa.Spec.OOMProtection = &v1alpha1.OOMProtectionPolicy{
+		Enabled:                  true,
+		CriticalThresholdPercent: 88,
+		WarningThresholdPercent:  78,
+		MaxLimitMiB:              4096,
+	}
+	dep := newDeployment()
+	two := int32(2)
+	dep.Spec.Replicas = &two
+	e := newEnv(hpa, dep, newPod("api-1"), newPod("api-2"))
+	e.e.dec = engine.Decision{
+		Action:        "hold",
+		CPUMillicores: 1000,
+		Replicas:      &engine.ReplicasDec{Target: 2, Reason: "steady"},
+		Predictive: &engine.PredictiveDec{
+			IsPrewarming:        true,
+			RecommendedReplicas: 5,
+			ConfidenceScore:     0.95,
+			Reason:              "diurnal spike pre-warm",
+		},
+		OOMProtection: &engine.OOMProtectionDec{
+			Action:              "inflate",
+			RecommendedLimitMiB: 2048,
+			Reason:              "heap velocity slope protection",
+		},
+	}
+	_, err := e.r.Reconcile(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected reconcile error: %v", err)
+	}
+	if e.e.last.Predictive == nil {
+		t.Fatal("predictive request was not forwarded to engine")
+	}
+	if e.e.last.OOMProtection == nil {
+		t.Fatal("oom protection request was not forwarded to engine")
+	}
+	sc, _ := e.cs.AppsV1().Deployments("shop").GetScale(context.Background(), "api", metav1.GetOptions{})
+	if sc.Spec.Replicas != 5 {
+		t.Fatalf("expected pre-warmed replicas 5, got %d", sc.Spec.Replicas)
+	}
+}

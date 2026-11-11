@@ -6,7 +6,7 @@
 set -euo pipefail
 
 CLUSTER=${CLUSTER:-kca-e2e}
-NODE_IMAGE=${NODE_IMAGE:-kindest/node:v1.33.1}
+NODE_IMAGE=${NODE_IMAGE:-kindest/node:v1.33.4}
 METRICS_SERVER=${METRICS_SERVER:-https://github.com/kubernetes-sigs/metrics-server/releases/download/v0.7.2/components.yaml}
 KEEP=${KEEP:-0}
 
@@ -31,6 +31,10 @@ kubectl -n kube-system patch deploy metrics-server --type=json \
   -p '[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]'
 kubectl -n kube-system rollout status deploy/metrics-server --timeout=180s
 
+kubectl apply -k operator/config/crd
+kubectl wait --for=condition=Established --timeout=60s \
+  crd/kubecosthpas.autoscaling.kubecost.io \
+  crd/kubecostautoscalers.autoscaling.kubecost.io
 kubectl apply -k operator/config/overlays/e2e-kca || { sleep 5; kubectl apply -k operator/config/overlays/e2e-kca; }
 for d in kubecost-auto-hpa-operator kubecost-auto-hpa-engine kubecost-auto-hpa-redis fake-kubecost; do
   kubectl -n kubecost-auto-hpa-system rollout status "deploy/$d" --timeout=180s

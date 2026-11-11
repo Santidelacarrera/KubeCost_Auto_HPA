@@ -1,0 +1,115 @@
+# Production Hardened Values for KubeCost_Auto_HPA (Nexus Security & AI Lab — Pillar 2)
+# Validates strictly against deploy/helm/kubecost-auto-hpa/values.schema.json
+operator:
+  extraArgs:
+    - "--webhook-bind-address=:9443"
+  extraEnv: []
+  extraVolumes: []
+  extraVolumeMounts: []
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+  image:
+    repository: ghcr.io/santidelacarrera/kubecost-auto-hpa-operator
+    tag: ""
+    pullPolicy: IfNotPresent
+  replicas: 2
+  leaderElect: true
+  enableSpotDrain: true
+  enableCostAutoscaler: true
+  kubecostMaxAttempts: 3
+  drainTimeout: 2m
+  cpuPricePerCoreHour: "0.031"
+  memPricePerGiBHour: "0.004"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+
+engine:
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+  image:
+    repository: ghcr.io/santidelacarrera/kubecost-auto-hpa-engine
+    tag: ""
+    pullPolicy: IfNotPresent
+  replicas: 2
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+
+prometheus:
+  url: http://prometheus-server.monitoring:80
+
+kubecost:
+  url: http://kubecost-cost-analyzer.kubecost:9090
+
+redis:
+  enabled: true
+  external:
+    addr: ""
+    passwordSecret:
+      name: ""
+      key: password
+  image: redis:7.4-alpine
+  maxmemory: 128mb
+
+serviceMonitor:
+  enabled: true
+
+auth:
+  engine:
+    secretName: kubecost-engine-auth
+    key: token
+  prometheus:
+    secretName: ""
+    key: token
+  kubecost:
+    secretName: ""
+    key: token
+
+tls:
+  engine:
+    secretName: kubecost-engine-server-tls
+    clientSecretName: kubecost-operator-client-tls
+
+features:
+  predictiveScaling:
+    enabled: true
+    warmupLeadTimeSeconds: 120
+  oomProtection:
+    enabled: true
+    criticalThresholdPercent: 88
+    warningThresholdPercent: 78
+    maxLimitMiB: 16384
+  nodeBinPacking:
+    enabled: true
+    consolidationThresholdPercent: 35
+
+telemetry:
+  enabled: true
+  redisUrl: "redis://kubecost-auto-hpa-redis:6379/0"
+  stream: "nexus:telemetry"
+  tenantId: "6f1c2a7e-0b3d-4c8e-9a51-2d7f0e4b9c10"
+
+networkPolicy:
+  enabled: true
+  operatorEgress:
+    enabled: false
+    rules: []
+
+prometheusRule:
+  enabled: true
+
+grafanaDashboard:
+  enabled: true
+  label: grafana_dashboard
+  labelValue: "1"
+  annotations:
+    grafana_folder: "Nexus FinOps & Kubernetes Economics"

@@ -153,3 +153,43 @@ def test_nan_and_infinity_rejected_over_http():
             assert e.value.code == 400
     finally:
         srv.shutdown()
+
+
+def test_cors_options_and_static_serving(tmp_path, monkeypatch):
+    web_dir = tmp_path / "web"
+    web_dir.mkdir()
+    (web_dir / "index.html").write_text("<!DOCTYPE html><html><body>KubeCost Auto-HPA</body></html>", encoding="utf-8")
+    (web_dir / "app.html").write_text("<!DOCTYPE html><html><body>Enterprise Console</body></html>", encoding="utf-8")
+    monkeypatch.setenv("WEB_DIR", str(web_dir))
+
+    srv = make_server("127.0.0.1", 0)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    port = srv.server_address[1]
+    url = f"http://127.0.0.1:{port}"
+
+    try:
+        # Test OPTIONS preflight
+        opt_req = urllib.request.Request(url + "/v1/evaluate", method="OPTIONS")
+        with urllib.request.urlopen(opt_req) as resp:
+            assert resp.status == 204
+            assert resp.headers.get("Access-Control-Allow-Origin") == "*"
+            assert "POST" in resp.headers.get("Access-Control-Allow-Methods")
+
+        # Test index.html serving
+        with urllib.request.urlopen(url + "/") as resp:
+            assert resp.status == 200
+            assert "text/html" in resp.headers.get("Content-Type")
+            assert b"KubeCost Auto-HPA" in resp.read()
+
+        # Test app.html serving
+        with urllib.request.urlopen(url + "/app.html") as resp:
+            assert resp.status == 200
+            assert b"Enterprise Console" in resp.read()
+
+        # Test 404
+        with pytest.raises(urllib.error.HTTPError) as e:
+            urllib.request.urlopen(url + "/nonexistent-page.html")
+        assert e.value.code == 404
+    finally:
+        srv.shutdown()
+

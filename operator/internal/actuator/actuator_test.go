@@ -243,3 +243,67 @@ func fakeScale(cs *fake.Clientset) {
 		return true, sc, cs.Tracker().Update(gvr, d, sc.Namespace)
 	})
 }
+
+func TestDetectResizeCapabilityAcrossK8sVersions(t *testing.T) {
+	cOld := DetectResizeCapability("1", "26", false)
+	if cOld.SupportsInPlace || cOld.Stage != "Unsupported" {
+		t.Fatalf("expected 1.26 Unsupported, got %+v", cOld)
+	}
+	cBeta := DetectResizeCapability("1", "33+", true)
+	if !cBeta.SupportsInPlace || cBeta.Stage != "Beta" {
+		t.Fatalf("expected 1.33 Beta support, got %+v", cBeta)
+	}
+	cGA := DetectResizeCapability("1", "35", true)
+	if !cGA.SupportsInPlace || cGA.Stage != "GA" {
+		t.Fatalf("expected 1.35 GA support, got %+v", cGA)
+	}
+}
+
+func TestInspectResizeStatusDeferredInfeasibleAndCompleted(t *testing.T) {
+	p := pod("p1", "n1", "1000m", "2000m", "ReplicaSet")
+	target := Target{CPUMillis: 1500}
+
+	// 1. Deferred condition
+	p.Status.Conditions = []corev1.PodCondition{{
+		Type:    podResizePending,
+		Status:  corev1.ConditionTrue,
+		Reason:  "Deferred",
+		Message: "Node didn't have enough resource: cpu",
+	}}
+	st, _ := InspectResizeStatus(p, "app", target)
+	if st != ResizeStatusDeferred {
+		t.Fatalf("expected Deferred, got %s", st)
+	}
+	r := &Resizer{fake.NewSimpleClientset(p)}
+	if _, err := r.Resize(context.Background(), p, "app", target); !errors.Is(err, ErrResizeDeferred) || !errors.Is(err, ErrResizeInFlight) {
+		t.Fatalf("expected ErrResizeDeferred wrapping ErrResizeInFlight, got %v", err)
+	}
+
+	// 2. Infeasible condition
+	p.Status.Conditions = []corev1.PodCondition{{
+		Type:    podResizePending,
+		Status:  corev1.ConditionTrue,
+		Reason:  "Infeasible",
+		Message: "Node capacity exceeded permanently",
+	}}
+	st, _ = InspectResizeStatus(p, "app", target)
+	if st != ResizeStatusInfeasible {
+		t.Fatalf("expected Infeasible, got %s", st)
+	}
+	if _, err := r.Resize(context.Background(), p, "app", target); !errors.Is(err, ErrResizeInfeasible) {
+		t.Fatalf("expected ErrResizeInfeasible, got %v", err)
+	}
+
+	// 3. Completed verification via containerStatuses
+	p.Status.Conditions = nil
+	p.Status.ContainerStatuses = []corev1.ContainerStatus{{
+		Name: "app",
+		Resources: &corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1500m")},
+		},
+	}}
+	st, _ = InspectResizeStatus(p, "app", target)
+	if st != ResizeStatusCompleted {
+		t.Fatalf("expected Completed when containerStatus matches desired target, got %s", st)
+	}
+}

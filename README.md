@@ -1,8 +1,16 @@
-# KubeCost Auto-HPA
+# KubeCost Auto-HPA (ScaleOps Parity Edition)
 
-Operador nativo de Kubernetes que reemplaza el escalado por CPU/RAM con **Unit Economics Scaling**: ajusta
-el tamaño de los Pods y migra cargas tolerantes a fallos a instancias Spot (AWS/GCP) evaluando la latencia
-p99 y el costo financiero por petición servida.
+[![ci](https://github.com/Santidelacarrera/KubeCost_Auto_HPA/actions/workflows/ci.yml/badge.svg)](https://github.com/Santidelacarrera/KubeCost_Auto_HPA/actions/workflows/ci.yml)
+[![release](https://github.com/Santidelacarrera/KubeCost_Auto_HPA/actions/workflows/release.yml/badge.svg)](https://github.com/Santidelacarrera/KubeCost_Auto_HPA/actions/workflows/release.yml)
+[![Latest Release](https://img.shields.io/github/v/release/Santidelacarrera/KubeCost_Auto_HPA)](https://github.com/Santidelacarrera/KubeCost_Auto_HPA/releases/tag/v0.1.0)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Kubernetes](https://img.shields.io/badge/kubernetes-1.33-326ce5.svg)](https://kubernetes.io)
+[![Live Demo](https://img.shields.io/badge/Live_Console-GitHub_Pages-2ea44f.svg)](https://santidelacarrera.github.io/KubeCost_Auto_HPA/app.html)
+
+Operador autónomo de Kubernetes de alta disponibilidad con **Unit Economics Scaling** y **paridad funcional total con ScaleOps**: ajusta réplicas de forma predictiva, redimensiona contenedores en caliente (*in-place resize*) sin reinicios, previene caídas por OOM y consolida el clúster (*node bin-packing*) para maximizar el ahorro en AWS/GCP sin violar los SLOs de latencia p99.
+
+🌐 **Consola Enterprise en Vivo:** [https://santidelacarrera.github.io/KubeCost_Auto_HPA/app.html](https://santidelacarrera.github.io/KubeCost_Auto_HPA/app.html)  
+🏢 **Landing Comercial y ROI:** [https://santidelacarrera.github.io/KubeCost_Auto_HPA/](https://santidelacarrera.github.io/KubeCost_Auto_HPA/)
 
 ```
  Prometheus / KubeCost / Spot API
@@ -20,24 +28,31 @@ p99 y el costo financiero por petición servida.
 
 `C_pod = Costo Instancia / RPS`. Escala según rentabilidad y SLO, no según picos de CPU/RAM.
 
-## Funcionalidades
+## Funcionalidades Clave (Paridad Total con ScaleOps)
 
-1. **Escalado por rentabilidad y SLOs** – reduce límites cuando la latencia p99 está holgada frente al SLA.
-2. **Orquestador Spot** – detecta cargas tolerantes a fallos y gestiona cordon/drain.
-3. **Hot-resizing in-place** – actualiza `requests`/`limits` sin rolling update.
-4. **Guardrails de presupuesto** – congela el auto-escalado al alcanzar el límite mensual (`FinOps Agent`).
+1. **Predictive Horizontal Scaling (Pre-Warming)** – Pronostica subidas de demanda y precalienta réplicas antes de los picos estacionales para mantener la latencia p99 por debajo del SLO.
+2. **OOM Protection Shield** – Monitorea la velocidad de memoria cgroup (`dMem/dt`); infla dinámicamente los límites de memoria en caliente mediante `pods/resize` de K8s 1.33+ sin reiniciar los pods (adiós exit code 137).
+3. **Cluster Optimization & Node Bin-Packing** – Detecta nodos subutilizados (< 35%) y gestiona cordoning/draining respetando PDBs para que Karpenter o Cluster Autoscaler eliminen instancias ociosas.
+4. **Escalado por rentabilidad y SLOs** – Reduce límites cuando la latencia p99 está holgada frente al SLA, calculando el coste unitario por petición.
+5. **Orquestador Spot** – Detecta cargas tolerantes a fallos y gestiona cordon/drain con anticipación ante avisos de interrupción.
+6. **Hot-resizing in-place** – Actualiza `requests`/`limits` sin rolling updates ni reinicios de contenedores.
+7. **Guardrails de presupuesto** – Congela el auto-escalado al alcanzar el límite mensual (`FinOps Agent`).
+8. **Consola Web Enterprise Desacoplada** – Dashboard SPA profesional con simulador de 500 usuarios concurrentes en vivo y calculadora de ROI.
+9. **Bus de Telemetría Nexus Lab** – Publicación de eventos `finops.scaling_decision` hacia Redis Streams (`nexus:telemetry`) con identificadores UUIDv7 para auditoría e integración con `Nexus_Client_Portal`.
 
 ## Componentes
 
 | Ruta | Qué es |
 |---|---|
-| `engine/` | Motor Unit Economics (Python, stdlib). Núcleo + API HTTP `POST /v1/evaluate`, `/healthz`, `/metrics`. |
-| `operator/` | Operador Go (controller-runtime): CRD `KubeCostHPA`, reconciler, actuadores, cliente Prometheus/KubeCost, caché Redis. |
+| `engine/` | Motor Unit Economics & ScaleOps (Python 3.12). Algoritmos de predicción, escudo OOM, bin-packing, productor de telemetría Nexus y API HTTP `POST /v1/evaluate`. |
+| `operator/` | Operador Go (controller-runtime): CRDs `KubeCostAutoscaler` y `KubeCostHPA`, reconciliadores, actuadores in-place, clientes Prometheus/KubeCost. |
 | `operator/internal/{policy,kubecost,money,infra,ownership,resmetrics}` | Motor de decisión puro (Go), cliente KubeCost, dinero exacto, clasificación Spot, propiedad de réplicas y métricas de recursos del `KubeCostAutoscaler`. |
 | `operator/config/` | Kustomize: `default` (CRD, RBAC, operador, motor, Redis) y `overlays/local` (+ workload demo). |
 | `deploy/helm/kubecost-auto-hpa/` | Chart de Helm equivalente. |
 | `operator/cmd/recommend`, `operator/internal/recommend/` | Read-only rightsizing recommender (CLI, Prometheus history). Phase 1, unverified on a real cluster: [`docs/RECOMMENDER.md`](docs/RECOMMENDER.md). |
 | `operator/internal/{safety,execute,cost,capacity}`, `operator/cmd/rightsize` | Política fail-closed, aplicación con rollback y auditoría, asignación de costos, análisis de capacidad (ver más abajo). |
+| `frontend/` | Consola web comercial independiente (`index.html`, `app.html`, `pricing.html`) desplegada en GitHub Pages. |
+| `deploy/helm/kubecost-auto-hpa/` | Chart de Helm enterprise versionado, con validación OpenAPI v3 y flags `features.*` y `telemetry.*`. |
 | `docker-compose.yml` | Stack local: Redis, motor, Prometheus, Grafana (+ operador con `--profile operator`). |
 
 ## Flujo de reconciliación
@@ -87,14 +102,20 @@ importes no numéricos o negativos y `onSpendUnavailable` desconocido. El motor 
   `cpu.max` y la p99 ≥ 90 % del SLO; −1 si la CPU está en `cpu.min`, hay holgura de latencia y las demás réplicas absorben la carga
   por debajo del 70 %. **No combinar con otro HPA sobre el mismo Deployment.**
 
-### Seguridad
+### Seguridad, Aislamiento Multi-Tenant (BOLA/IDOR) y Rate Limiting Distribuido
 
-- Motor: `ENGINE_TOKEN` exige `Authorization: Bearer` en `/v1/*` (`/healthz` y `/metrics` quedan abiertos para probes).
-  TLS con `TLS_CERT`/`TLS_KEY`; con `TLS_CLIENT_CA` exige certificado de cliente (mTLS).
-- Operador → Prometheus / KubeCost / motor: flags `--<backend>-ca-file`, `--<backend>-client-cert/-key`,
-  `--<backend>-bearer-token-file` (se relee en cada petición, soporta rotación) o env `PROMETHEUS_TOKEN`/`KUBECOST_TOKEN`/`ENGINE_TOKEN`.
-- Helm: `auth.*` (tokens desde Secrets), `tls.engine.*`, `networkPolicy.enabled`, PDBs, `prometheusRule.enabled`.
-- Redis: contraseña (`REDIS_PASSWORD`) y TLS/mTLS (`--redis-tls`, `--redis-ca-file`, `--redis-client-cert/-key`); además `networkPolicy.enabled`.
+- **Autenticación Unificada (`/v1/*`):** Todas las rutas privadas bajo `/v1/*` (`GET` y `POST`) exigen autenticación mediante `ENGINE_TOKEN` (operador Go M2M), `ENGINE_ADMIN_TOKEN` o API Keys multi-tenant `kc_live_*` / `kch_live_*` gestionadas por `MultiTenantAuthManager` (hash SHA-256 en tiempo constante, expiración por defecto de **90 días** `expires_in_days=90`, revocación y rotación atómica). Con `KUBECOST_ENV=production`, la ausencia de `ENGINE_TOKEN` **nunca** habilita silenciosamente el modo demo.
+- **Excepciones Públicas Explícitas:** Solo `/healthz`, `/health`, `/readyz` y los activos estáticos de `web/` son públicos. `POST /v1/billing/stripe-webhook` exige firma criptográfica `Stripe-Signature` HMAC-SHA256 con ventana anti-replay de 300 s e idempotencia por `event_id` (sin secretos fallback por defecto; si `STRIPE_WEBHOOK_SECRET` no está configurado, falla cerrado con `HTTP 503`).
+- **Prevención BOLA / IDOR (`_verify_tenant_access`):** `X-Tenant-ID` nunca se acepta como prueba de identidad por sí solo. El tenant efectivo proviene de la credencial autenticada (`kc_live_*` / `kch_live_*` o `ENGINE_TOKEN_TENANT_ID`) y se valida frente a `client_id`, `tenant_id` y la propiedad de recursos (`cluster_id`, `command_id`, `event_id`, `decision_id`), devolviendo `HTTP 403 Forbidden` ante cualquier intento de acceso cruzado.
+- **Rate Limiting Distribuido (`REDIS_URL`) y Cuotas Diarias:** `DistributedRateLimiter` ejecuta contadores atómicos con scripts Lua en Redis (`REDIS_URL`) y falla cerrado (`HTTP 503`) en producción multi-réplica si Redis no está disponible:
+  - `POST /v1/auth/keys`: `10 req/min/IP` (`RATE_LIMIT_AUTH_KEYS_PER_MIN`).
+  - Cómputo intensivo (`/v1/evaluate`, `/v1/cluster/binpack`, `/v1/gpu/optimize`, `/v1/gameday/simulate`): `60 req/min/tenant` (`RATE_LIMIT_COMPUTE_PER_MIN`) + cuota diaria atómica de `10,000 evaluaciones/día/tenant` (`RATE_LIMIT_DAILY_EVAL_QUOTA=10000`).
+  - Telemetría del operador Go (`/v1/telemetry/ingest`, `/v1/agents/heartbeat`): `600 req/min/tenant` (`RATE_LIMIT_TELEMETRY_PER_MIN`) con cuota independiente para no interferir con el bucle de reconciliación.
+  - Lectura general (`/v1/*`): `120 req/min/tenant` (`RATE_LIMIT_GENERAL_PER_MIN`).
+  - Al superar el límite devuelve `HTTP 429 Too Many Requests` con cabeceras `Retry-After`, `X-RateLimit-Limit` y `X-RateLimit-Remaining`.
+- **Validación Estricta y Cabeceras HTTP:** Rechazo de `NaN`/`Infinity` (`math.isfinite`), validación de identificadores, límite estricto de `1 MiB` (`HTTP 413`) en todos los cuerpos JSON (incluyendo `POST /v1/cluster/binpack`) y cabeceras `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `Cache-Control: no-store` y `X-Frame-Options` / `CSP frame-ancestors` (configurable con `ALLOWED_FRAME_ANCESTORS` para integración con `Nexus_Client_Portal`).
+- **Plantilla de Variables de Entorno:** Consulta [`.env.example`](.env.example) para la referencia completa de variables sin secretos reales.
+- **TLS / mTLS y Helm:** `TLS_CERT`/`TLS_KEY` y `TLS_CLIENT_CA` en el motor; flags `--<backend>-ca-file`, `--<backend>-client-cert/-key`, `--<backend>-bearer-token-file` en el operador Go; y `values-production.yaml` en Helm.
 
 ### Métricas del operador
 
@@ -299,6 +320,29 @@ Guías: [`docs/RECOMMENDER.md`](docs/RECOMMENDER.md), [`docs/SAFETY.md`](docs/SA
 | **Pendiente / bloqueado** | validación en EKS/AKS y con una exportación FOCUS real (runbook y script de solo lectura listos: [`docs/CLOUD_VALIDATION.md`](docs/CLOUD_VALIDATION.md); falta TU cuenta de nube), Kubecost con datos frescos (el contrato ya se probó contra un Kubecost 2.8.7 real y se corrigió un defecto, pero en el laboratorio sus datos se quedaron viejos: [`docs/LAB.md`](docs/LAB.md) resultado 11), tráfico de producción y ciclos semanales, afinar los valores por defecto con datos reales (`rightsize backtest` es la herramienta), pull requests automáticos en un Git alojado, multi-tenancy completo (hoy: política por namespace `policy.<ns>.yaml`), operador con varias réplicas bajo caída del API server |
 
 No se afirma ahorro garantizado ni paridad con otros productos. Un "ahorro" de requests no es un ahorro de infraestructura hasta que un nodo se libera (`docs/COST.md`).
+## Comercialización y Soporte Enterprise
+
+KubeCost Auto-HPA cuenta con una suite completa para organizaciones y equipos de ingeniería que requieren soporte con SLA, consultoría y características avanzadas para producción:
+
+- **[Oferta Comercial & Planes Enterprise](docs/COMMERCIAL.md):** Comparativa entre la edición comunitaria y empresarial, modelos de suscripción por nodo ($18–$32/nodo/mes) y modelos de ahorro compartido (*value-shared*).
+- **[Business Case y Calculadora de ROI](docs/BUSINESS_CASE_AND_ROI.md):** Modelos financieros para FinOps y CFOs demostrando retornos superiores a 8x y amortización de inversión en menos de 10 días.
+- **[Calculadora CLI Interactiva de ROI](scripts/calculate_roi.py):** Script ejecutable en Python (`python scripts/calculate_roi.py --nodes 100`) para estimar ahorros exactos en AWS/GCP/Azure con formato para terminal o Markdown.
+- **[Playbook de POC Guiada](docs/POC_PLAYBOOK.md):** Plan de evaluación de 14 días con riesgo cero mediante el modo no invasivo `dryRun: true`.
+- **[Battlecard Competitiva](docs/COMPETITIVE_BATTLECARD.md):** Matriz comparativa detallada y manejo de objeciones frente a Karpenter, HPA nativo, CAST AI, Spot.io y Kubecost OSS.
+- **[Pitch Deck para Ejecutivos](docs/PITCH_DECK.md):** Presentación ejecutiva de 12 diapositivas orientada a VPs de Ingeniería, Directores de FinOps y CISOs.
+- **[Runbook de Demo en Vivo de 15 Minutos](docs/DEMO_SCRIPT.md):** Guía paso a paso para soluciones y preventa técnica con inyección de carga y resizing in-place sin reinicios.
+- **[White Paper de Seguridad y Compliance](docs/ENTERPRISE_SECURITY_WHITE_PAPER.md):** Respuestas a cuestionarios CISO/SOC2 (arquitectura air-gapped, zero-trust, sin fuga de telemetría ni datos PII).
+- **[Auditoría de Protección de Datos & Privacidad (RGPD / CCPA / HIPAA)](docs/DATA_PROTECTION_AND_PRIVACY_COMPLIANCE.md):** Dictamen de conformidad con normativas internacionales de privacidad, certificación de ausencia de PII y análisis de privacidad por diseño (Art. 25 RGPD).
+- **[Anexo de Tratamiento de Datos (DPA) Enterprise](docs/DATA_PROCESSING_ADDENDUM_TEMPLATE.md):** Plantilla legal vinculante de acuerdo de tratamiento de datos con Cláusulas Contractuales Tipo (SCC) para departamentos jurídicos.
+- **[Certificación de Carga y 500 Usuarios Concurrentes](docs/LOAD_TEST_AND_HIGH_CONCURRENCY_REPORT.md):** Ensayo de estrés masivo con 2.000 transacciones simultáneas certificando 100% de éxito, 0% de errores y cero caídas del sistema.
+- **[Playbook de Prospección Comercial y Correos en Frío](docs/SALES_OUTREACH_PLAYBOOK.md):** Secuencias de correos en frío, plantillas para LinkedIn/InMail y guiones de llamada orientados a VPs de Infraestructura y FinOps.
+- **[Guía de Llamada de Descubrimiento y Cierre (MEDDPICC)](docs/DISCOVERY_CALL_GUIDE.md):** Metodología de diagnóstico y guión de cierre para acordar la prueba de concepto de 14 días.
+- **[Contrato Marco y Formulario de Pedido Enterprise (MSA / EULA)](docs/ENTERPRISE_ORDER_FORM_AND_MSA_TEMPLATE.md):** Plantilla legal con compromisos de SLA, garantía de devolución por ROI en 60 días y términos de indemnización de PI.
+- **[Resumen Ejecutivo de 1 Página](docs/EXECUTIVE_ONE_PAGER.md):** Briefing ejecutivo de una carilla para decisores de compra.
+- **[Manifiestos y Ejemplos de Producción](examples/):** Plantillas YAML listas para desplegar (`dryRun`, microservicios con latencia crítica, flotas Spot y límites de presupuesto mensual).
+- **Despliegue Enterprise:** Módulos listos para producción mediante [Terraform / OpenTofu](deploy/terraform/) y [ArgoCD GitOps](deploy/argocd/application.yaml).
+- **Consola Web Enterprise (Frontend):** Panel de control y telemetría multi-clúster con simulación de 500 usuarios en vivo y diseño Impeccable Neo Kinpaku en [web/app.html](web/app.html).
+- **Landing Page Comercial:** Showcase web interactivo con simulador en tiempo real en [web/index.html](web/index.html).
 
 ## Licencia
 

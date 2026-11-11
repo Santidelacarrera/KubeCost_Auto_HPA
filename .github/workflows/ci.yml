@@ -85,6 +85,8 @@ jobs:
           go install sigs.k8s.io/controller-tools/cmd/controller-gen@v0.16.5
           go install sigs.k8s.io/kustomize/kustomize/v5@v5.5.0
           make manifests
+          git status
+          git diff
           git diff --exit-code
       - run: helm lint deploy/helm/kubecost-auto-hpa && helm template r deploy/helm/kubecost-auto-hpa >/dev/null
       - name: Chart renders with every optional feature enabled

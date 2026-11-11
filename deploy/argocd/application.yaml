@@ -1,0 +1,51 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kubecost-auto-hpa
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  labels:
+    app.kubernetes.io/name: kubecost-auto-hpa
+    app.kubernetes.io/part-of: finops-automation
+spec:
+  project: default
+  source:
+    repoURL: ghcr.io/santidelacarrera/charts
+    chart: kubecost-auto-hpa
+    targetRevision: 0.1.0
+    helm:
+      releaseName: kubecost-auto-hpa
+      valuesObject:
+        dryRun: false
+        operator:
+          replicaCount: 2
+          resources:
+            limits:
+              cpu: 500m
+              memory: 256Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+        engine:
+          replicaCount: 2
+          resources:
+            limits:
+              cpu: 1000m
+              memory: 512Mi
+            requests:
+              cpu: 200m
+              memory: 256Mi
+        redis:
+          enabled: true
+        serviceMonitor:
+          enabled: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kubecost-auto-hpa-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

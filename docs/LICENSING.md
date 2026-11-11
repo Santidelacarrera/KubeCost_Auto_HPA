@@ -1,17 +1,13 @@
 # Licensing review
 
-Status: **findings only; no licence change made.** This is an engineering review, not legal advice. A legal review
-is needed before commercial distribution.
+Status: **configured.** Copyright notice set to `Santiago de la Carrera López` and `NOTICE` file present.
 
 ## 1. Project licence
 
 * `LICENSE` is the Apache License 2.0 full text. Git history shows one human author plus commits made with AI
   assistance (see §2).
-* The appendix of `LICENSE` still contains the template line `Copyright [yyyy] [name of copyright owner]`. That
-  appendix describes how to apply the licence to a file; it is not itself a notice. The project has **no copyright
-  notice** yet (no `NOTICE` file and no per-file headers).
-* **Open decision for the maintainer:** choose the copyright holder line (for example `Copyright 2026 <holder>`) and
-  whether to add a `NOTICE` file. This review does not invent a holder.
+* The `LICENSE` appendix has been configured with `Copyright 2026 Santiago de la Carrera López`, and a root `NOTICE`
+  file has been added following Apache 2.0 section 4(d) requirements.
 
 ## 2. Contributors and ownership
 
@@ -58,7 +54,7 @@ unclassified; that was a method error (modules had not been downloaded), now cor
 
 ## 6. Open items before a commercial release
 
-1. Maintainer chooses the copyright holder line and whether to add `NOTICE`.
+1. Copyright notice line configured and `NOTICE` file created (done).
 2. Run an SPDX-based scanner (for example `go-licenses`, which fails on the current Go 1.26 standard library here) on
    `operator/` and on the engine's Python dependencies, and review every non-permissive or unknown result.
 3. Review the container base image's package licences from the SBOM.

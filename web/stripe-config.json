@@ -1,0 +1,55 @@
+{
+  "environment": "simulation",
+  "currency": "usd",
+  "tiers": {
+    "growth": {
+      "name": "KubeCost Auto-HPA Growth Tier",
+      "product_id": "mock__products_650662",
+      "prices": {
+        "monthly": {
+          "price_id": "mock__prices_738981",
+          "unit_amount_usd": 18.0,
+          "interval": "month"
+        },
+        "annual": {
+          "price_id": "mock__prices_178634",
+          "unit_amount_usd": 172.0,
+          "interval": "year",
+          "savings_percentage": 20
+        }
+      },
+      "features": [
+        "Autonomous Downscale Stabilization (Zero Outages)",
+        "Spot Instance Cost-Bidding Engine",
+        "Multi-Cluster Web Console (Neo Kinpaku UI)",
+        "Slack & PagerDuty Webhook Integrations",
+        "Standard SLA (Business Hours Email Support)"
+      ]
+    },
+    "enterprise": {
+      "name": "KubeCost Auto-HPA Mission-Critical Enterprise Tier",
+      "product_id": "mock__products_972213",
+      "prices": {
+        "monthly": {
+          "price_id": "mock__prices_667891",
+          "unit_amount_usd": 32.0,
+          "interval": "month"
+        },
+        "annual": {
+          "price_id": "mock__prices_596591",
+          "unit_amount_usd": 308.0,
+          "interval": "year",
+          "savings_percentage": 20
+        }
+      },
+      "features": [
+        "Everything in Growth Tier",
+        "Air-Gapped & Sovereign Private Registry Deployment",
+        "SAML 2.0 / Okta / Azure AD Single Sign-On",
+        "Custom Downscale Anomaly Guards & Financial Budgets",
+        "Dedicated FinOps Solutions Architect & 24/7/365 Phone SLA",
+        "SOC 2 Type II Audit Packet & Signed GDPR/CCPA DPA"
+      ]
+    }
+  }
+}

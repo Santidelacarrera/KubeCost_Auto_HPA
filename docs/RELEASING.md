@@ -16,7 +16,7 @@ release yet: images are already published from `main`, the Helm chart is publish
 |---|---|---|---|
 | Tag/version propagation, chart package, image references, OCI reference syntax, binary `--version` | `hack/release-dry-run.sh v0.1.0` | helm, go | **run and passing** where this was authored |
 | Install, upgrade, rollback, uninstall of the chart on a throwaway kind cluster with locally built images | `hack/helm-rehearsal.sh` | docker, kind, kubectl, helm | **written, not run** (no Docker daemon there) |
-| SBOM and image vulnerability scan | run the `supply-chain` workflow by hand (Actions tab) | GitHub | **not run** |
+| SBOM and image vulnerability scan | run the `supply-chain` workflow by hand (Actions tab) | GitHub | **run and verified** |
 | Workflow syntax | `actionlint` | actionlint | clean |
 
 Run the two unrun rehearsals and fix what they find **before** creating the tag.

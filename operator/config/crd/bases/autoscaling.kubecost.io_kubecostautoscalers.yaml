@@ -313,6 +313,80 @@ spec:
                 format: int32
                 minimum: 1
                 type: integer
+              nodeBinPacking:
+                description: NodeBinPacking enables cluster-wide pod relocation to
+                  allow Karpenter or Cluster Autoscaler to terminate nodes.
+                properties:
+                  consolidationThresholdPercent:
+                    default: 35
+                    description: ConsolidationThresholdPercent is the node utilization
+                      ceiling below which a node becomes a drain candidate.
+                    format: int32
+                    type: integer
+                  enabled:
+                    default: false
+                    description: Enabled activates node fragmentation scanning and
+                      drain candidate tagging.
+                    type: boolean
+                required:
+                - enabled
+                type: object
+              oomProtection:
+                description: OOMProtection prevents container exit code 137 terminations
+                  by dynamically ballooning limits.
+                properties:
+                  criticalThresholdPercent:
+                    default: 88
+                    description: CriticalThresholdPercent defines memory usage percentage
+                      that triggers immediate cgroup inflation.
+                    format: int32
+                    maximum: 98
+                    minimum: 60
+                    type: integer
+                  enabled:
+                    default: true
+                    description: Enabled activates active memory velocity monitoring
+                      and limit inflation.
+                    type: boolean
+                  maxLimitMiB:
+                    default: 16384
+                    description: MaxLimitMiB is the hard ceiling for emergency memory
+                      inflation.
+                    format: int64
+                    type: integer
+                  warningThresholdPercent:
+                    default: 78
+                    description: WarningThresholdPercent defines the monitoring watermark.
+                    format: int32
+                    type: integer
+                required:
+                - enabled
+                type: object
+              predictive:
+                description: Predictive enables ScaleOps-grade AI proactive forecasting
+                  ahead of demand.
+                properties:
+                  enabled:
+                    default: false
+                    description: Enabled turns on predictive forecasting.
+                    type: boolean
+                  targetRPSPerPod:
+                    default: 50
+                    description: TargetRPSPerPod defines comfortable capacity per
+                      replica for forecast calculations.
+                    format: int32
+                    type: integer
+                  warmupLeadTimeSeconds:
+                    default: 120
+                    description: WarmupLeadTimeSeconds specifies how many seconds
+                      ahead of traffic peaks pods should pre-warm.
+                    format: int32
+                    maximum: 600
+                    minimum: 30
+                    type: integer
+                required:
+                - enabled
+                type: object
               stabilization:
                 default: {}
                 description: |-

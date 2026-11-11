@@ -1,0 +1,66 @@
+apiVersion: autoscaling.kubecost.io/v1alpha1
+kind: KubeCostAutoscaler
+metadata:
+  name: ecommerce-checkout-scaleops-parity
+  namespace: production
+  labels:
+    app.kubernetes.io/name: checkout-api
+    app.kubernetes.io/part-of: kubecost-auto-hpa
+    finops.kubecost.io/tier: mission-critical
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: checkout-api
+
+  minReplicas: 4
+  maxReplicas: 35
+  minHealthyReplicas: 4
+  dryRun: false
+  evaluationInterval: 30s
+
+  # 1. ScaleOps Parity: Predictive Horizontal Scaling (Pre-warm before rush)
+  predictive:
+    enabled: true
+    warmupLeadTimeSeconds: 120    # Pre-scales replicas 2 minutes ahead of diurnal traffic surges
+    targetRPSPerPod: 50           # Sizing target per pod for forecast projection
+
+  # 2. ScaleOps Parity: Continuous OOM Protection Shield (Zero Exit Code 137)
+  oomProtection:
+    enabled: true
+    criticalThresholdPercent: 88  # Inflates memory limit if heap usage exceeds 88%
+    warningThresholdPercent: 78   # Activates memory velocity slope tracking
+    maxLimitMiB: 8192             # Maximum allowable emergency ceiling for in-place inflation
+
+  # 3. ScaleOps Parity: Node Bin-Packing & Workload Density Consolidation
+  nodeBinPacking:
+    enabled: true
+    consolidationThresholdPercent: 35 # Under 35% utilization, node becomes drain candidate for Karpenter
+
+  # 4. Sovereign Unit Economics (KubeCost Auto-HPA Superpower over ScaleOps)
+  demand:
+    resources:
+      - cpu
+      - memory
+    targetUtilizationPercent: 70
+    costPressureUtilizationPercent: 82
+    ceilingUtilizationPercent: 90
+    tolerancePercent: 8
+
+  costPolicy:
+    maxHourlyCostUSD: "3.50"
+    targetHourlyCostUSD: "2.10"
+    scaleUpCostGuardrail: true
+    window: 15m
+
+  stabilization:
+    downscaleWindow: 10m
+    scaleUpInterval: 1m
+    scaleDownInterval: 5m
+    maxScaleUpPercentage: 100
+    maxScaleDownPercentage: 20
+
+  infrastructurePolicy:
+    spotMultiplier: "0.30"
+    onDemandMultiplier: "1.00"
+    spotInterruptionBufferPercent: 20

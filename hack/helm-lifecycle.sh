@@ -3,7 +3,7 @@
 # It does NOT wait for pods: it proves the apiserver accepts every object (CRDs, CEL rules, RBAC, Secrets,
 # Deployments) and that each lifecycle step changes exactly what it should. Pods, reconciliation and
 # scaling need a kubelet and are covered by hack/helm-rehearsal.sh (kind) and the envtest suite.
-# Needs: kubectl, helm, python3 and a KUBECONFIG with admin rights on a DISPOSABLE cluster.
+# Needs: kubectl, helm and a KUBECONFIG with admin rights on a DISPOSABLE cluster.
 set -euo pipefail
 PY=$(command -v python3 || command -v python)   # Windows has only "python"
 cd "$(dirname "$0")/.."
@@ -25,7 +25,7 @@ grep -q operator <<<"$deploys" || fail "operator Deployment missing"
 ok "install: revision 1 accepted by the apiserver"
 helm upgrade "$REL" "$CHART" -n "$NS" "${VALUES[@]}" --set grafanaDashboard.enabled=true --timeout 2m >/dev/null || fail "upgrade"
 kubectl -n "$NS" get configmap "$REL-kubecost-auto-hpa-dashboard" >/dev/null || fail "dashboard ConfigMap missing after upgrade"
-[ "$(helm history "$REL" -n "$NS" -o json | "$PY" -c 'import sys,json;print(len(json.load(sys.stdin)))')" = 2 ] || fail "expected 2 revisions"
+[ "$(helm history "$REL" -n "$NS" | tail -n +2 | wc -l | tr -d ' ')" = 2 ] || fail "expected 2 revisions"
 ok "upgrade: revision 2 adds exactly the dashboard ConfigMap"
 helm rollback "$REL" 1 -n "$NS" --timeout 2m >/dev/null || fail "rollback"
 kubectl -n "$NS" get configmap "$REL-kubecost-auto-hpa-dashboard" >/dev/null 2>&1 && fail "dashboard survived rollback"

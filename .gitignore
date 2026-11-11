@@ -5,6 +5,11 @@ operator/bin/
 build/
 dist/
 
+# Environment files and secrets: never commit
+.env
+.env.*
+!.env.example
+
 # Secrets and local access material: never commit (see docs/PILOT.md section 11)
 *token*.txt
 *.token
@@ -14,3 +19,7 @@ kubeconfig*
 *.pem
 .lab/
 .cloud-evidence/
+.prod-bootstrap/
+*.db
+*.db-wal
+*.db-shm

@@ -139,6 +139,12 @@ type KubeCostHPASpec struct {
 	// DryRun computes and reports decisions without touching pods.
 	// +kubebuilder:default=false
 	DryRun bool `json:"dryRun,omitempty"`
+	// Predictive enables proactive scaling ahead of traffic surges.
+	// +optional
+	Predictive *PredictivePolicy `json:"predictive,omitempty"`
+	// OOMProtection prevents container exit code 137 terminations by dynamically ballooning limits.
+	// +optional
+	OOMProtection *OOMProtectionPolicy `json:"oomProtection,omitempty"`
 }
 
 // KubeCostHPAStatus defines the observed state of KubeCostHPA.

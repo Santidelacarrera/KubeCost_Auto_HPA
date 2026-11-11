@@ -11,6 +11,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/actuator"
+	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/infra"
 )
 
 // DrainedAnnotation marks a node already handled, keeping reconciles idempotent.
@@ -20,16 +21,19 @@ const DrainedAnnotation = "autoscaling.kubecost.io/spot-drained"
 const InterruptionAnnotation = "autoscaling.kubecost.io/spot-interruption"
 
 var spotLabels = map[string][]string{
-	"eks.amazonaws.com/capacityType":    {"SPOT"},
-	"karpenter.sh/capacity-type":        {"spot"},
-	"cloud.google.com/gke-spot":         {"true"},
-	"cloud.google.com/gke-provisioning": {"spot"},
+	"eks.amazonaws.com/capacityType":        {"SPOT"},
+	"karpenter.sh/capacity-type":            {"spot"},
+	"cloud.google.com/gke-spot":             {"true"},
+	"cloud.google.com/gke-preemptible":      {"true"},
+	"cloud.google.com/gke-provisioning":     {"spot"},
+	"kubernetes.azure.com/scalesetpriority": {"spot"},
 }
 
 var interruptionTaints = map[string]bool{
 	"aws-node-termination-handler/spot-itn":                 true,
 	"aws-node-termination-handler/rebalance-recommendation": true,
 	"cloud.google.com/impending-node-termination":           true,
+	"kubernetes.azure.com/scalesetpreempted":                true,
 }
 
 // IsSpotNode reports whether the node runs on interruptible capacity.
@@ -54,7 +58,15 @@ func IsInterrupted(n *corev1.Node) bool {
 			return true
 		}
 	}
-	return false
+	risk := infra.EvaluateSpotRisk(infra.SpotRiskInput{
+		Signal: infra.SpotSignal{
+			Provider:     infra.ProviderAWS,
+			NodeName:     n.Name,
+			InstanceType: n.Labels["node.kubernetes.io/instance-type"],
+			Signal:       infra.SignalNone,
+		},
+	})
+	return risk.IsDeterministicNotice
 }
 
 // NodeReconciler cordons and drains Spot nodes that are about to be reclaimed,
@@ -108,7 +120,10 @@ func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	return ctrl.Result{}, nil
 }
 
-func cResultDrain(result string) { cDrains.WithLabelValues(result).Inc() }
+func cResultDrain(result string) {
+	cDrains.WithLabelValues(result).Inc()
+	aoNodesOptimizedTotal.WithLabelValues(result).Inc()
+}
 
 // SetupWithManager registers the controller.
 func (r *NodeReconciler) SetupWithManager(mgr ctrl.Manager) error {

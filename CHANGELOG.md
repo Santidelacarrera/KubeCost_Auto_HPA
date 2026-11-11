@@ -66,8 +66,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 - Operator-wide `--observe-only` flag (Helm `operator.observeOnly`, **default `true` in the chart**; the binary default stays `false` for kustomize users). Every `KubeCostAutoscaler` and `KubeCostHPA` then behaves as if `spec.dryRun` were set whatever the spec says, the Spot drain controller is not started, and the autoscaler reports `ScalingActive=False, reason ObserveOnly`. It can only add safety. Tests: `TestObserveOnlyOperatorNeverWritesWhateverTheSpecSays`, `TestObserveOnlyOperatorDoesNotTouchPodsEvenWithoutSpecDryRun`.
 - **Behaviour change for chart users:** a fresh install no longer writes anything until `--set operator.observeOnly=false`.
 - Fixed `TestVersionIsInjectedAtLinkTime` on Windows (the test binary needs the `.exe` suffix).
+## [0.1.0] - 2026-11-05
 
 ### Fixed
+- `operator/cmd/version_test.go`: append `.exe` binary extension on Windows (`runtime.GOOS == "windows"`) so that link-time version injection test runs portably across Windows, Linux and macOS.
 - `hack/helm-rehearsal.sh`: `grep -q` at the end of a pipe under `pipefail` could report a false failure (exit 141); output is now captured first. The script also checks for docker, kind, kubectl and helm before starting.
 - `hack/helm-lifecycle.sh` and `hack/release-dry-run.sh`: the same `pipefail` plus `grep -q` false-failure pattern was removed; `release-dry-run.sh` passes locally on v0.1.0 and `helm-lifecycle.sh` passes against the local apiserver.
 - Live KubeCost test: freshness now uses the CRD default `maxMetricAge` (5m, configurable with `KUBECOST_LIVE_MAX_AGE`) instead of a fixed 30 min.
@@ -84,6 +86,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 - `make envtest` fails immediately when `KUBEBUILDER_ASSETS` is unset instead of skipping every real-apiserver test. New `make test-all` runs the complete tagged suite under the race detector.
 
 ### Added
+- Root `NOTICE` file specifying copyright attribution according to Apache 2.0 §4d.
+- `deploy/helm/kubecost-auto-hpa/Chart.yaml`: added metadata (`icon`, `home`, `sources`, `maintainers`) providing 100% clean `helm lint` output.
 - `autoscaling.kubecost.io/pause` annotation: emergency stop for a `KubeCostAutoscaler` (decisions still reported, nothing written, lifted without restart).
 - `internal/sim` + `cmd/simbench`: deterministic synthetic comparison of the native HPA with the decision engine (`docs/BENCHMARKS.md`), and `docs/ENGINEERING_REPORT.md`.
 - Helm: `values.schema.json` (typos and wrong types fail at install time) and an optional Grafana dashboard for
