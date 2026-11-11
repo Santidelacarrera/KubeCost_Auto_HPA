@@ -12,11 +12,16 @@ HERE="$(cd "$(dirname "$0")/.." && pwd)"
 for ns in Microsoft.ContainerService Microsoft.Compute Microsoft.Network Microsoft.Storage; do "$AZ" provider register --namespace $ns --wait >/dev/null; done
 "$AZ" group create -n "$RG" -l "$LOC" -o none || exit 1
 cleanup() { [ "${KEEP:-}" = 1 ] || "$AZ" group delete -n "$RG" --yes -o none; }; trap cleanup EXIT
+# CA_PROFILE: AKS cluster-autoscaler profile. AKS defaults to skip-nodes-with-system-pods=true, so a node holding any kube-system
+# pod that is not a DaemonSet (AKS places konnectivity-agent replicas on any node) is never removed. CA_PROFILE="" keeps the default.
+CA_PROFILE="${CA_PROFILE-skip-nodes-with-system-pods=false}"
 "$AZ" aks create -g "$RG" -n "$NAME" --tier free --node-count 1 --node-vm-size "$SIZE" --enable-cluster-autoscaler \
-  --min-count 1 --max-count "$MAXN" --node-osdisk-size 30 --generate-ssh-keys -o none || { echo "aks create failed"; exit 1; }
+  --min-count 1 --max-count "$MAXN" --node-osdisk-size 30 --generate-ssh-keys ${CA_PROFILE:+--cluster-autoscaler-profile $CA_PROFILE} -o none || { echo "aks create failed"; exit 1; }
+echo "== cluster-autoscaler profile: ${CA_PROFILE:-AKS default}"
 "$AZ" aks get-credentials -g "$RG" -n "$NAME" --overwrite-existing -o none
 CTX="$NAME"
 echo "== AKS $(kubectl --context "$CTX" version -o json | python -c "import json,sys; print(json.load(sys.stdin)['serverVersion']['gitVersion'])")"
-# 4 x 500m on 2-vCPU nodes (about 1.9 allocatable CPU each) forces a second node; the change should let the autoscaler remove it.
-CTX="$CTX" NODE_HOURLY_USD="$PRICE" REPLICAS="${REPLICAS:-4}" LABDIR=aks PROM_PORT=9092 bash "$HERE/hack/gke-validate.sh"; RC=$?
+# REPLICAS x 500m on 2-vCPU nodes (about 1.9 allocatable CPU each) forces a second node; after the change the pods should fit on
+# the first one. With 4 replicas they did not (result 14: the first node also holds AKS system pods and Prometheus); 2 is the default now.
+CTX="$CTX" NODE_HOURLY_USD="$PRICE" REPLICAS="${REPLICAS:-2}" LABDIR=aks PROM_PORT=9092 bash "$HERE/hack/gke-validate.sh"; RC=$?
 exit $RC
