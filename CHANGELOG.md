@@ -11,7 +11,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 ### Fixed (eighth pass: lab scripts, found on AKS; no operator or chart defect)
 - `hack/lab-applier.sh` scenario 5 predated the separation-of-duties admission policy: its unstamped object was refused at creation and never reached the operator. It now checks that refusal and tests the operator's namespace check with an honestly stamped object.
 - Scenario 8 never injected its crash on a managed cluster: `MSYS_NO_PATHCONV=1` also left KUBECONFIG untranslated. The AKS scripts export KUBECONFIG as a Windows path; the injection retries until a restart is seen and dumps diagnostics otherwise. Scenarios wait for a Medium or High confidence recommendation (a Low one is correctly refused by the policy).
-- `hack/helm-lifecycle.sh` falls back to `python` where `python3` does not exist (Windows).
+- `hack/helm-lifecycle.sh` no longer needs `python3` (absent on Windows) to count Helm revisions.
 
 ### Fixed (eighth pass: real billing export, found before the soak report)
 - The account's Google billing exports are in **CLP**, and `ParseFOCUS` (correctly) refuses non-USD rows, so the day-7 soak report would have failed. `hack/gke-soak.sh` now converts each row to USD with Google's own per-row rate (`currency_conversion_rate`, `x_CurrencyConversionRate`) and also reports the totals in the billing currency for the invoice. Test `TestFOCUSParsesTheRealGoogleNativeExportAfterConversion` on a real export row (`testdata/gcp-native-focus-converted.csv`). The exports held only one placeholder row on 2026-11-10; no usage rows had arrived yet.
