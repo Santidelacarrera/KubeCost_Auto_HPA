@@ -35,6 +35,7 @@ const (
 // BillingItem is one line of a billing source.
 type BillingItem struct {
 	Resource   string // the node name (or instance id mapped to it); empty = not tied to a node
+	Name       string // the resource's display name when the source has one (FOCUS ResourceName); matched after Resource
 	Cost       money.USD
 	Start, End time.Time
 }

@@ -1,0 +1,8 @@
+ChargeCategory,ChargeClass,ServiceName,ResourceId,ResourceName,BilledCost,EffectiveCost,ListCost,BillingCurrency,x_CurrencyConversionRate,ChargePeriodStart,ChargePeriodEnd,credits
+Adjustment,,Invoice,,,0,0,,CLP,969.7400002932494,2026-10-01 07:00:00,2026-10-01 08:00:00,0
+Adjustment,,Invoice,,,0,0,,CLP,923.32499976506,2026-09-01 07:00:00,2026-09-01 08:00:00,0
+Usage,,Cloud Logging,//logging.googleapis.com/projects/100000000001/locations/global/buckets/_Default,,0,0,0,CLP,969.7400002932494,2026-10-30 17:00:00,2026-10-30 18:00:00,0
+Usage,,Cloud Logging,//logging.googleapis.com/projects/100000000002/locations/global/buckets/_Default,,0,0,0,CLP,969.7400002932494,2026-10-30 17:00:00,2026-10-30 18:00:00,0
+Usage,,Cloud Logging,//logging.googleapis.com/projects/100000000003/locations/global/buckets/_Default,,0,0,0,CLP,969.7400002932494,2026-10-30 17:00:00,2026-10-30 18:00:00,0
+Usage,,Cloud Logging,//logging.googleapis.com/projects/100000000004/locations/global/buckets/_Default,,0,0,0,CLP,969.7400002932494,2026-10-30 17:00:00,2026-10-30 18:00:00,0
+Usage,,Cloud Logging,//logging.googleapis.com/projects/100000000005/locations/global/buckets/_Default,,0,0,0,CLP,969.7400002932494,2026-10-30 17:00:00,2026-10-30 18:00:00,0
