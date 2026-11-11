@@ -232,3 +232,12 @@ Started 2026-11-10T19:37:03Z: GKE zonal us-central1-a, `e2-standard-2`, autoscal
 Billing: Google's detailed export and its native FOCUS export (preview) to BigQuery were enabled on 2026-11-10 at about 20:00 UTC, so the first hour of the run is not in them.
 Plan: day 1 (2026-11-11) `approve` with production defaults (it may abstain or be refused by policy: that is a valid outcome); daily read-only checks; day 7 (2026-11-17) `report`, then the cluster is deleted. Until that report exists nothing here is a result.
 
+
+## Result 14: a REAL managed cluster, AKS (`hack/aks-validate.sh`)
+
+Two runs on 2026-11-10, Azure free account, AKS free tier, Kubernetes v1.36.5, `Standard_D2as_v4` nodes (2 vCPU, 8 GiB; Linux list price 0.096 USD/h in eastus from the Azure Retail Prices API), autoscaler 1-2 nodes. Each run created its resource group and deleted it at the end (verified with `az group list`). Evidence: docs/reports/evidence/2026-11-10-aks-validation.log (both runs, redacted).
+
+* **Both runs: 14 passed, 1 failed.** Passed: read-only checks 9/9 (`azure://` provider ids, cAdvisor, kube-state-metrics, plan, backtest, nodes, estimated cost report); recommend, approve, apply 500m/128Mi -> 250m/64Mi under real HTTP traffic (~37 req/s), after-window equal on rps, p95 latency (4.75 ms both), errors, throttling, restarts; the forced rollback driven by the real latency SLO worked and restored the previous requests. No code defect found on AKS.
+* **Failed: no node was removed, so no infrastructure saving was measured** (0.6667 node-hours per 20 min before and after; 0.0 USD). The autoscaler's own status said `scaleDown: NoCandidates`. Requests per node after the change (run 2): node A 1737m of ~1.9 CPU (91%), node B 625m (32%). AKS's own kube-system pods (two coredns, two metrics-server, coredns-autoscaler, konnectivity agents, CSI and CNI daemonsets) plus Prometheus fill most of one 2-vCPU node, so the 1000m the change freed was not enough to fit node B's pods onto node A. This is a property of this cluster size, not of the tool: on 2-vCPU AKS nodes, halving 4 x 500m does not free a node. It was not re-run with bigger replica counts or a tuned autoscaler profile; doing that just to get a pass would not add evidence.
+* Not covered on AKS: the opt-in applier, the Helm chart, Kubecost, an Azure FOCUS cost export, more than ~1.5 hours of history.
+* Side effect: `az aks create --generate-ssh-keys` created an SSH key pair in the operator's home directory. Azure also creates an empty `NetworkWatcherRG` (no billable resources).

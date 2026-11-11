@@ -6,7 +6,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 
 ### Added (seventh pass: 7-day soak, in progress)
 - `hack/gke-soak.sh` (up/status/approve/report/down) and `hack/lab/traffic-diurnal.yaml`: a seven-day run on a real GKE cluster with a synthetic daily/weekly load schedule, Prometheus with 10 days of retention on a disk, a day-1 approve/apply with production defaults, and a day-7 report (health through the cycles, node-hours before/after, 7-day backtest, cost report from Google's billing export: the native FOCUS export and the detailed export as a cross-check). Started 2026-11-10T19:37Z; **no results yet** (docs/LAB.md result 13).
-- `hack/gke-validate.sh` accepts EKS (`aws://`) and AKS (`azure://`) clusters and a `PROM_PORT`; not yet run on either.
+- `hack/gke-validate.sh` accepts EKS (`aws://`) and AKS (`azure://`) clusters and a `PROM_PORT`, and dumps per-node requests and the autoscaler status when no node is removed.
+- `hack/aks-validate.sh`: run twice on a real AKS 1.36.5 cluster: 14/15 both times; the mechanics pass, no node was freed on 2-vCPU nodes (autoscaler `NoCandidates`), so no saving was measured on AKS (docs/LAB.md result 14). EKS not run.
 
 ### Added (fourth pass)
 - Applier: separation of duties enforced by three ValidatingAdmissionPolicies (no webhook), per-namespace policies (`policy.<ns>.yaml`), metrics and alerts, `rightsize publish`. Executor: reads of the workload or the SLO query may fail for up to 2 minutes during observation without a rollback, and unobserved time never counts as healthy.

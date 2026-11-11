@@ -60,6 +60,15 @@ echo "== 3. letting the GKE cluster autoscaler react (up to $SETTLE min; scale-d
 N0="$(awk 'END{print $2}' "$LAB/nodes-before.txt")"
 for _ in $(seq 1 $((SETTLE * 2))); do [ "$(nodes)" -lt "$N0" ] && break; sleep 30; done
 sleep 120; echo "nodes now: $(nodes) (before: $N0)"
+# Why a node stayed: requests per node, what runs where, and the autoscaler's own explanation (read-only).
+if [ "$(nodes)" -ge "$N0" ]; then
+  { echo "== allocated requests per node"; $K describe nodes | grep -E "^Name:|^  cpu |^  memory "
+    echo "== pods per node"; $K get pods -A -o wide --no-headers | awk '{print $8, $1"/"$2}' | sort
+    echo "== cluster-autoscaler-status (if the provider publishes it)"; $K -n kube-system get configmap cluster-autoscaler-status -o jsonpath='{.data.status}' 2>&1
+    echo; echo "== autoscaler events"; $K get events -A --field-selector source=cluster-autoscaler 2>&1 | tail -n 30
+  } > "$LAB/autoscaler-diag.txt" 2>&1
+  echo "no node removed; diagnostics in $LAB/autoscaler-diag.txt"; grep -A3 "^Name:" "$LAB/autoscaler-diag.txt" | head -n 12
+fi
 
 echo "== 4. AFTER window ($WINDOW min, same length)"
 sample after; echo "node-hours after: $(nodehours after) (nodes seen: $(awk '{print $2}' "$LAB/nodes-after.txt" | sort -u | tr '\n' ' '))"

@@ -231,3 +231,13 @@ The owner signed in to GCP and asked for the cloud run and for points 3 and 4. B
 | 2. FOCUS billing | Not done (owner's choice, later) | |
 
 Maturity changes: Execution engine 3 to 3-4 and Rollback 3-4 (proven on a managed cluster after a fix); Cost intelligence 2 (one measured, list-priced infrastructure change; still no invoice). Verdict: **still not production-ready**: no week-long run, no invoice, EKS/AKS not run, defaults untuned.
+
+## Eighth pass (2026-11-10): AKS
+
+| Item | Result | Evidence |
+|---|---|---|
+| AKS (real, free tier, 1.36.5, 2 x Standard_D2as_v4) | **Run twice: 14/15 each.** Read-only checks, recommend/approve/apply under real traffic, SLO observation and forced rollback pass; no defect found. **No node removed** after the change (autoscaler `NoCandidates`: AKS system pods plus Prometheus fill most of one 2-vCPU node), so **no saving measured on AKS**. Resource groups deleted | LAB result 14, evidence/2026-11-10-aks-validation.log |
+| EKS | Not run (owner deferred AWS) | — |
+| 7-day GKE soak with FOCUS export | Running, report due 2026-11-17 | LAB result 13 |
+
+Verdict unchanged: **not production-ready**.
