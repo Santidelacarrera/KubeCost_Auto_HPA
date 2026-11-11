@@ -14,9 +14,11 @@ ok()  { echo "PASS  $*"; PASS=$((PASS+1)); }
 bad() { echo "FAIL  $*"; FAILN=$((FAILN+1)); }
 check() { if eval "$2"; then ok "$1"; else bad "$1"; fi; }
 [ "$PROFILE" = "kubecost-real" ] || [ "${ALLOW_CTX:-}" = "1" ] || { echo "refusing profile '$PROFILE'"; exit 2; }
+if [ -z "${SKIP_MINIKUBE:-}" ]; then   # SKIP_MINIKUBE=1: PROFILE is an existing kube context (a managed cluster)
 docker info >/dev/null 2>&1 || { echo "Docker is not running"; exit 2; }
 if ! minikube profile list 2>/dev/null | grep -q "$PROFILE"; then
   minikube start -p "$PROFILE" --driver=docker --kubernetes-version=v1.33.4 --cpus=3 --memory=5000 --wait=all || exit 2
+fi
 fi
 
 echo "== a workload to be priced"
@@ -59,7 +61,7 @@ echo "== the client's live contract test against it"
 cat "$LAB/kubecost-live-test.log" | tail -20
 check "live contract test PASSES against a real Kubecost" "grep -q '^--- PASS' $LAB/kubecost-live-test.log && ! grep -q -- '--- SKIP' $LAB/kubecost-live-test.log"
 
-taskkill //F //IM kubectl.exe >/dev/null 2>&1 || true
+[ -n "${SKIP_MINIKUBE:-}" ] || taskkill //F //IM kubectl.exe >/dev/null 2>&1 || true
 if [ "${DELETE:-}" = "1" ]; then minikube delete -p "$PROFILE" >/dev/null 2>&1; fi
 echo; echo "RESULT: $PASS passed, $FAILN failed"
 [ "$FAILN" -eq 0 ]

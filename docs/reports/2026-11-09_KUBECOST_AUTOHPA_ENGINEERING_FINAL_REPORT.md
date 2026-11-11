@@ -237,6 +237,8 @@ Maturity changes: Execution engine 3 to 3-4 and Rollback 3-4 (proven on a manage
 | Item | Result | Evidence |
 |---|---|---|
 | AKS (real, free tier, 1.36.5, 2 x Standard_D2as_v4) | **Run twice: 14/15 each.** Read-only checks, recommend/approve/apply under real traffic, SLO observation and forced rollback pass; no defect found. **No node removed** after the change (autoscaler `NoCandidates`: AKS system pods plus Prometheus fill most of one 2-vCPU node), so **no saving measured on AKS**. Resource groups deleted | LAB result 14, evidence/2026-11-10-aks-validation.log |
+| Applier and Helm chart on AKS (1 x Standard_D4as_v4) | **Helm lifecycle 4/4; applier 27/27, all 8 scenarios in one run.** Three earlier runs failed only on lab-script defects (lab requests too big for the node, a scenario older than the admission policy, a Git Bash path translation), all fixed and stated | LAB result 15, evidence/2026-11-11-aks-applier-helm.log |
+| Kubecost 2.8.7 refresh cadence on AKS (2 runs x 2 h) | **Kubecost stopped serving allocation data ~10 min after its first data**, both runs (HTTP 200, empty, no restarts). The client failed closed every time. No `maxMetricAge` can be derived; cause not determined. As installed, Kubecost is not a usable live cost source | LAB result 16, evidence/2026-11-11-aks-kubecost-cadence.log |
 | EKS | Not run (owner deferred AWS) | — |
 | 7-day GKE soak with FOCUS export | Running, report due 2026-11-17 | LAB result 13 |
 

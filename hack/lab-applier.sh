@@ -21,11 +21,20 @@ RS="$LAB/rightsize.exe"
 echo "== 0. images and install (applier ON for namespace lab only, observe-only ON)"
 docker build -q -t kubecost-auto-hpa-operator:lab --build-arg VERSION=lab "$HERE/operator" >/dev/null || exit 2
 docker build -q -t kubecost-auto-hpa-engine:lab "$HERE/engine" >/dev/null || exit 2
-minikube -p kubecost-lab image load kubecost-auto-hpa-operator:lab kubecost-auto-hpa-engine:lab || exit 2
-$K create ns lab >/dev/null 2>&1; $K apply -f "$HERE/hack/lab/api.yaml" >/dev/null
+# REGISTRY=<host> (a managed cluster): push the images there instead of loading them into minikube; the cluster must be able to pull.
+IMG=""; PULL=Never
+if [ -n "${REGISTRY:-}" ]; then
+  IMG="$REGISTRY/"; PULL=Always
+  for i in operator engine; do docker tag kubecost-auto-hpa-$i:lab "$IMG"kubecost-auto-hpa-$i:lab && docker push -q "$IMG"kubecost-auto-hpa-$i:lab >/dev/null || exit 2; done
+else
+  minikube -p kubecost-lab image load kubecost-auto-hpa-operator:lab kubecost-auto-hpa-engine:lab || exit 2
+fi
+# LAB_SMALL=1 (a managed node with little quota): api asks 500m/256Mi instead of 1/1Gi; it still uses ~0.23 CPU, so a decrease is still due.
+apiyaml() { if [ -n "${LAB_SMALL:-}" ]; then sed -e 's/cpu: "1", memory: 1Gi}/cpu: 500m, memory: 256Mi}/' -e 's/cpu: "2", memory: 1Gi}/cpu: "1", memory: 256Mi}/' "$HERE/hack/lab/api.yaml"; else cat "$HERE/hack/lab/api.yaml"; fi; }
+$K create ns lab >/dev/null 2>&1; apiyaml | $K apply -f - >/dev/null
 POLICY=$'allowNamespaces: [lab]\nmaxChangeFraction: 0.6\nmaxChanges: 9\nper: 1h\nminConfidence: Medium\n'
-VALUES=(--set operator.image.repository=kubecost-auto-hpa-operator --set operator.image.tag=lab --set operator.image.pullPolicy=Never
-        --set engine.image.repository=kubecost-auto-hpa-engine --set engine.image.tag=lab --set engine.image.pullPolicy=Never
+VALUES=(--set operator.image.repository="$IMG"kubecost-auto-hpa-operator --set operator.image.tag=lab --set operator.image.pullPolicy=$PULL
+        --set engine.image.repository="$IMG"kubecost-auto-hpa-engine --set engine.image.tag=lab --set engine.image.pullPolicy=$PULL
         --set operator.replicas=1 --set engine.replicas=1 --set operator.leaderElect=false
         --set operator.podDisruptionBudget.enabled=false --set engine.podDisruptionBudget.enabled=false
         --set prometheus.url=http://prom-prometheus-server.monitoring:80 --set kubecost.url=
@@ -48,8 +57,12 @@ use() { WL="$1"; }
 req() { $K -n lab get deploy "$WL" -o jsonpath='{.spec.template.spec.containers[0].resources.requests.cpu}/{.spec.template.spec.containers[0].resources.requests.memory}'; }
 phase() { [ -n "${1:-}" ] && $K -n lab get wrec "$1" -o jsonpath='{.status.phase}' 2>/dev/null; }
 waitphase() { for _ in $(seq 1 "$3"); do [ "$(phase "$1")" = "$2" ] && return 0; sleep 5; done; return 1; }
-plan() { "$RS" plan --context "$CTX" --prometheus-url "$PROM" --namespace lab --workload "$WL" --container app --window 14m --step 15s --min-window 8m --min-samples 40 --publish > "$LAB/rec-applier.json" 2>"$LAB/plan-applier.err"; }
-planok() { for _ in $(seq 1 "${1:-40}"); do plan && [ "$(python -c "import json,sys; print(json.load(open(sys.argv[1]))['Abstained'])" "$LAB/rec-applier.json")" = False ] && return 0; sleep 20; done; return 1; }
+# PF=1: Prometheus is behind a kubectl port-forward that can drop (a managed cluster); re-open it before each plan.
+pfup() { [ -n "${PF:-}" ] || return 0; curl -fs -m 3 "$PROM/-/ready" >/dev/null && return 0
+  ($K -n monitoring port-forward svc/prom-prometheus-server "${PROM##*:}":80 >/dev/null 2>&1 &); sleep 5; }
+plan() { pfup; "$RS" plan --context "$CTX" --prometheus-url "$PROM" --namespace lab --workload "$WL" --container app --window 14m --step 15s --min-window 8m --min-samples 40 --publish > "$LAB/rec-applier.json" 2>"$LAB/plan-applier.err"; }
+# usable = not abstained AND at least the policy's minConfidence (Medium): a Low one is refused by the policy, which is right but not what a scenario tests
+planok() { for _ in $(seq 1 "${1:-40}"); do plan && [ "$(python -c "import json,sys; r=json.load(open(sys.argv[1])); print(not r['Abstained'] and r['Confidence'] in ('Medium','High'))" "$LAB/rec-applier.json")" = True ] && return 0; sleep 20; done; return 1; }
 wname() { python -c "import json,sys; r=json.load(open(sys.argv[1])); print(r['Workload'].lower() + '-' + r['ID'].lower())" "$LAB/rec-applier.json"; }
 approve_as() { "$RS" approve --cr --recommendation "$LAB/rec-applier.json" --context "$CTX" --as system:serviceaccount:lab:rs-appr >/dev/null 2>"$LAB/approve-last.err"; }
 killswitch() { # killswitch on|off
@@ -106,16 +119,37 @@ fi
 if [ "$FROM" -le 5 ]; then
 echo "== 5. namespace isolation: an object in another namespace cannot act on lab"
 $K create ns other >/dev/null 2>&1
-python - "$LAB/rec-applier.json" > "$LAB/cross.yaml" <<'PYEOF'
+# The chart's ValidatingAdmissionPolicy (enforceSeparationOfDuties, the default) refuses any object without an honest published-by
+# stamp, so a bare copy never reaches the operator. Check that first, then give the copy a valid stamp and a valid approval so that
+# it is the OPERATOR's namespace check that is tested: publisher = the admin running this lab, approver = rs-appr (bound in "other").
+ME="$($K auth whoami -o jsonpath='{.status.userInfo.username}' 2>/dev/null)"
+python - "$LAB/rec-applier.json" "" > "$LAB/cross-bare.yaml" <<'PYEOF'
 import json, sys
 rec = json.load(open(sys.argv[1]))          # a record that targets namespace "lab"
-print(json.dumps({"apiVersion": "autoscaling.kubecost.io/v1alpha1", "kind": "WorkloadRecommendation",
-  "metadata": {"name": "cross", "namespace": "other"},
+meta = {"name": "cross", "namespace": "other"}
+if sys.argv[2]:
+    meta["annotations"] = {"autoscaling.kubecost.io/published-by": sys.argv[2]}
+print(json.dumps({"apiVersion": "autoscaling.kubecost.io/v1alpha1", "kind": "WorkloadRecommendation", "metadata": meta,
   "spec": {"recommendationID": rec["ID"], "target": {"kind": "Deployment", "name": rec["Workload"], "container": "app"}, "record": json.dumps(rec)}}))
 PYEOF
-$K apply -f "$LAB/cross.yaml" >/dev/null 2>&1
-$K -n other patch wrec cross --subresource=status --type=merge -p "{\"status\":{\"approval\":{\"recommendationID\":\"$(python -c "import json,sys; print(json.load(open(sys.argv[1]))['ID'])" "$LAB/rec-applier.json")\",\"by\":\"mallory\",\"at\":\"2026-11-09T00:00:00Z\"}}}" >/dev/null 2>&1
+if $K get validatingadmissionpolicy 2>/dev/null | grep -q rec-published-by; then
+  $K apply -f "$LAB/cross-bare.yaml" > "$LAB/cross-bare.out" 2>&1
+  check "an object without an honest published-by stamp is refused by the API server" "grep -qi 'published-by must be present' $LAB/cross-bare.out"
+fi
+python - "$LAB/rec-applier.json" "$ME" > "$LAB/cross.yaml" <<'PYEOF'
+import json, sys
+rec = json.load(open(sys.argv[1]))
+meta = {"name": "cross", "namespace": "other", "annotations": {"autoscaling.kubecost.io/published-by": sys.argv[2]}}
+print(json.dumps({"apiVersion": "autoscaling.kubecost.io/v1alpha1", "kind": "WorkloadRecommendation", "metadata": meta,
+  "spec": {"recommendationID": rec["ID"], "target": {"kind": "Deployment", "name": rec["Workload"], "container": "app"}, "record": json.dumps(rec)}}))
+PYEOF
+$K apply -f "$LAB/cross.yaml" > "$LAB/cross.out" 2>&1
+$K -n other create rolebinding rs-appr --clusterrole=kubecost-rightsize-approve --serviceaccount=lab:rs-appr --dry-run=client -o yaml | $K apply -f - >/dev/null
+APPR=system:serviceaccount:lab:rs-appr
+for _ in $(seq 1 10); do $K -n other auth can-i patch workloadrecommendations/status --as "$APPR" >/dev/null 2>&1 && break; sleep 2; done   # RBAC propagation
+$K -n other patch wrec cross --subresource=status --type=merge --as "$APPR" -p "{\"status\":{\"approval\":{\"recommendationID\":\"$(python -c "import json,sys; print(json.load(open(sys.argv[1]))['ID'])" "$LAB/rec-applier.json")\",\"by\":\"$APPR\",\"at\":\"$(date -u +%FT%TZ)\"}}}" >> "$LAB/cross.out" 2>&1
 for _ in $(seq 1 12); do [ -n "$($K -n other get wrec cross -o jsonpath='{.status.phase}' 2>/dev/null)" ] && break; sleep 5; done
+[ "$($K -n other get wrec cross -o jsonpath='{.status.phase}' 2>/dev/null)" = Denied ] || head -c 600 "$LAB/cross.out"
 check "the cross-namespace object is Denied"       "[ \"\$($K -n other get wrec cross -o jsonpath='{.status.phase}')\" = Denied ]"
 check "with the reason: own namespace"             "$K -n other get wrec cross -o jsonpath='{.status.message}' | grep -q 'own namespace'"
 fi
@@ -157,13 +191,26 @@ use api4
 planok 40 || echo "no usable recommendation for api4"
 W4="$(wname)"; STATE4="$(req)"
 approve_as
+# Crash the changed pods while the operator observes them. Retry the injection until a restart is really seen: a managed cluster
+# can take longer to roll out than a laptop, and a single exec may land on a pod that is about to be replaced.
+: > "$LAB/crash-diag.txt"
 ( for _ in $(seq 1 60); do [ "$(phase $W4)" = Applying ] && break; sleep 2; done
-  $K -n lab rollout status deploy/api4 --timeout=80s >/dev/null 2>&1; sleep 5
-  # the NEWEST pod, not the first listed (that one may be the old pod still terminating)
-  P="$($K -n lab get pods -l app=api4 --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].metadata.name}')"
-  MSYS_NO_PATHCONV=1 $K -n lab exec "$P" -- touch /tmp/crash >/dev/null 2>&1 ) &
+  for _ in $(seq 1 30); do
+    [ "$(phase $W4)" = Applying ] || break
+    R="$($K -n lab get pods -l app=api4 -o jsonpath='{range .items[*]}{.status.containerStatuses[0].restartCount}{" "}{end}')"
+    echo "$(date -u +%TZ) phase=$(phase $W4) restarts=[$R]" >> "$LAB/crash-diag.txt"
+    echo "$R" | grep -q '[1-9]' && break
+    for P in $($K -n lab get pods -l app=api4 --field-selector=status.phase=Running -o jsonpath='{.items[*].metadata.name}'); do
+      MSYS_NO_PATHCONV=1 $K -n lab exec "$P" -- touch /tmp/crash >>"$LAB/crash-diag.txt" 2>&1; done
+    sleep 5
+  done ) &
 waitphase "$W4" RolledBack 60
 wait
+if [ "$(phase $W4)" != RolledBack ]; then
+  { echo "== final phase $(phase $W4): $($K -n lab get wrec $W4 -o jsonpath='{.status.message} {.status.reasons}')"
+    $K -n lab get pods -l app=api4 -o wide; $K -n "$NS" logs "$OP" --tail=200 2>&1 | grep -i "api4" | tail -n 20 | cut -c1-300; } >> "$LAB/crash-diag.txt" 2>&1
+  tail -n 25 "$LAB/crash-diag.txt"
+fi
 check "phase RolledBack"                           "[ \"\$(phase $W4)\" = RolledBack ]"
 check "the previous requests are back"             "[ \"\$(req)\" = \"$STATE4\" ]"
 check "the reason names the restart"               "$K -n lab get wrec $W4 -o jsonpath='{.status.reasons}' | grep -qi restart"
@@ -174,7 +221,7 @@ echo "== diagnostics (final phase of every object; last approve error, if any)"
 $K -n lab get wrec -o jsonpath='{range .items[*]}{.metadata.name}{" phase="}{.status.phase}{" msg="}{.status.message}{" reasons="}{.status.reasons}{"\n"}{end}' 2>/dev/null | cut -c1-300
 echo "== cleanup"
 if [ "${KEEP:-0}" = 1 ]; then echo "KEEP=1: leaving the objects and the release"; echo; echo "RESULT: $PASS passed, $FAILN failed"; [ "$FAILN" -eq 0 ]; exit; fi
-$K delete wrec --all -n lab >/dev/null 2>&1; $K delete ns other --ignore-not-found >/dev/null 2>&1
+$K delete wrec --all -n lab >/dev/null 2>&1; $K delete wrec --all -n other >/dev/null 2>&1; $K delete ns other --ignore-not-found >/dev/null 2>&1
 $K delete clusterrolebinding rs-pub-read rs-appr-read --ignore-not-found >/dev/null 2>&1
 $K -n lab delete rolebinding rs-pub rs-appr sa/rs-pub sa/rs-appr --ignore-not-found >/dev/null 2>&1
 $H uninstall "$REL" -n "$NS" >/dev/null 2>&1; $K delete ns "$NS" --ignore-not-found >/dev/null 2>&1
