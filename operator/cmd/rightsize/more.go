@@ -213,30 +213,57 @@ func reportCmd(args []string, out io.Writer) error {
 	}
 }
 
-// propose writes the recommendation into a manifest on a new local git branch (no push, no cluster access).
+// propose writes the recommendation into the repository on a new local git branch: the workload manifest, a Helm values file or a
+// Kustomize patch. It contacts no cluster. --push and --open-pr (off by default) push the branch and open a pull request with gh.
 func proposeCmd(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("propose", flag.ContinueOnError)
-	var recFile, repo, file, branch string
+	var recFile, repo, file, branch, format, helmKeys, baseFile, remote, base string
+	var push, openPR bool
 	fs.StringVar(&recFile, "recommendation", "", "recommendation JSON (required).")
-	fs.StringVar(&repo, "repo", ".", "git repository holding the manifest.")
-	fs.StringVar(&file, "file", "", "manifest path relative to --repo (required).")
+	fs.StringVar(&repo, "repo", ".", "git repository holding the file.")
+	fs.StringVar(&file, "file", "", "path relative to --repo (required): the manifest, the Helm values file, or the kustomization.yaml.")
+	fs.StringVar(&format, "format", "manifest", "manifest, helm-values or kustomize.")
+	fs.StringVar(&helmKeys, "helm-key", "", "helm-values: container=dotted.key.of.its.resources, comma-separated (e.g. app=resources,proxy=sidecar.resources).")
+	fs.StringVar(&baseFile, "base-file", "", "kustomize: the base manifest the overlay patches, to refuse a stale recommendation.")
 	fs.StringVar(&branch, "branch", "", "new branch name (default rightsize/<kind>-<name>-<id>).")
+	fs.BoolVar(&push, "push", false, "push the new branch to --remote.")
+	fs.StringVar(&remote, "remote", "origin", "remote for --push.")
+	fs.BoolVar(&openPR, "open-pr", false, "with --push: open a pull request with the GitHub CLI (gh, using your own gh login).")
+	fs.StringVar(&base, "base", "", "with --open-pr: the pull request's base branch (default: the repository's default branch).")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if recFile == "" || file == "" {
 		return fmt.Errorf("--recommendation and --file are required")
 	}
+	keys := map[string]string{}
+	if helmKeys != "" {
+		for _, kv := range strings.Split(helmKeys, ",") {
+			parts := strings.SplitN(strings.TrimSpace(kv), "=", 2)
+			if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+				return fmt.Errorf("--helm-key wants container=key pairs, got %q", kv)
+			}
+			keys[parts[0]] = parts[1]
+		}
+	}
 	rec, err := readRecommendation(recFile)
 	if err != nil {
 		return err
 	}
-	res, err := gitops.Propose(gitops.Options{RepoDir: repo, File: file, Branch: branch, Rec: rec})
+	res, err := gitops.Propose(gitops.Options{RepoDir: repo, File: file, Format: gitops.Format(format), HelmKeys: keys, BaseFile: baseFile,
+		Branch: branch, Rec: rec, Push: push, Remote: remote, OpenPR: openPR, Base: base})
 	if err != nil {
 		return err
 	}
-	return printJSON(out, map[string]any{"branch": res.Branch, "commit": res.Commit, "pushed": false,
-		"next": "review the branch and open a pull request yourself; nothing was pushed and no cluster was contacted", "diff": res.Diff})
+	next := "review the branch and open a pull request yourself; nothing was pushed and no cluster was contacted"
+	switch {
+	case res.PRURL != "":
+		next = "review the pull request; no cluster was contacted"
+	case res.Pushed:
+		next = "the branch was pushed; open a pull request from it; no cluster was contacted"
+	}
+	return printJSON(out, map[string]any{"branch": res.Branch, "commit": res.Commit, "files": res.Files, "pushed": res.Pushed,
+		"pullRequest": res.PRURL, "notes": res.Notes, "next": next, "diff": res.Diff})
 }
 
 // ---- cost extras: budgets and deviation against an earlier report

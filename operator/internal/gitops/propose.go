@@ -1,8 +1,9 @@
 // Package gitops turns a recommendation into a reviewable change in a Git repository instead of patching the live object.
 //
-// For workloads managed by Argo CD or Flux a direct patch is reverted at the next sync. Propose edits the manifest that declares the
-// workload (comments and key order are preserved), commits it on a NEW branch and returns to the branch you were on. It never pushes,
-// never opens a pull request and never touches a cluster: a person (or CI) reviews the branch and opens the PR.
+// For workloads managed by Argo CD or Flux a direct patch is reverted at the next sync. Propose writes the change where the repository
+// declares it (the workload manifest, a Helm values file, or a Kustomize patch; comments and key order are preserved), commits it on a
+// NEW branch and returns to the branch you were on. It never touches a cluster. It pushes the branch and opens a pull request only
+// when asked (Options.Push, Options.OpenPR); otherwise a person or CI reviews the branch and opens the PR.
 package gitops
 
 import (
@@ -14,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -22,14 +24,40 @@ import (
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/recommend"
 )
 
-// Options select the repository, the manifest file and the recommendation.
+// Format is how the recommendation is written into the repository.
+type Format string
+
+const (
+	// FormatManifest edits the Deployment/StatefulSet/DaemonSet document that declares the workload (the default).
+	FormatManifest Format = "manifest"
+	// FormatHelmValues edits a Helm values file at the keys named in HelmKeys (one per container).
+	FormatHelmValues Format = "helm-values"
+	// FormatKustomize writes a strategic-merge patch next to a kustomization.yaml and lists it under `patches`.
+	FormatKustomize Format = "kustomize"
+)
+
+// Options select the repository, the file and the recommendation.
 type Options struct {
 	RepoDir string
-	// File is the manifest path relative to RepoDir; it may hold several YAML documents.
-	File string
+	// File is relative to RepoDir: the manifest (manifest), the values file (helm-values) or the kustomization.yaml (kustomize).
+	File   string
+	Format Format
+	// HelmKeys maps each container to the dotted key of its resources block in the values file, e.g. app=resources,
+	// proxy=sidecar.resources. Required for helm-values; every container the record changes must be mapped.
+	HelmKeys map[string]string
+	// BaseFile (kustomize only, optional) is the manifest the overlay patches, relative to RepoDir; when set, the current values
+	// are checked against it so a stale recommendation is refused.
+	BaseFile string
 	// Branch is the new branch name; default rightsize/<kind>-<name>-<id>.
 	Branch string
 	Rec    recommend.Recommendation
+	// Push pushes the new branch to Remote (default origin). OpenPR additionally opens a pull request against Base with
+	// PROpener (default: the GitHub CLI, `gh pr create`). Both are off by default: nothing leaves the machine unless asked.
+	Push     bool
+	Remote   string
+	OpenPR   bool
+	Base     string
+	PROpener func(dir, branch, base, title, body string) (string, error)
 }
 
 // Result describes the proposal.
@@ -37,33 +65,101 @@ type Result struct {
 	Branch string
 	Commit string
 	Diff   string
+	Files  []string
+	Pushed bool
+	PRURL  string
+	Notes  []string
 }
 
-// Propose edits the manifest, commits it on a new branch and restores the original branch.
+// Propose writes the change, commits it on a new branch and restores the original branch; with Push/OpenPR it then pushes the
+// branch and opens a pull request. The working tree is left as it was.
 func Propose(o Options) (Result, error) {
 	var res Result
 	r := o.Rec
-	if r.Abstained || !(isChange(r.CPU) || isChange(r.Memory)) {
+	changes := false
+	for _, v := range r.Views() {
+		changes = changes || isChange(v.CPU) || isChange(v.Memory)
+	}
+	if r.Abstained || !changes {
 		return res, errors.New("the recommendation changes nothing (or abstained): there is nothing to propose")
 	}
-	path := filepath.Join(o.RepoDir, o.File)
-	if rel, err := filepath.Rel(o.RepoDir, path); err != nil || strings.HasPrefix(rel, "..") {
-		return res, errors.New("the manifest path must stay inside the repository")
+	if o.OpenPR && !o.Push {
+		return res, errors.New("opening a pull request needs the branch pushed (Push)")
 	}
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return res, err
+	inside := func(rel string) (string, error) {
+		path := filepath.Join(o.RepoDir, rel)
+		if rr, err := filepath.Rel(o.RepoDir, path); err != nil || strings.HasPrefix(rr, "..") || rel == "" {
+			return "", errors.New("the file path must stay inside the repository")
+		}
+		return path, nil
 	}
-	out, err := edit(raw, r)
-	if err != nil {
-		return res, err
+	read := func(rel string) ([]byte, error) {
+		path, err := inside(rel)
+		if err != nil {
+			return nil, err
+		}
+		return os.ReadFile(path)
 	}
+	edits := map[string][]byte{} // repo-relative path -> new content
+	switch o.Format {
+	case "", FormatManifest:
+		raw, err := read(o.File)
+		if err != nil {
+			return res, err
+		}
+		out, err := edit(raw, r)
+		if err != nil {
+			return res, err
+		}
+		edits[o.File] = out
+	case FormatHelmValues:
+		raw, err := read(o.File)
+		if err != nil {
+			return res, err
+		}
+		out, err := editValues(raw, r, o.HelmKeys)
+		if err != nil {
+			return res, err
+		}
+		edits[o.File] = out
+	case FormatKustomize:
+		if b := filepath.Base(o.File); b != "kustomization.yaml" && b != "kustomization.yml" && b != "Kustomization" {
+			return res, errors.New("with the kustomize format the file must be the kustomization.yaml")
+		}
+		kraw, err := read(o.File)
+		if err != nil {
+			return res, err
+		}
+		var base []byte
+		if o.BaseFile != "" {
+			if base, err = read(o.BaseFile); err != nil {
+				return res, err
+			}
+		} else {
+			res.Notes = append(res.Notes, "no base manifest given: the current values were not checked against the repository (pass the base file to refuse stale recommendations)")
+		}
+		patchRel := filepath.ToSlash(filepath.Join(filepath.Dir(o.File), patchName(r)))
+		prior, _ := read(patchRel) // our own earlier patch, if any
+		patch, kout, err := kustomizePatch(r, base, prior, kraw, patchName(r))
+		if err != nil {
+			return res, err
+		}
+		edits[patchRel], edits[o.File] = patch, kout
+	default:
+		return res, fmt.Errorf("unknown format %q (manifest, helm-values, kustomize)", o.Format)
+	}
+	files := make([]string, 0, len(edits))
+	for f := range edits {
+		files = append(files, f)
+	}
+	sort.Strings(files)
+	res.Files = files
 
 	g := git{dir: o.RepoDir}
-	if dirty, err := g.out("status", "--porcelain", "--", o.File); err != nil {
+	if dirty, err := g.out(append([]string{"status", "--porcelain", "--"}, files...)...); err != nil {
 		return res, err
 	} else if strings.TrimSpace(dirty) != "" {
-		return res, errors.New("the manifest has uncommitted changes: commit or stash them first")
+		return res, errors.New("a file to change has uncommitted changes: commit or stash them first")
 	}
 	orig, err := g.out("rev-parse", "--abbrev-ref", "HEAD")
 	if err != nil {
@@ -81,18 +177,18 @@ func Propose(o Options) (Result, error) {
 		return res, fmt.Errorf("creating branch: %w", err)
 	}
 	restore := func() { _, _ = g.out("checkout", orig) }
-	if err := os.WriteFile(path, out, 0o644); err != nil {
+	for _, f := range files {
+		if err := os.WriteFile(filepath.Join(o.RepoDir, f), edits[f], 0o644); err != nil {
+			restore()
+			return res, err
+		}
+	}
+	title, body := message(r)
+	if _, err := g.out(append([]string{"add", "--"}, files...)...); err != nil {
 		restore()
 		return res, err
 	}
-	msg := fmt.Sprintf("rightsize: %s/%s %s resources (recommendation %s)\n\ncpu: %.4g -> %.4g cores (%s)\nmemory: %.0f -> %.0f bytes (%s)\nconfidence: %s\nestimated potential saving (not a bill): cpu %.2f + memory %.2f USD/month\n",
-		r.Namespace, r.Workload, r.Container, r.ID, r.CPU.Current, r.CPU.Recommended, r.CPU.Action, r.Memory.Current, r.Memory.Recommended, r.Memory.Action,
-		r.Confidence, r.CPU.PotentialMonthlyUSD, r.Memory.PotentialMonthlyUSD)
-	if _, err := g.out("add", "--", o.File); err != nil {
-		restore()
-		return res, err
-	}
-	if _, err := g.out("commit", "-q", "-m", msg); err != nil {
+	if _, err := g.out("commit", "-q", "-m", title+"\n\n"+body); err != nil {
 		restore()
 		return res, fmt.Errorf("commit failed (is user.name/user.email configured?): %w", err)
 	}
@@ -100,11 +196,67 @@ func Propose(o Options) (Result, error) {
 	if c, err := g.out("rev-parse", "HEAD"); err == nil {
 		res.Commit = strings.TrimSpace(c)
 	}
-	if d, err := g.out("diff", orig+".."+branch, "--", o.File); err == nil {
+	if d, err := g.out(append([]string{"diff", orig + ".." + branch, "--"}, files...)...); err == nil {
 		res.Diff = d
 	}
 	restore()
+	if o.Push {
+		remote := o.Remote
+		if remote == "" {
+			remote = "origin"
+		}
+		if _, err := g.out("push", "-u", remote, branch); err != nil {
+			return res, fmt.Errorf("the branch was committed locally but the push failed: %w", err)
+		}
+		res.Pushed = true
+	}
+	if o.OpenPR {
+		open := o.PROpener
+		if open == nil {
+			open = ghPR
+		}
+		url, err := open(o.RepoDir, branch, o.Base, title, body)
+		if err != nil {
+			return res, fmt.Errorf("the branch was pushed but opening the pull request failed: %w", err)
+		}
+		res.PRURL = url
+	}
 	return res, nil
+}
+
+// message is the commit message and the pull request text: what changes, by how much, how sure, and what it is not.
+func message(r recommend.Recommendation) (string, string) {
+	var b strings.Builder
+	views := r.Views()
+	names := make([]string, 0, len(views))
+	for _, v := range views {
+		names = append(names, v.Container)
+		fmt.Fprintf(&b, "container %s:\n  cpu: %.4g -> %.4g cores (%s)\n  memory: %.0f -> %.0f bytes (%s)\n", v.Container,
+			v.CPU.Current, v.CPU.Recommended, v.CPU.Action, v.Memory.Current, v.Memory.Recommended, v.Memory.Action)
+	}
+	cpu, mem := r.PotentialMonthlyUSD()
+	fmt.Fprintf(&b, "confidence: %s\nestimated potential saving (not a bill): cpu %.2f + memory %.2f USD/month\n", r.Confidence, cpu, mem)
+	if len(r.Risks) > 0 {
+		fmt.Fprintf(&b, "risks:\n  - %s\n", strings.Join(r.Risks, "\n  - "))
+	}
+	b.WriteString("\nProposed by rightsize from observed usage. Review it like any other change: nothing was applied to a cluster.\n")
+	return fmt.Sprintf("rightsize: %s/%s %s resources (recommendation %s)", r.Namespace, r.Workload, strings.Join(names, ","), r.ID), b.String()
+}
+
+// ghPR opens the pull request with the GitHub CLI, which uses the person's own `gh auth` session.
+func ghPR(dir, branch, base, title, body string) (string, error) {
+	args := []string{"pr", "create", "--head", branch, "--title", title, "--body", body}
+	if base != "" {
+		args = append(args, "--base", base)
+	}
+	cmd := exec.Command("gh", args...)
+	cmd.Dir = dir
+	var so, se bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &so, &se
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("gh pr create: %v: %s", err, strings.TrimSpace(se.String()))
+	}
+	return strings.TrimSpace(so.String()), nil
 }
 
 func isChange(x recommend.ResourceResult) bool {
@@ -146,12 +298,17 @@ func edit(raw []byte, r recommend.Recommendation) ([]byte, error) {
 		if ns := scalar(get(get(root, "metadata"), "namespace")); ns != "" && r.Namespace != "" && ns != r.Namespace {
 			continue
 		}
-		c := container(root, r.Container)
-		if c == nil {
-			return nil, fmt.Errorf("container %q not found in %s/%s", r.Container, r.Kind, r.Workload)
-		}
-		if err := setResources(c, r); err != nil {
-			return nil, err
+		for _, v := range r.Views() {
+			c := container(root, v.Container)
+			if c == nil {
+				return nil, fmt.Errorf("container %q not found in %s/%s", v.Container, r.Kind, r.Workload)
+			}
+			if err := setResources(c, v); err != nil {
+				if v.Container != r.Container {
+					return nil, fmt.Errorf("container %s: %w", v.Container, err)
+				}
+				return nil, err
+			}
 		}
 		found++
 	}
