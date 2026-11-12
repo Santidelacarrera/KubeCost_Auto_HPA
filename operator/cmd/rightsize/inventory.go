@@ -162,7 +162,7 @@ func costCmd(args []string, out io.Writer) error {
 	var hourly, cpuWeight float64
 	fs.StringVar(&billing, "billing-file", "", "billing CSV: resource,cost_usd,start,end, or a FOCUS export with --billing-format focus (real data, or labelled simulated).")
 	fs.StringVar(&format, "billing-format", "simple", "simple (resource,cost_usd,start,end) or focus (FinOps FOCUS CSV).")
-	fs.StringVar(&focusCost, "focus-cost-column", "BilledCost", "with --billing-format focus: BilledCost (invoiced) or EffectiveCost (amortised, after discounts).")
+	fs.StringVar(&focusCost, "focus-cost-column", "BilledCost", "with --billing-format focus: BilledCost (invoiced), EffectiveCost (amortised, after discounts) or ListCost (list price, before discounts and credits: for accounts on credits, where the invoice is 0).")
 	fs.StringVar(&label, "billing-label", "", "label shown in the report, e.g. SIMULATED-lab or aws-cur-2026-10.")
 	fs.Float64Var(&hourly, "node-hourly-usd", 0, "ESTIMATED basis: hourly price of every node when there is no billing file.")
 	fs.StringVar(&startS, "start", "", "window start, RFC3339 (default: 24h before --end).")

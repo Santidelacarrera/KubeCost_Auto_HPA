@@ -257,3 +257,12 @@ Verdict unchanged: **not production-ready**.
 | Not verified | FOCUS node matching on real Google/Azure rows (the GCP billing export had no data after 2026-10-31), the operator's https `--audit-url`, EKS (deferred) | — |
 
 Verdict: unchanged in scope. The README's "listo para producción" holds only for observe-only use; automatic apply still waits for P0 item 1 (real traffic over real weeks).
+
+## Tenth pass (2026-11-12): audit into WORM storage, real FOCUS rows
+
+| Item | Result | Evidence |
+|---|---|---|
+| Operator https audit shipping with a private CA, reference WORM collector (S3 Object Lock) | **11/11 on the lab** (MinIO built from source): TLS and token enforced, operator and CLI events stored, the CLI chain verifies from the bucket, a delete with root credentials refused (COMPLIANCE) | LAB result 23, evidence/2026-11-12-audit-worm.log |
+| FOCUS node matching on real Google rows | **Done for one day** against the live soak cluster: the 2 nodes matched by `ResourceName` (2.01 of 4.04 USD at list price, the rest correctly unallocated). **A wrong statement in the product found and fixed**: Google's `BilledCost` is after credits (0 on this account), not before; `ListCost` added | LAB result 22, evidence/2026-11-12-gcp-focus-real-nodes.log |
+| Not doable here | Weeks of real traffic (needs your workload), the soak report (scheduled for 2026-11-17, now merges its own PR when green), Azure FOCUS export (your Cost Management export), a real cloud WORM bucket, EKS (deferred) | — |
+

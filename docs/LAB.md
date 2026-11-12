@@ -348,3 +348,47 @@ Evidence: `evidence/2026-11-12-p1-verify.log` (`hack/lab-p1-verify.sh`, minikube
 * **Defect 1, found while writing the collector check, fixed**: with `--audit-file` and `--audit-url` together, the collector received the events **without** `prev`/`hash` (the HTTP sink sat next to the chain, not after it), so the shipped copy could not be verified, which defeats the point of shipping it. The chain now forwards each event after chaining it (unit test `TestAuditChainForwardsChainedEvents`); the check above is the verification.
 * **Defect 2, found by the first real `--open-pr` (PR #44), fixed**: the change re-encoded the whole file, which re-indented every list and also rewrote the other Deployment in the same file, so a reviewer saw a 30-line diff for a 1-line change. Propose now replaces only the changed values in the file text (keeping the file's quoting) and checks that the result parses to the edited tree; it re-encodes only when a key must be added. PR #45, from the fixed binary, is a **one-line diff** (unit test `TestProposeChangesOnlyTheChangedLines`).
 * Not covered: the operator's `--audit-url` (https only; needs a collector with a certificate the operator trusts), a WORM / object-lock bucket behind the collector, a signed approval forged by editing `status.approval` on the cluster (unit-tested).
+
+## Result 22: FOCUS node matching on a REAL Google export, against the live GKE soak cluster
+
+Evidence: `evidence/2026-11-12-gcp-focus-real-nodes.log` (redacted; the CSV itself is not kept: it holds project numbers). 2026-11-12. Google's native FOCUS export (BigQuery dataset `gcp_billing_immutable_*`), one full day, 2026-11-11 UTC: 2508 Usage rows, billed in CLP. `rightsize cost --billing-format focus` read it, and matched the rows against the live nodes of the GKE soak cluster (`kubectl get nodes`, read-only).
+
+* **Earlier statement corrected**: "the billing export had no data after 2026-10-31" (result 13 and COST.md) was true when written, but no longer is. Both the detailed export and the native FOCUS export have GKE rows for 2026-11-10 and 2026-11-11.
+* **Parsed as delivered**: every row was converted with its own `x_CurrencyConversionRate` (about 980 CLP/USD), with BigQuery's timestamp form.
+* **Node matching works on real rows**: the instance name is the last segment of `ResourceName` (`projects/<id>/instances/gke-kubecost-soak-default-pool-...`); `ResourceId` holds a numeric instance id.
+  * With `--focus-cost-column ListCost`: total 4.0430 USD. The two soak nodes got 2.0148 USD, split over namespaces plus idle. The rest is **unallocated**, 2.0283 USD: the GKE management fee 1.5129, networking 0.2653, Cloud Monitoring 0.2291, and disks plus an older cluster's nodes 0.0210.
+  * An independent recomputation from the CSV with exact fractions gives the same split, to rounding.
+* **A wrong statement in the product found and fixed**: the parser's note said Google's `BilledCost` is *before* the credits in `x_Credits`. On this real export it is *after* them: `ListCost` 5544.99 CLP, credits (PROMOTION) -5544.99 CLP, `BilledCost` 0 since 2026-11-10. An account on credits therefore bills 0 for every node.
+  * `--focus-cost-column ListCost` is now supported for that case (list price, stated as NOT the invoice).
+  * The note and COST.md are corrected, with a unit test.
+* Not shown: an account that pays (non-zero `BilledCost`), an Azure FOCUS export (needs the owner's Cost Management export), a whole month reconciled with the invoice (the day-7 soak report, then the monthly invoice).
+
+## Result 23: audit events into WORM storage over https with a private CA (`hack/lab-audit-worm.sh`, minikube): 11 passed, 0 failed
+
+Evidence: `evidence/2026-11-12-audit-worm.log` (redacted; the token, the CA key and the S3 keys are not in it). 2026-11-12.
+
+Setup:
+* An S3 server with Object Lock: MinIO built from its official source (`hack/lab/minio`, pinned to a commit of 2026-02-12, because the project no longer publishes images).
+* The reference collector `tools/audit-collector`: HTTPS with a certificate from a private CA, bearer token, each event stored as one object with a 24 h COMPLIANCE lock.
+* The operator, installed from the chart with `auditURL`, `auditTokenSecret` and the new `auditCASecret`.
+
+| Check | Result |
+|---|---|
+| the collector creates the bucket with Object Lock and serves in COMPLIANCE mode | PASS |
+| the operator gets `--audit-ca-file` from `auditCASecret` | PASS |
+| a client without the private CA | **refused by TLS verification** |
+| a wrong token | **401** |
+| the operator applies a change (Verified) and ships its `dry_run`/`decision`/`applied`/`verified` events over https into the bucket | PASS, no shipping error |
+| the CLI (`--audit-file` + `--audit-url` + `--audit-ca-file`) ships its chained trail to the same collector | PASS, nothing undelivered |
+| the CLI's events read back from the bucket are byte-for-byte the local file, and `audit-verify` passes on them | PASS (4 chained, no break) |
+| **deleting a stored event version with the store's ROOT credentials** | **refused**: `Object is WORM protected and cannot be overwritten`, COMPLIANCE until 2026-11-13T03:53:43Z |
+
+9 events in the bucket: the operator's and the CLI's, interleaved in arrival order.
+
+* **The first run of this script failed in its own setup**, not in the product: Git Bash rewrote `-subj "/CN=..."` into a Windows path, so no CA was made. The script now writes `//CN=` under Git Bash only.
+* **A lab-helper quirk, not a product defect**: the `plan` helper retries until the recommendation reaches Medium confidence, and publishes on every try. That left 3 extra Pending objects for worm1; each was a separate, never-approved recommendation, and nothing acted on them.
+* **What this does not prove**:
+  * WORM on a real cloud bucket (AWS S3 Object Lock, or GCS with a locked retention policy, which uses a different API).
+  * Retention longer than the lab's 24 h.
+  * The collector under load or in high availability: it is a single replica that answers 2xx only after storing, so a sender's retry covers its outages, up to the sender's queue of 1024 events.
+  * MinIO's emptyDir data does not outlive the namespace: a lab-only choice.

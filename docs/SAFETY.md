@@ -75,6 +75,15 @@ With both `--audit-file` and `--audit-url`, the CLI ships the events **after cha
 too (verified against a real collector, docs/LAB.md result 21). With `--audit-url` alone there is no local file to continue a chain from, so events are shipped unchained. The operator
 ships unchained events (its trail is the Kubernetes Events and the object status).
 
+**A collector with a private CA** (for example one inside the cluster): pass its PEM CA bundle with `--audit-ca-file` (CLI and operator) or the chart's
+`operator.recommendationApplier.auditCASecret: {name, key}`; it is trusted in addition to the system roots, and TLS verification is never turned off.
+
+**Reference collector with WORM storage**: `tools/audit-collector` (its own Go module and image) accepts the POSTs over HTTPS with a bearer token and writes **each event as one
+object in an S3 bucket with Object Lock** (COMPLIANCE by default, `--retain 24h` or longer), answering 2xx only once the object is stored. Until the retention ends no credential,
+the collector's own and the store's root included, can delete or overwrite that object version. It refuses a bucket without Object Lock. `audit-collector dump` reads the events
+back in arrival order (for `rightsize audit-verify`), `probe-delete` checks that the store refuses a delete. Works with any S3 API that implements Object Lock (AWS S3,
+MinIO, ...). Verified on the lab with MinIO: docs/LAB.md result 23.
+
 
 ## Signed approvals (optional, `requireSignedApproval`)
 

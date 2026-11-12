@@ -5,6 +5,8 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -247,4 +249,26 @@ func redactURL(u string) string {
 		return u[:i] + "?..."
 	}
 	return u
+}
+
+// AuditHTTPClient returns the client HTTPSink uses: the system roots, plus the PEM CA bundle in caFile when given (a collector with
+// a private CA, e.g. one inside the cluster). It never disables verification.
+func AuditHTTPClient(caFile string) (*http.Client, error) {
+	if caFile == "" {
+		return &http.Client{Timeout: 10 * time.Second}, nil
+	}
+	pem, err := os.ReadFile(caFile)
+	if err != nil {
+		return nil, err
+	}
+	pool, err := x509.SystemCertPool()
+	if err != nil || pool == nil {
+		pool = x509.NewCertPool()
+	}
+	if !pool.AppendCertsFromPEM(pem) {
+		return nil, fmt.Errorf("%s holds no PEM certificate", caFile)
+	}
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.TLSClientConfig = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
+	return &http.Client{Timeout: 10 * time.Second, Transport: tr}, nil
 }

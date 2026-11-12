@@ -21,6 +21,9 @@ operator:
     # into the operator (auditTokenSecret: {name, key}). Empty: audit events are Kubernetes Events only.
     auditURL: ""
     auditTokenSecret: {}
+    # A collector with a private CA (e.g. inside the cluster): a Secret key holding the PEM CA bundle, trusted in addition to the
+    # system roots ({name, key}, key defaults to ca.crt). TLS verification is never turned off.
+    auditCASecret: {}
     # ValidatingAdmissionPolicies (Kubernetes 1.30+): the approver must be the authenticated user and cannot be the publisher.
     enforceSeparationOfDuties: true
     # The safety policy (docs/SAFETY.md). The default authorises nothing: no namespace is allowed.

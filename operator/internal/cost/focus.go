@@ -56,8 +56,8 @@ func ParseFOCUSWith(r io.Reader, start, end time.Time, opt FocusOptions) ([]Bill
 	if costCol == "" {
 		costCol = "billedcost"
 	}
-	if costCol != "billedcost" && costCol != "effectivecost" {
-		return nil, sum, fmt.Errorf("focus cost column must be BilledCost or EffectiveCost, not %q", opt.CostColumn)
+	if costCol != "billedcost" && costCol != "effectivecost" && costCol != "listcost" {
+		return nil, sum, fmt.Errorf("focus cost column must be BilledCost, EffectiveCost or ListCost, not %q", opt.CostColumn)
 	}
 	cr := csv.NewReader(r)
 	cr.FieldsPerRecord = -1
@@ -82,6 +82,10 @@ func ParseFOCUSWith(r io.Reader, start, end time.Time, opt FocusOptions) ([]Bill
 	_, hasRate := col[focusRateColumn]
 	if !hasCur {
 		sum.Notes = append(sum.Notes, "no BillingCurrency column: the amounts are ASSUMED to be USD")
+	}
+	if costCol == "listcost" {
+		// a free-trial or fully credited account bills 0 for everything (seen on a real Google export, docs/LAB.md result 22)
+		sum.Notes = append(sum.Notes, "cost column: ListCost (list price, before any discount, commitment or credit): NOT what is invoiced")
 	}
 	if costCol == "effectivecost" {
 		sum.Notes = append(sum.Notes, "cost column: EffectiveCost (amortised, after discounts), not the invoiced BilledCost")
@@ -159,8 +163,9 @@ func ParseFOCUSWith(r io.Reader, start, end time.Time, opt FocusOptions) ([]Bill
 			"; the invoice is in that currency, so reconcile totals there")
 	}
 	if _, ok := col["x_credits"]; ok || hasRate {
-		sum.Notes = append(sum.Notes, "Google's FOCUS export carries credits inside x_Credits on the Usage row, not as Credit rows: "+
-			"BilledCost is before those credits")
+		// checked on a real export (docs/LAB.md result 22): ListCost 5544.99 + x_Credits -5544.99 (PROMOTION) = BilledCost 0
+		sum.Notes = append(sum.Notes, "Google's FOCUS export carries credits inside x_Credits on the Usage row, not as Credit rows, and "+
+			"BilledCost already has them taken off (an account on credits bills 0: use --focus-cost-column ListCost to see the usage)")
 	}
 	return out, sum, nil
 }
