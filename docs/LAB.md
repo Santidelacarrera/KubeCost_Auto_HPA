@@ -301,3 +301,23 @@ Evidence: `evidence/2026-11-11-aks-cost-sources.log` (redacted). 2026-11-11, one
 * Not shown: Kubecost 2.9.x/3.x or with a real Azure integration, OpenCost pricing accuracy against an Azure invoice.
 
 **Recommendation now in the docs: use OpenCost (or Prometheus-based pricing) as the live cost source; do not use Kubecost 2.8.7 free tier installed from its chart defaults.**
+
+## Result 20: the ninth-pass features on a real cluster (`.lab/multi/run.sh`, minikube): 10 passed, 0 failed after one defect fixed
+
+Evidence: `evidence/2026-11-12-p1-real-cluster.log`. 2026-11-12, the minikube lab (Kubernetes 1.36, its Prometheus), namespace `multi`, Deployment `web` with two containers: `app` (500m/256Mi, busy) and `proxy` (300m/128Mi, idle sidecar), 2 replicas, 15 minutes of history. Each step used the CLI built from this branch.
+
+| Check | Run 1 | Run 2 (after the fix) |
+|---|---|---|
+| `rightsize keygen` | PASS | PASS |
+| `plan --container app,proxy` gives ONE record (app 500m->250m, 256->128 MiB; proxy 300m->150m, 128->64 MiB; Medium) | PASS | PASS |
+| policy `requireSignedApproval`: an unsigned approval is refused | PASS | PASS |
+| `approve --sign-key` writes the signature annotation; apply accepted under the same policy | PASS | PASS |
+| both containers changed in ONE rollout | FAIL, a wrong check (see below) | **PASS**: one new ReplicaSet |
+| requests changed and kept through a 2-minute observation | PASS | PASS |
+| `audit-verify` on the real audit file | **FAIL: a real defect** | **PASS** |
+| an edited line is detected | PASS (line 2) | PASS (line 2) |
+| `report --format prometheus` | PASS | PASS |
+
+* **Defect found here and fixed (commit 2f4051a)**: every real `applied` event failed `audit-verify`. Its details hold the previous resources as a typed map of structs, whose JSON keys follow the struct order; a reader decodes into `map[string]any` and re-encodes them sorted, so the hash could never match. The unit test had used plain integers in the details. The chain now hashes each event in its decoded form, and the test uses the executor's real detail types.
+* Run 1's "one spec update" check was wrong, not the product: a Deployment's `metadata.generation` also increases on annotation writes (the approval and the applied markers), so it went 2 -> 4. Rollouts are now counted as new ReplicaSets: exactly one (`kubectl get rs` in the evidence).
+* Not covered: the operator's applier with a signed `status.approval` (the CLI path ran; the operator path is unit-tested), `--audit-url` against a real collector, `propose --open-pr` against GitHub, the FOCUS adapters on a real export with node rows.
