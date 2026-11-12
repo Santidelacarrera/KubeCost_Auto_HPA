@@ -2,7 +2,7 @@
 
 [![ci](https://github.com/Santidelacarrera/KubeCost_Auto_HPA/actions/workflows/ci.yml/badge.svg)](https://github.com/Santidelacarrera/KubeCost_Auto_HPA/actions/workflows/ci.yml)
 [![release](https://github.com/Santidelacarrera/KubeCost_Auto_HPA/actions/workflows/release.yml/badge.svg)](https://github.com/Santidelacarrera/KubeCost_Auto_HPA/actions/workflows/release.yml)
-[![Latest Release](https://img.shields.io/github/v/release/Santidelacarrera/KubeCost_Auto_HPA)](https://github.com/Santidelacarrera/KubeCost_Auto_HPA/releases/tag/v0.1.0)
+[![Latest Release](https://img.shields.io/github/v/release/Santidelacarrera/KubeCost_Auto_HPA)](https://github.com/Santidelacarrera/KubeCost_Auto_HPA/releases/latest)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Kubernetes](https://img.shields.io/badge/kubernetes-1.33-326ce5.svg)](https://kubernetes.io)
 [![Live Demo](https://img.shields.io/badge/Live_Console-GitHub_Pages-2ea44f.svg)](https://santidelacarrera.github.io/KubeCost_Auto_HPA/app.html)

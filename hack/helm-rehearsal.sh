@@ -18,6 +18,8 @@ cleanup() { [ "$KEEP" = 1 ] || kind delete cluster --name "$CLUSTER" >/dev/null 
 trap 'rc=$?; [ $rc -eq 0 ] || { kubectl -n "$NS" get pods,events 2>/dev/null | tail -40; }; cleanup' EXIT
 fail() { echo "FAIL: $*" >&2; exit 1; }
 ok()   { echo "ok:   $*"; }
+# python3 is a Store stub on some Windows machines; use whichever interpreter really runs
+PY=python3; $PY -c "" >/dev/null 2>&1 || PY=python
 
 kind create cluster --name "$CLUSTER" --image "$NODE_IMAGE" --wait 120s
 docker build -t kubecost-auto-hpa-operator:rehearsal --build-arg VERSION=rehearsal --build-arg COMMIT="$(git rev-parse HEAD)" operator
@@ -40,7 +42,7 @@ ok "operator logged 'starting manager' with its version"
 # 2. upgrade: switch an optional feature on and check that exactly it appears
 helm upgrade "$REL" deploy/helm/kubecost-auto-hpa -n "$NS" "${VALUES[@]}" --set grafanaDashboard.enabled=true --wait --timeout 4m
 kubectl -n "$NS" get configmap "$REL-kubecost-auto-hpa-dashboard" >/dev/null || fail "dashboard ConfigMap missing after upgrade"
-[ "$(helm history "$REL" -n "$NS" -o json | python3 -c 'import sys,json;print(len(json.load(sys.stdin)))')" = 2 ] || fail "expected 2 revisions"
+[ "$(helm history "$REL" -n "$NS" -o json | "$PY" -c 'import sys,json;print(len(json.load(sys.stdin)))')" = 2 ] || fail "expected 2 revisions"
 ok "upgraded (revision 2): dashboard ConfigMap present"
 
 # 3. rollback

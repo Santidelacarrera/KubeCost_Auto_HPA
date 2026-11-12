@@ -4,6 +4,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-12
+
+Everything below up to [0.1.0] ships in this version: the rightsize recommender and its CLI, the recommendation applier, cost sources and FOCUS billing, GitOps proposals, signed approvals, the hash-chained audit trail with WORM shipping, and the eleventh-pass review fixes.
+
 ### Added (eleventh pass: weekday coverage)
 - A window of 7 days or more no longer counts as "weekly seasonality observed" when its data misses most of a day of the week: `recommend.MissingWeekdays` checks, per day of the week (UTC), that at least half of the window's hours have a CPU sample. Otherwise it adds a risk naming the days and High confidence drops to Medium. The Prometheus source now keeps each CPU sample's timestamp (`Input.CPUTimes`). Without timestamps (other sources), only the existing window-length caveat applies. Run on the real GKE soak history: docs/LAB.md result 24.
 
