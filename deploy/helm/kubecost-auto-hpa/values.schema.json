@@ -85,6 +85,8 @@
             "enforceSeparationOfDuties": {"type": "boolean"},
             "namespaces": {"type": "array", "items": {"type": "string", "minLength": 1}},
             "maxObserve": {"type": "string", "pattern": "^[0-9]+(s|m|h)$"},
+            "auditURL": {"type": "string", "pattern": "^(https://.+)?$"},
+            "auditTokenSecret": {"type": "object", "properties": {"name": {"type": "string"}, "key": {"type": "string"}}},
             "policy": {"type": "string"}
           }
         },
