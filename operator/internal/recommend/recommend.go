@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -52,6 +53,9 @@ type Input struct {
 	// CPUSeries optionally keeps the CPU samples as one time-ordered slice per pod. It enables the non-stationarity check;
 	// without it only the window-length caveat applies.
 	CPUSeries [][]float64
+	// CPUTimes optionally holds the timestamps of the CPU samples (all pods together). It enables the weekday coverage check: a
+	// window of 7 days or more whose data misses most of a day of the week has not observed weekly seasonality either.
+	CPUTimes []time.Time
 
 	// ThrottledRatio is throttled CFS periods / total periods over the window; ThrottleKnown says whether it was measured.
 	ThrottledRatio float64
@@ -339,6 +343,13 @@ func Recommend(in Input, cfg Config) (Recommendation, error) {
 			rec.Confidence = ConfMed
 		}
 	}
+	if missing := MissingWeekdays(in.WindowStart, in.WindowEnd, in.CPUTimes); len(missing) > 0 {
+		rec.Risks = append(rec.Risks, fmt.Sprintf("the window has data for less than half of the hours of %s: weekly seasonality is not fully observed",
+			strings.Join(missing, ", ")))
+		if rec.Confidence == ConfHigh {
+			rec.Confidence = ConfMed
+		}
+	}
 	// A ratio between tiny numbers is noise (3 millicores vs 9 millicores): only loads above five times the minimum CPU can be "not stationary".
 	if lo, hi := QuarterSpread(in.CPUSeries); lo > 0 && hi/lo > 2 && hi >= 5*cfg.MinCPU {
 		rec.Risks = append(rec.Risks, fmt.Sprintf("CPU load is not stationary: the p95 of the four quarters of the window ranges from %.3g to %.3g cores", lo, hi))
@@ -398,6 +409,39 @@ func Recommend(in Input, cfg Config) (Recommendation, error) {
 		rec.Conditions = append(rec.Conditions, "explicit policy authorisation, previous state recorded, rollback condition defined (not provided by this package)")
 	}
 	return rec, nil
+}
+
+// MissingWeekdays returns the days of the week (UTC, Monday first) for which fewer than half of the hours inside a window of at least
+// 7 days have any sample in times. It returns nil when the window is shorter than 7 days (the window-length caveat covers that) or
+// when times is empty (no timestamps were collected, so nothing can be said).
+func MissingWeekdays(start, end time.Time, times []time.Time) []string {
+	if len(times) == 0 || end.Sub(start) < 7*24*time.Hour {
+		return nil
+	}
+	var expected, seen [7]int
+	for h := start.UTC().Truncate(time.Hour); h.Before(end); h = h.Add(time.Hour) {
+		expected[h.Weekday()]++
+	}
+	hours := map[int64]bool{}
+	for _, t := range times {
+		t = t.UTC()
+		if t.Before(start) || t.After(end) {
+			continue
+		}
+		k := t.Truncate(time.Hour).Unix()
+		if !hours[k] {
+			hours[k] = true
+			seen[t.Weekday()]++
+		}
+	}
+	var out []string
+	for i := 1; i <= 7; i++ {
+		d := time.Weekday(i % 7)
+		if expected[d] > 0 && 2*seen[d] < expected[d] {
+			out = append(out, d.String())
+		}
+	}
+	return out
 }
 
 // QuarterSpread splits every series in four time quarters, pools each quarter across series and returns the lowest and highest
