@@ -243,3 +243,16 @@ Maturity changes: Execution engine 3 to 3-4 and Rollback 3-4 (proven on a manage
 | 7-day GKE soak with FOCUS export | Running, report due 2026-11-17 | LAB result 13 |
 
 Verdict unchanged: **not production-ready**.
+
+## Ninth pass (2026-11-11/12): measured saving on AKS, cost sources, P1 product completeness
+
+| Item | Result | Evidence |
+|---|---|---|
+| Node saving on AKS | **Measured**: with `skip-nodes-with-system-pods=false` the autoscaler removed one of two nodes after the change; 0.096 USD/h less at list price (50% of node cost). Not an invoice | LAB result 17, evidence/2026-11-11-aks-node-saving-retry.log |
+| Kubecost vs OpenCost on AKS (2 h each) | Kubecost 2.8.7 stalled again (4th reproduction, also with custom pricing); **OpenCost fresh for 2 h, contract PASS**. Recommended source: OpenCost | LAB result 18, evidence/2026-11-11-aks-cost-sources.log |
+| Client defect: `window=1h` is the current clock hour | **Found on AKS, fixed** (`60m`), verified live against OpenCost at minute 10 of the hour (10.6 vs 59 min of data) | LAB result 18 |
+| Simulated shoppers, compressed week | **4/4**: CPU default held on unseen days, memory default tight (2.9% exceeded); applied change kept through a simulated day, p95 86 -> 75 ms. One invalid run (script edited while running) stated and repeated. Generated load, not real users | LAB result 19, evidence/2026-11-12-synthetic-users.log |
+| P1: FOCUS adapters (GCP, Azure), outcome metrics, multi-container records, GitOps (Helm values, Kustomize, push, PR), hash-chained audit + shipping, signed approvals | **Implemented, unit-tested**; on a real cluster 10/10 after **one real defect found and fixed** (the audit chain never verified real `applied` events) | LAB result 20, evidence/2026-11-12-p1-real-cluster.log |
+| Not verified | FOCUS node matching on real Google/Azure rows (the GCP billing export had no data after 2026-10-31), `--audit-url` against a real collector, `propose --open-pr` against GitHub, EKS (deferred) | — |
+
+Verdict: unchanged in scope. The README's "listo para producción" holds only for observe-only use; automatic apply still waits for P0 item 1 (real traffic over real weeks).

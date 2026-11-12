@@ -302,6 +302,18 @@ Evidence: `evidence/2026-11-11-aks-cost-sources.log` (redacted). 2026-11-11, one
 
 **Recommendation now in the docs: use OpenCost (or Prometheus-based pricing) as the live cost source; do not use Kubecost 2.8.7 free tier installed from its chart defaults.**
 
+## Result 19: the recommender against simulated shoppers, a compressed week (`hack/lab-synthetic-users.sh`, minikube): 4 passed, 0 failed
+
+Evidence: `evidence/2026-11-12-synthetic-users.log` (redacted). 2026-11-11/12, the minikube lab, Deployment `lab/shop` (2 replicas, 1 CPU / 256 MiB requests, a real HTTP latency histogram) and `lab/users`, a generator of shopper sessions over several routes with a daily and a weekly cycle and random flash sales. One simulated day = 60 minutes, 7 days = 7 hours. Only that history was given to the recommender.
+
+* **Backtest (trained on the history before the last 2 simulated days, tested on those 2, unseen)**: CPU, the default p95 + 15% gives 0.42 cores, exceeded **0%** of the test samples, peak ratio 0.96 (the unseen peak was 96% of the recommendation). Memory, the same default gives 16.0 MiB, **exceeded 2.9%** of the test samples and the unseen peak was 1.35x the recommendation; p99 + 15% gave 0% exceeded, peak ratio 0.89. Takeaway: on this load the CPU default holds, the memory default is tight; memory has limits (the change keeps them), but a request below real use means the scheduler packs pods tighter than they need.
+* **Plan, apply and observe (run 3)**: the recommender (production minimums, 200 samples) gave Medium confidence, CPU 1 -> 0.5, memory 256 -> 128 MiB (limits kept). Applied with the SLO on the store's real latency (p95 > 250 ms or 5xx > 1% breaches) and observed for 60 minutes, one full simulated day: **kept, verified** (audit: `decision`, `applied`, `verified` after 1h0m). p95 over one simulated day **86 ms before, 75 ms after**; CPU throttled periods 0.96%; 0 restarts. 4 PASS, 0 FAIL.
+* **Two runs that do not count, and why**:
+  * Run 1 abstained (Low confidence): the production minimum history is 24 h, and the compressed week is 7 h. Correct behaviour. The script now uses one simulated day as the minimum window (`MIN_WINDOW`).
+  * Run 2 applied the same change, but its apply call was broken because I edited the script while bash was still reading it (bash reads scripts incrementally), so it ran **without the SLO arguments**. Not a valid result. The store was restored to 1 CPU / 256 MiB, the annotations removed, and run 3 ran from a frozen copy of the script.
+* **Gaps in this run**: the error ratio is `nan` before and after (the 5xx query returned no series; the generator saw no 5xx, but "no errors" is not measured by this run), and no flash sale fell inside the observation hour, so the change was not tested against a burst after it was applied (bursts were in the training history and the backtest).
+* What it is not: real users or real weeks. A compressed, generated week answers "does the recommender survive bursty, cyclic, multi-route load", not "are the defaults right for production". P0 item 1 stays open.
+
 ## Result 20: the ninth-pass features on a real cluster (`.lab/multi/run.sh`, minikube): 10 passed, 0 failed after one defect fixed
 
 Evidence: `evidence/2026-11-12-p1-real-cluster.log`. 2026-11-12, the minikube lab (Kubernetes 1.36, its Prometheus), namespace `multi`, Deployment `web` with two containers: `app` (500m/256Mi, busy) and `proxy` (300m/128Mi, idle sidecar), 2 replicas, 15 minutes of history. Each step used the CLI built from this branch.
