@@ -93,6 +93,9 @@ func TestCollectBuildsAnInputTheRecommenderCanUse(t *testing.T) {
 	if len(in.CPUSamples) != 600 || len(in.MemSamples) != 600 || !in.ThrottleKnown || in.ThrottledRatio != 0.01 || in.OOMKills != 0 || in.Restarts != 0 {
 		t.Fatalf("%+v", in)
 	}
+	if len(in.CPUTimes) != 600 || !in.CPUTimes[1].Equal(time.Unix(1, 0).UTC()) {
+		t.Fatalf("every CPU sample must carry its timestamp: %d, %v", len(in.CPUTimes), in.CPUTimes[:2])
+	}
 	if in.Current.CPURequest != 2 || in.Current.CPULimit != 4 || in.Current.MemRequest != 2 || in.Current.MemLimit != 4 {
 		// the fake answers the same substring for cpu and memory; what matters is that all four were read
 		t.Logf("current: %+v", in.Current)

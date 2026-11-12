@@ -85,7 +85,7 @@ func (c *Client) Collect(ctx context.Context, t Target, window, step time.Durati
 	sel := fmt.Sprintf(`namespace="%s",pod=~"%s",container="%s"`, t.Namespace, pods, t.Container)
 	w := promDuration(window)
 
-	if in.CPUSeries, err = c.rangeSeries(ctx, fmt.Sprintf(`rate(container_cpu_usage_seconds_total{%s}[5m])`, sel), in.WindowStart, now, step); err != nil {
+	if in.CPUSeries, in.CPUTimes, err = c.rangeSeriesAt(ctx, fmt.Sprintf(`rate(container_cpu_usage_seconds_total{%s}[5m])`, sel), in.WindowStart, now, step); err != nil {
 		return in, fmt.Errorf("cpu usage: %w", err)
 	}
 	for _, s := range in.CPUSeries {
@@ -255,22 +255,34 @@ func (c *Client) rangeValues(ctx context.Context, query string, start, end time.
 
 // rangeSeries returns one time-ordered slice of finite samples per series (per pod).
 func (c *Client) rangeSeries(ctx context.Context, query string, start, end time.Time, step time.Duration) ([][]float64, error) {
+	out, _, err := c.rangeSeriesAt(ctx, query, start, end, step)
+	return out, err
+}
+
+// rangeSeriesAt is rangeSeries plus the timestamps (UTC) of every finite sample, all series together: what the weekday coverage
+// check of recommend.Recommend needs to see which days of the week the window really observed.
+func (c *Client) rangeSeriesAt(ctx context.Context, query string, start, end time.Time, step time.Duration) ([][]float64, []time.Time, error) {
 	r, err := c.get(ctx, "/api/v1/query_range", url.Values{"query": {query}, "start": {strconv.FormatInt(start.Unix(), 10)},
 		"end": {strconv.FormatInt(end.Unix(), 10)}, "step": {strconv.FormatInt(int64(step.Seconds()), 10)}})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var out [][]float64
+	var at []time.Time
 	for _, s := range r.Data.Result {
 		var one []float64
 		for _, p := range s.Values {
 			if v, ok := parse(p[1]); ok {
 				one = append(one, v)
+				var ts float64
+				if json.Unmarshal(p[0], &ts) == nil {
+					at = append(at, time.Unix(0, int64(ts*1e9)).UTC())
+				}
 			}
 		}
 		out = append(out, one)
 	}
-	return out, nil
+	return out, at, nil
 }
 
 // Series returns the raw per-pod CPU and memory working-set series for a window (no kube-state-metrics needed). It is what the backtest uses.

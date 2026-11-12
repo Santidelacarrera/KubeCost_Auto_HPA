@@ -4,6 +4,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 
 ## [Unreleased]
 
+### Added (eleventh pass: weekday coverage)
+- A window of 7 days or more no longer counts as "weekly seasonality observed" when its data misses most of a day of the week: `recommend.MissingWeekdays` checks, per day of the week (UTC), that at least half of the window's hours have a CPU sample. Otherwise it adds a risk naming the days and High confidence drops to Medium. The Prometheus source now keeps each CPU sample's timestamp (`Input.CPUTimes`). Without timestamps (other sources), only the existing window-length caveat applies. Run on the real GKE soak history: docs/LAB.md result 24.
+
+### Fixed (eleventh pass)
+- `hack/gke-soak.sh report` passed `--window 7d` to `backtest`, which Go durations reject: the day-7 backtest would have failed. Now `168h`; the report also runs a 7-day `plan` and records the weekday coverage.
+
 ### Added (tenth pass: audit into WORM storage, real FOCUS rows)
 - `--audit-ca-file` (CLI and operator) and chart `operator.recommendationApplier.auditCASecret`: trust a collector's private CA for `--audit-url`, verification never off.
 - `tools/audit-collector`: a reference collector (HTTPS, bearer token) that stores each audit event as one object in an S3 bucket with **Object Lock** (COMPLIANCE by default); `dump` and `probe-delete` to check it. `hack/lab-audit-worm.sh` runs it on the lab with MinIO built from source (`hack/lab/minio`): docs/LAB.md result 23.

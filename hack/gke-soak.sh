@@ -151,8 +151,15 @@ PYEOF
   CTX="$CTX" CONFIRM_CTX="$CTX" PROM=http://localhost:$PP NS=lab WORKLOAD=shop CONTAINER=app FOCUS="$USE" \
     COST_START="$S" COST_END="$E" NODE_HOURLY_USD="$NODE_HOURLY_USD" bash "$HERE/hack/cloud-validate.sh" > "$LAB/cloud-validate.log" 2>&1
   grep -E "^(PASS|FAIL|RESULT|- )" "$LAB/cloud-validate.log" | tee -a "$LAB/report.md"
-  "$RS" backtest --prometheus-url http://localhost:$PP --namespace lab --workload shop --container app --window 7d --holdout 24h \
+  "$RS" backtest --prometheus-url http://localhost:$PP --namespace lab --workload shop --container app --window 168h --holdout 24h \
     > "$LAB/backtest-7d.json" 2> "$LAB/backtest-7d.err" && echo "- backtest 7d/24h: $LAB/backtest-7d.json" | tee -a "$LAB/report.md"
+  # The 7-day plan on the real history: confidence, and whether the weekday coverage check (recommend.MissingWeekdays) fired.
+  "$RS" plan --context "$CTX" --prometheus-url http://localhost:$PP --namespace lab --workload shop --container app --window 168h \
+    > "$LAB/rec-7d.json" 2> "$LAB/plan-7d.err" && python -c "
+import json,sys; r=json.load(open(sys.argv[1])); risks=r.get('Risks') or []
+wk=[x for x in risks if 'weekly seasonality' in x]
+print('- plan 7d: abstained %s, confidence %s, samples %s; weekday coverage: %s' % (r['Abstained'], r['Confidence'], r['Samples'], wk or 'every weekday covered'))
+" "$LAB/rec-7d.json" | tee -a "$LAB/report.md" || { echo "- plan 7d failed: $(head -c 300 "$LAB/plan-7d.err")" | tee -a "$LAB/report.md"; }
   echo "The invoice itself is monthly; the billing export is the same source Google invoices from, but credits, taxes and the" \
        "monthly GKE free-tier credit land on the invoice as account-level lines. Compare against the invoice when it is issued." | tee -a "$LAB/report.md";;
 down)
