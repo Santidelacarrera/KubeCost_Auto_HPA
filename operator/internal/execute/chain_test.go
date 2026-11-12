@@ -3,6 +3,7 @@ package execute
 import (
 	"bytes"
 	"context"
+	"encoding/pem"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -164,5 +165,33 @@ func TestAuditChainForwardsChainedEvents(t *testing.T) {
 	}
 	if rep, _ := VerifyChain(&fwd); rep.FirstBreak != 0 || rep.Chained != 2 {
 		t.Fatalf("%+v", rep)
+	}
+}
+
+// A collector with a private CA is reachable only when that CA is given; verification is never skipped.
+func TestAuditHTTPClientTrustsOnlyTheGivenCA(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
+	defer srv.Close()
+	ca := filepath.Join(t.TempDir(), "ca.crt")
+	if err := os.WriteFile(ca, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	plain, _ := AuditHTTPClient("")
+	if _, err := plain.Post(srv.URL, "application/json", strings.NewReader("{}")); err == nil {
+		t.Fatal("an unknown CA must be refused")
+	}
+	hc, err := AuditHTTPClient(ca)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := hc.Post(srv.URL, "application/json", strings.NewReader("{}"))
+	if err != nil || resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("the given CA must be trusted: %v", err)
+	}
+	resp.Body.Close()
+	bad := filepath.Join(t.TempDir(), "bad.crt")
+	_ = os.WriteFile(bad, []byte("not a cert"), 0o600)
+	if _, err := AuditHTTPClient(bad); err == nil {
+		t.Fatal("a file without a PEM certificate must be refused")
 	}
 }

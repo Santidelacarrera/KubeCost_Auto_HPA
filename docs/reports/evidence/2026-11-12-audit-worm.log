@@ -1,0 +1,60 @@
+# hack/lab-audit-worm.sh on the minikube lab, 2026-11-12 (redacted: local actor -> <id>; the token, CA key and S3 keys are not included)
+== 0. images, private CA, MinIO with Object Lock, the collector, the operator shipping to it over https
+PASS  the collector serves (bucket created with Object Lock, COMPLIANCE)
+PASS  the operator runs with --audit-ca-file
+== 1. the collector's TLS and token are enforced (through a port-forward)
+without the CA: tls-refused
+PASS  a client without the private CA is refused by TLS verification
+PASS  a wrong token gets 401 (got 401)
+waiting for history (14 min window, 8 min minimum)
+== 2. the OPERATOR ships its applier events over https (private CA, token) into the locked bucket
+PASS  worm1 Verified (500m/128Mi -> 290m/64Mi)
+PASS  the operator logged no audit-shipping error
+== 3. the CLI ships a CHAINED trail over https to the same collector
+apply exit 0
+PASS  the CLI reported no undelivered events
+== 4. read the bucket back: content, chain, and the lock
+objects in the bucket: 9
+PASS  the operator's applied and verified events for worm1 are in the bucket
+PASS  the CLI's events in the bucket are byte-for-byte the local chained file
+PASS  audit-verify passes on the copy read back from the bucket
+PASS  deleting a stored event version is refused by the store, even with the root credentials (COMPLIANCE lock)
+== diagnostics
+{
+  "deleteRefused": true,
+  "error": "Object is WORM protected and cannot be overwritten",
+  "key": "events/20261112T035343.435613953Z-00000001-250ca37baef4177b.json",
+  "lockMode": "COMPLIANCE",
+  "retainUntil": "2026-11-13T03:53:43.000Z",
+  "versionId": "f4bb8609-c740-4b5b-be91-588824e3cd57"
+}
+{
+  "Lines": 4,
+  "Chained": 4,
+  "Unchained": 0,
+  "FirstBreak": 0,
+  "Problem": "",
+  "LastHash": "e075d5c157747f1083c42767965cf0a24212583b9165c104d45b10c2605c2d78"
+}
+NAME                     PHASE
+worm1-34838a3e57fe1e98   Verified
+worm1-702e24fa04540ae6   Pending
+worm1-8fc03a29088bb0a5   Pending
+worm1-d04abc5779cb5dc0   Pending
+
+RESULT: 11 passed, 0 failed
+
+# the bucket read back in arrival order (audit-collector dump): operator events (unchained) and CLI events (chained)
+{"time":"2026-11-12T03:53:43.422473675Z","type":"decision","actor":"operator/recommendation-applier","recommendationId":"34838a3e57fe1e98","target":"lab/Deployment/worm1","details":{"allowed":true,"execute":false,"reasons":null}}
+{"time":"2026-11-12T03:53:43.422593646Z","type":"dry_run","actor":"operator/recommendation-applier","recommendationId":"34838a3e57fe1e98","target":"lab/Deployment/worm1","details":{"cpu":0.29,"memory":67108864}}
+{"time":"2026-11-12T03:53:43.521558214Z","type":"decision","actor":"operator/recommendation-applier","recommendationId":"34838a3e57fe1e98","target":"lab/Deployment/worm1","details":{"allowed":true,"execute":true,"reasons":null}}
+{"time":"2026-11-12T03:53:43.54295131Z","type":"applied","actor":"operator/recommendation-applier","recommendationId":"34838a3e57fe1e98","target":"lab/Deployment/worm1","details":{"approvedBy":"system:serviceaccount:lab:rs-appr","cpu":0.29,"cpuPotentialMonthlyUSD":0,"memory":67108864,"memoryPotentialMonthlyUSD":0,"previous":{"app":{"cpuRequest":"500m","cpuLimit":"1","memRequest":"128Mi","memLimit":"256Mi"}}}}
+{"time":"2026-11-12T03:55:23.665837963Z","type":"verified","actor":"operator/recommendation-applier","recommendationId":"34838a3e57fe1e98","target":"lab/Deployment/worm1","details":{"observedFor":"1m30s"}}
+{"time":"2026-11-12T03:55:35.8799527Z","type":"approved","actor":"<id>","recommendationId":"3f65044380fa300f","target":"lab/Deployment/worm2","details":{"approvedBy":"minikube-user","signed":false},"hash":"7c51e882e3723839b7e347c98db4468a56ea65f1ab5f741e0ae2a441fe0de056"}
+{"time":"2026-11-12T03:55:36.2046867Z","type":"decision","actor":"<id>","recommendationId":"3f65044380fa300f","target":"lab/Deployment/worm2","details":{"allowed":true,"execute":true,"reasons":null},"prev":"7c51e882e3723839b7e347c98db4468a56ea65f1ab5f741e0ae2a441fe0de056","hash":"08e229b9f0d0510b8fa1443270ea7a614d3ce05869237b4f9c08b6fffed194af"}
+{"time":"2026-11-12T03:55:36.231412Z","type":"applied","actor":"<id>","recommendationId":"3f65044380fa300f","target":"lab/Deployment/worm2","details":{"approvedBy":"minikube-user","cpu":0.29,"cpuPotentialMonthlyUSD":0,"memory":67108864,"memoryPotentialMonthlyUSD":0,"previous":{"app":{"cpuLimit":"1","cpuRequest":"500m","memLimit":"256Mi","memRequest":"128Mi"}}},"prev":"08e229b9f0d0510b8fa1443270ea7a614d3ce05869237b4f9c08b6fffed194af","hash":"679c4ec30c232adb832a92999a7aed2a98cd193d62d010aa4d5162b3e233f849"}
+{"time":"2026-11-12T03:57:21.356089Z","type":"verified","actor":"<id>","recommendationId":"3f65044380fa300f","target":"lab/Deployment/worm2","details":{"observedFor":"1m30s"},"prev":"679c4ec30c232adb832a92999a7aed2a98cd193d62d010aa4d5162b3e233f849","hash":"e075d5c157747f1083c42767965cf0a24212583b9165c104d45b10c2605c2d78"}
+# collector log
+2026/11/12 03:42:19 serving on :8443, bucket kubecost-audit, COMPLIANCE retention 24h0m0s
+2026/11/12 03:42:43 http: TLS handshake error from 127.0.0.1:39834: local error: tls: bad record MAC
+# MinIO built from source: github.com/minio/minio v0.0.0-20260212201848-7aac2a2c5b7c

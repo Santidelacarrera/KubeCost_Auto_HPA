@@ -1,0 +1,61 @@
+# rightsize cost on a REAL Google native FOCUS export (BigQuery, one day 2026-11-11 UTC, 2508 rows, CLP) against the GKE soak cluster's live nodes
+# (the CSV itself is not kept: it holds project numbers and ids). Redacted.
+## --focus-cost-column ListCost
+{
+  "accounted": "4.043031",
+  "basis": "billed",
+  "budgets": null,
+  "byNamespace": {
+    "__idle__": "0.926706",
+    "__unallocated__": "2.028278",
+    "gke-managed-cim": "0.059674",
+    "gmp-system": "0.015391",
+    "lab": "0.946245",
+    "monitoring": "0.066737"
+  },
+  "deviations": null,
+  "difference": "0.000000",
+  "end": "2026-11-12T00:00:00Z",
+  "notes": [
+    "part of the cost is unallocated (no node mapping): do not read namespace totals as the whole bill",
+    "cost column: ListCost (list price, before any discount, commitment or credit): NOT what is invoiced",
+    "converted to USD with the export's own per-row x_CurrencyConversionRate: CLP (2508 rows); the invoice is in that currency, so reconcile totals there",
+    "Google's FOCUS export carries credits inside x_Credits on the Usage row, not as Credit rows, and BilledCost already has them taken off (an account on credits bills 0: use --focus-cost-column ListCost to see the usage)"
+  ],
+  "reconciled": true,
+  "shared": "0.388937",
+  "source": "file:gcp-native-focus-2026-11-11",
+  "start": "2026-11-11T00:00:00Z",
+  "total": "4.043031"
+}
+
+## --focus-cost-column BilledCost
+{
+  "accounted": "0.000000",
+  "basis": "billed",
+  "budgets": null,
+  "byNamespace": {
+    "__idle__": "0.000000",
+    "__unallocated__": "0.000000",
+    "gke-managed-cim": "0.000000",
+    "gmp-system": "0.000000",
+    "lab": "0.000000",
+    "monitoring": "0.000000"
+  },
+  "deviations": null,
+  "difference": "0.000000",
+  "end": "2026-11-12T00:00:00Z",
+  "notes": [
+    "converted to USD with the export's own per-row x_CurrencyConversionRate: CLP (2508 rows); the invoice is in that currency, so reconcile totals there",
+    "Google's FOCUS export carries credits inside x_Credits on the Usage row, not as Credit rows, and BilledCost already has them taken off (an account on credits bills 0: use --focus-cost-column ListCost to see the usage)"
+  ],
+  "reconciled": true,
+  "shared": "0.000000",
+  "source": "file:gcp-native-focus-2026-11-11",
+  "start": "2026-11-11T00:00:00Z",
+  "total": "0.000000"
+}
+
+## independent cross-check (python, exact fractions, ListCost / x_CurrencyConversionRate):
+total 4.043069 USD; rows of the two soak nodes (ResourceName last segment) 2.014795; everything else 2.028275 (Kubernetes Engine 1.5129 = cluster management fee, Networking 0.2653, Cloud Monitoring 0.2291, Compute Engine 0.0210 = disks and an older cluster's nodes, BigQuery 0, Cloud Logging 0)
+## credits in the same export since 2026-11-10: ListCost 5544.99 CLP, x_Credits (PROMOTION) -5544.99, BilledCost 0

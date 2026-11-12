@@ -79,7 +79,7 @@ func main() {
 
 type common struct {
 	kubeconfig, kctx, actor, auditFile, impersonate string
-	auditURL, auditTokenFile, signKey               string
+	auditURL, auditTokenFile, auditCAFile, signKey  string
 }
 
 func (c *common) bind(fs *flag.FlagSet) {
@@ -90,6 +90,7 @@ func (c *common) bind(fs *flag.FlagSet) {
 	fs.StringVar(&c.auditFile, "audit-file", "", "also append JSONL audit events to this file, hash-chained (rightsize audit-verify checks it); they are always printed to stderr.")
 	fs.StringVar(&c.auditURL, "audit-url", "", "also POST each audit event as JSON to this append-only collector (https).")
 	fs.StringVar(&c.auditTokenFile, "audit-token-file", "", "file with a bearer token for --audit-url.")
+	fs.StringVar(&c.auditCAFile, "audit-ca-file", "", "PEM CA bundle trusted for --audit-url in addition to the system roots.")
 }
 
 func (c *common) executor() (*execute.Executor, func(), error) {
@@ -148,7 +149,11 @@ func (c *common) executor() (*execute.Executor, func(), error) {
 			}
 			tok = strings.TrimSpace(string(b))
 		}
-		hs := execute.NewHTTPSink(c.auditURL, tok, nil)
+		hc, err := execute.AuditHTTPClient(c.auditCAFile)
+		if err != nil {
+			return nil, nil, fmt.Errorf("--audit-ca-file: %w", err)
+		}
+		hs := execute.NewHTTPSink(c.auditURL, tok, hc)
 		if chain != nil {
 			chain.Next = hs // ship the CHAINED events, so the collector's copy verifies like the file (found preparing LAB result 21)
 		} else {

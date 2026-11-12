@@ -55,7 +55,7 @@ func main() {
 		leaderElect, spotDrain, observeOnly, applier                                               bool
 		cpuPrice, memPrice                                                                         float64
 		drainTimeout, applierMaxObserve                                                            time.Duration
-		applierPolicy, auditURL, auditTokenFile                                                    string
+		applierPolicy, auditURL, auditTokenFile, auditCAFile                                       string
 	)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "Address of the metrics endpoint.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "Address of the probe endpoint.")
@@ -75,6 +75,7 @@ func main() {
 	flag.DurationVar(&applierMaxObserve, "applier-max-observe", 15*time.Minute, "Upper bound for the post-change observation window.")
 	flag.StringVar(&auditURL, "audit-url", envOr("AUDIT_URL", ""), "Also POST every applier audit event as JSON to this append-only collector (https). Empty: Kubernetes Events only.")
 	flag.StringVar(&auditTokenFile, "audit-token-file", "", "File with a bearer token for --audit-url.")
+	flag.StringVar(&auditCAFile, "audit-ca-file", "", "PEM CA bundle trusted for --audit-url in addition to the system roots (a collector with a private CA).")
 	flag.BoolVar(&spotDrain, "enable-spot-drain", true, "Cordon/drain Spot nodes with interruption signals.")
 	flag.DurationVar(&drainTimeout, "drain-timeout", 2*time.Minute, "Maximum time to drain a node.")
 	var promHTTP, kcHTTP, engHTTP, redisTLS httpx.Options
@@ -245,7 +246,12 @@ func main() {
 				}
 				tok = strings.TrimSpace(string(b))
 			}
-			hs := execute.NewHTTPSink(auditURL, tok, nil)
+			hc, err := execute.AuditHTTPClient(auditCAFile)
+			if err != nil {
+				log.Error(err, "cannot load --audit-ca-file")
+				os.Exit(1)
+			}
+			hs := execute.NewHTTPSink(auditURL, tok, hc)
 			extra = hs
 			_ = mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
 				<-ctx.Done()

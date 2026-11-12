@@ -4,6 +4,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 
 ## [Unreleased]
 
+### Added (tenth pass: audit into WORM storage, real FOCUS rows)
+- `--audit-ca-file` (CLI and operator) and chart `operator.recommendationApplier.auditCASecret`: trust a collector's private CA for `--audit-url`, verification never off.
+- `tools/audit-collector`: a reference collector (HTTPS, bearer token) that stores each audit event as one object in an S3 bucket with **Object Lock** (COMPLIANCE by default); `dump` and `probe-delete` to check it. `hack/lab-audit-worm.sh` runs it on the lab with MinIO built from source (`hack/lab/minio`): docs/LAB.md result 23.
+- `--focus-cost-column ListCost`, for accounts on credits whose invoice is 0 (docs/LAB.md result 22).
+
+### Fixed (tenth pass)
+- The FOCUS notes said Google's `BilledCost` is before the credits in `x_Credits`; a real export shows it is after them (`BilledCost` 0 on an account on promotion credits). Note and COST.md corrected.
+
 ### Added (ninth pass: P1 product completeness)
 - **Billing**: FOCUS exports are read as delivered: non-USD rows converted with the export's own `x_CurrencyConversionRate` (exact; refused without it), BigQuery/Azure/zone-less timestamps, Google's `ResourceName`, Azure VM scale-set items split across their nodes by CPU, `--focus-cost-column BilledCost|EffectiveCost`. Fixture from a real Google FOCUS export (CLP).
 - **Outcome metrics**: the operator exports `kubecost_recommendations{phase}`, acceptance and rollback ratios, the kept request reduction and the kept ESTIMATE, computed from the objects; `rightsize report --format prometheus` gives the same from the audit trail; a dashboard row.

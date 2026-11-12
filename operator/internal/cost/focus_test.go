@@ -159,8 +159,15 @@ func TestFOCUSConvertsWithTheProviderRateExactlyAndRefusesBadRates(t *testing.T)
 			t.Errorf("%s accepted", name)
 		}
 	}
-	if _, _, err := ParseFOCUSWith(strings.NewReader(in), t0, t1, FocusOptions{CostColumn: "ListCost"}); err == nil {
-		t.Fatal("only BilledCost and EffectiveCost may be allocated")
+	// an account on credits bills 0 (a real Google export, docs/LAB.md result 22): ListCost shows the usage, and says it is not the invoice
+	credited := strings.Replace(hdr, "EffectiveCost,", "EffectiveCost,ListCost,", 1) +
+		"//compute.googleapis.com/projects/1/zones/z/instances/4711,gke-pool-a,0,0,9600,CLP,960,Usage,2026-11-01 00:00:00,2026-11-02 00:00:00\n"
+	list, sum, err := ParseFOCUSWith(strings.NewReader(credited), t0, t1, FocusOptions{CostColumn: "ListCost"})
+	if err != nil || list[0].Cost != usd("10") || !strings.Contains(strings.Join(sum.Notes, " "), "NOT what is invoiced") {
+		t.Fatalf("ListCost: %v %+v %v", err, list, sum.Notes)
+	}
+	if _, _, err := ParseFOCUSWith(strings.NewReader(in), t0, t1, FocusOptions{CostColumn: "ContractedCost"}); err == nil {
+		t.Fatal("only BilledCost, EffectiveCost and ListCost may be allocated")
 	}
 }
 

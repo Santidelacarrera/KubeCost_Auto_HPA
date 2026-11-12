@@ -87,6 +87,7 @@
             "maxObserve": {"type": "string", "pattern": "^[0-9]+(s|m|h)$"},
             "auditURL": {"type": "string", "pattern": "^(https://.+)?$"},
             "auditTokenSecret": {"type": "object", "properties": {"name": {"type": "string"}, "key": {"type": "string"}}},
+            "auditCASecret": {"type": "object", "properties": {"name": {"type": "string"}, "key": {"type": "string"}}},
             "policy": {"type": "string"}
           }
         },

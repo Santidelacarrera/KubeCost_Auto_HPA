@@ -32,6 +32,9 @@ spec:
         {{- if .Values.operator.recommendationApplier.auditTokenSecret.name }}
         - --audit-token-file=/var/run/kubecost-audit/token
         {{- end }}
+        {{- if .Values.operator.recommendationApplier.auditCASecret.name }}
+        - --audit-ca-file=/var/run/kubecost-audit-ca/ca.crt
+        {{- end }}
         {{- end }}
         - --enable-spot-drain={{ .Values.operator.enableSpotDrain }}
         - --enable-cost-autoscaler={{ .Values.operator.enableCostAutoscaler }}
@@ -81,10 +84,14 @@ spec:
         resources: {{- toYaml .Values.operator.resources | nindent 10 }}
         securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
         {{- $auditTok := and .Values.operator.recommendationApplier.enabled .Values.operator.recommendationApplier.auditTokenSecret.name }}
-        {{- if or .Values.tls.engine.secretName .Values.operator.extraVolumeMounts $auditTok }}
+        {{- $auditCA := and .Values.operator.recommendationApplier.enabled .Values.operator.recommendationApplier.auditCASecret.name }}
+        {{- if or .Values.tls.engine.secretName .Values.operator.extraVolumeMounts $auditTok $auditCA }}
         volumeMounts:
         {{- if $auditTok }}
         - {name: audit-token, mountPath: /var/run/kubecost-audit, readOnly: true}
+        {{- end }}
+        {{- if $auditCA }}
+        - {name: audit-ca, mountPath: /var/run/kubecost-audit-ca, readOnly: true}
         {{- end }}
         {{- if .Values.tls.engine.secretName }}
         - {name: engine-server-tls, mountPath: /tls/engine-server, readOnly: true}
@@ -96,13 +103,19 @@ spec:
         {{- toYaml . | nindent 8 }}
         {{- end }}
         {{- end }}
-      {{- if or .Values.tls.engine.secretName .Values.operator.extraVolumes $auditTok }}
+      {{- if or .Values.tls.engine.secretName .Values.operator.extraVolumes $auditTok $auditCA }}
       volumes:
       {{- if $auditTok }}
       - name: audit-token
         secret:
           secretName: {{ .Values.operator.recommendationApplier.auditTokenSecret.name }}
           items: [{key: {{ .Values.operator.recommendationApplier.auditTokenSecret.key | default "token" }}, path: token}]
+      {{- end }}
+      {{- if $auditCA }}
+      - name: audit-ca
+        secret:
+          secretName: {{ .Values.operator.recommendationApplier.auditCASecret.name }}
+          items: [{key: {{ .Values.operator.recommendationApplier.auditCASecret.key | default "ca.crt" }}, path: ca.crt}]
       {{- end }}
       {{- if .Values.tls.engine.secretName }}
       - {name: engine-server-tls, secret: {secretName: {{ .Values.tls.engine.secretName }}}}
