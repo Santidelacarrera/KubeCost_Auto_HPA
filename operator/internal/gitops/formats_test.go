@@ -58,8 +58,8 @@ func TestProposeHelmValuesEditsTheChartKeysAndKeepsComments(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := run(t, dir, "show", res.Branch+":chart/values.yaml")
-	for _, want := range []string{"# chart values: owned by the platform team", "# keep", `cpu: "1"`, `memory: "2Gi"`, `cpu: "250m"`, `cpu: "4"`} {
+	got := strings.ReplaceAll(run(t, dir, "show", res.Branch+":chart/values.yaml"), `"`, "") // the file's own quoting is kept
+	for _, want := range []string{"# chart values: owned by the platform team", "# keep", `cpu: 1`, `memory: 2Gi`, `cpu: 250m`, `cpu: 4`} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in:\n%s", want, got)
 		}
@@ -153,8 +153,8 @@ func TestProposeManifestChangesEveryContainerOfACombinedRecord(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := run(t, dir, "show", res.Branch+":k8s/api.yaml")
-	if !strings.Contains(got, `cpu: "250m"`) || !strings.Contains(got, `cpu: "1"`) {
+	got := strings.ReplaceAll(run(t, dir, "show", res.Branch+":k8s/api.yaml"), `"`, "")
+	if !strings.Contains(got, `cpu: 250m`) || !strings.Contains(got, `cpu: 1`) {
 		t.Fatalf("%s", got)
 	}
 	if _, err := Propose(Options{RepoDir: repo(t, manifest), File: "k8s/api.yaml", Rec: withSidecar()}); err == nil || !strings.Contains(err.Error(), "container sidecar") {

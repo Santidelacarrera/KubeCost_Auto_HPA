@@ -25,6 +25,9 @@ type Chain struct {
 	mu   sync.Mutex
 	W    io.Writer
 	prev string
+	// Next, if set, receives each event AFTER it was chained and written (with prev and hash), so a copy shipped to an
+	// append-only collector carries the same chain and can be verified there too.
+	Next Sink
 }
 
 // NewChain continues the chain of an existing file: prev is the hash of its last chained event ("" for a new file).
@@ -58,6 +61,9 @@ func (c *Chain) Record(e Event) {
 	}
 	if _, err := c.W.Write(append(b, '\n')); err == nil {
 		c.prev = h
+		if c.Next != nil {
+			c.Next.Record(e)
+		}
 	}
 }
 

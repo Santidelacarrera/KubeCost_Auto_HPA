@@ -290,6 +290,7 @@ func edit(raw []byte, r recommend.Recommendation) ([]byte, error) {
 		docs = append(docs, &n)
 	}
 	found := 0
+	ed := &edits{}
 	for _, d := range docs {
 		root := top(d)
 		if root == nil || scalar(get(root, "kind")) != r.Kind || scalar(get(get(root, "metadata"), "name")) != r.Workload {
@@ -303,7 +304,7 @@ func edit(raw []byte, r recommend.Recommendation) ([]byte, error) {
 			if c == nil {
 				return nil, fmt.Errorf("container %q not found in %s/%s", v.Container, r.Kind, r.Workload)
 			}
-			if err := setResources(c, v); err != nil {
+			if err := setResources(c, v, ed); err != nil {
 				if v.Container != r.Container {
 					return nil, fmt.Errorf("container %s: %w", v.Container, err)
 				}
@@ -319,16 +320,7 @@ func edit(raw []byte, r recommend.Recommendation) ([]byte, error) {
 	default:
 		return nil, fmt.Errorf("%d documents match %s/%s: refusing to guess", found, r.Kind, r.Workload)
 	}
-	var buf bytes.Buffer
-	enc := yaml.NewEncoder(&buf)
-	enc.SetIndent(2)
-	for _, d := range docs {
-		if err := enc.Encode(d); err != nil {
-			return nil, err
-		}
-	}
-	_ = enc.Close()
-	return buf.Bytes(), nil
+	return render(raw, docs, ed)
 }
 
 func top(d *yaml.Node) *yaml.Node {
@@ -380,13 +372,112 @@ func ensureMap(parent *yaml.Node, key string) *yaml.Node {
 	return v
 }
 
-func setScalar(m *yaml.Node, key, val string) {
+// setScalar sets m[key] = val. ed (may be nil) records how to make the same change in the source text: an existing scalar is
+// replaced in place; adding a key is structural, and the file is then re-encoded.
+func setScalar(m *yaml.Node, key, val string, ed *edits) {
 	if n := get(m, key); n != nil {
+		if ed != nil {
+			if n.Kind == yaml.ScalarNode && n.Line > 0 {
+				ed.list = append(ed.list, textEdit{line: n.Line, col: n.Column, style: n.Style, old: n.Value, new: val})
+			} else {
+				ed.structural = true
+			}
+		}
 		n.Kind, n.Tag, n.Value, n.Style = yaml.ScalarNode, "!!str", val, yaml.DoubleQuotedStyle
 		return
 	}
+	if ed != nil {
+		ed.structural = true
+	}
 	m.Content = append(m.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key},
 		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: val, Style: yaml.DoubleQuotedStyle})
+}
+
+// textEdit replaces one scalar's text in the source, so everything else in the file stays byte-for-byte as its author wrote it
+// (re-encoding the whole file re-indents every list and touches documents the change has nothing to do with: found by the first
+// real `propose --open-pr`, docs/LAB.md result 21).
+type textEdit struct {
+	line, col int
+	style     yaml.Style
+	old, new  string
+}
+
+type edits struct {
+	list       []textEdit
+	structural bool
+}
+
+func quoteAs(style yaml.Style, v string) (string, bool) {
+	switch style {
+	case yaml.DoubleQuotedStyle:
+		return `"` + v + `"`, !strings.ContainsAny(v, `"\`)
+	case yaml.SingleQuotedStyle:
+		return "'" + v + "'", !strings.Contains(v, "'")
+	case 0:
+		return v, true
+	}
+	return "", false
+}
+
+// applyEdits makes the recorded scalar replacements in raw. ok is false when a token is not where the parser said (then the
+// caller re-encodes instead); the caller also checks that the result parses to the same tree as the edited one.
+func applyEdits(raw []byte, list []textEdit) ([]byte, bool) {
+	lines := strings.SplitAfter(string(raw), "\n")
+	sort.Slice(list, func(i, j int) bool {
+		if list[i].line != list[j].line {
+			return list[i].line > list[j].line
+		}
+		return list[i].col > list[j].col
+	})
+	for _, e := range list {
+		if e.line < 1 || e.line > len(lines) {
+			return nil, false
+		}
+		l := []rune(lines[e.line-1])
+		at := e.col - 1
+		oldTok, ok1 := quoteAs(e.style, e.old)
+		newTok, ok2 := quoteAs(e.style, e.new)
+		if !ok1 || !ok2 || at < 0 || at+len([]rune(oldTok)) > len(l) || string(l[at:at+len([]rune(oldTok))]) != oldTok {
+			return nil, false
+		}
+		lines[e.line-1] = string(l[:at]) + newTok + string(l[at+len([]rune(oldTok)):])
+	}
+	return []byte(strings.Join(lines, "")), true
+}
+
+// sameTree compares two parsed YAML trees by kind and value (not style), so `cpu: 500m` and `cpu: "500m"` are equal.
+func sameTree(a, b *yaml.Node) bool {
+	if a.Kind != b.Kind || len(a.Content) != len(b.Content) {
+		return false
+	}
+	if a.Kind == yaml.ScalarNode && a.Value != b.Value {
+		return false
+	}
+	for i := range a.Content {
+		if !sameTree(a.Content[i], b.Content[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// render returns the edited documents: the source with only the changed scalars replaced when that is possible and provably
+// equivalent, otherwise the documents re-encoded.
+func render(raw []byte, docs []*yaml.Node, ed *edits) ([]byte, error) {
+	if !ed.structural {
+		if out, ok := applyEdits(raw, ed.list); ok {
+			if got, err := decodeAll(out); err == nil && len(got) == len(docs) {
+				same := true
+				for i := range got {
+					same = same && sameTree(got[i], docs[i])
+				}
+				if same {
+					return out, nil
+				}
+			}
+		}
+	}
+	return encodeAll(docs)
 }
 
 func qty(v string) (float64, bool) {
@@ -400,9 +491,13 @@ func qty(v string) (float64, bool) {
 	return q.AsApproximateFloat64(), true
 }
 
-func setResources(c *yaml.Node, r recommend.Recommendation) error {
+func setResources(c *yaml.Node, r recommend.Recommendation, ed *edits) error {
+	if ed != nil && (get(c, "resources") == nil || get(get(c, "resources"), "requests") == nil) {
+		ed.structural = true
+	}
 	res := ensureMap(c, "resources")
 	req := ensureMap(res, "requests")
+	hadLimits := get(res, "limits") != nil
 	lim := ensureMap(res, "limits")
 	apply := func(name string, x recommend.ResourceResult, format func(float64) string) error {
 		if !isChange(x) {
@@ -425,9 +520,9 @@ func setResources(c *yaml.Node, r recommend.Recommendation) error {
 			case x.Limit < l*0.999:
 				return fmt.Errorf("refused: the recommendation would lower the %s limit", name)
 			}
-			setScalar(lim, name, format(x.Limit))
+			setScalar(lim, name, format(x.Limit), ed)
 		}
-		setScalar(req, name, format(x.Recommended))
+		setScalar(req, name, format(x.Recommended), ed)
 		return nil
 	}
 	cpu := func(v float64) string {
@@ -443,6 +538,9 @@ func setResources(c *yaml.Node, r recommend.Recommendation) error {
 	// do not leave empty maps behind
 	if len(lim.Content) == 0 {
 		res.Content = removeKey(res.Content, "limits")
+		if hadLimits && ed != nil {
+			ed.structural = true // an existing empty `limits: {}` was dropped
+		}
 	}
 	return nil
 }

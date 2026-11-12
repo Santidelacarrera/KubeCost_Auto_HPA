@@ -138,3 +138,31 @@ func TestSignedApprovalEndToEnd(t *testing.T) {
 		t.Fatalf("a forged approver stamp must be refused: %+v", res.Decision)
 	}
 }
+
+type collect struct{ got []Event }
+
+func (c *collect) Record(e Event) { c.got = append(c.got, e) }
+
+// A copy forwarded after chaining carries the same prev/hash as the file, so the collector's copy verifies on its own.
+func TestAuditChainForwardsChainedEvents(t *testing.T) {
+	var b bytes.Buffer
+	next := &collect{}
+	c := NewChain(&b, "")
+	c.Next = next
+	c.Record(Event{Time: t0, Type: "approved"})
+	c.Record(Event{Time: t0, Type: "applied", Details: map[string]any{"previous": map[string]ContainerResources{"app": {CPURequest: "1"}}}})
+	var fwd bytes.Buffer
+	j := &JSONL{W: &fwd}
+	for _, e := range next.got {
+		if e.Hash == "" {
+			t.Fatal("forwarded event without its hash")
+		}
+		j.Record(e)
+	}
+	if fwd.String() != b.String() {
+		t.Fatalf("forwarded copy differs from the file:\n%s\n%s", fwd.String(), b.String())
+	}
+	if rep, _ := VerifyChain(&fwd); rep.FirstBreak != 0 || rep.Chained != 2 {
+		t.Fatalf("%+v", rep)
+	}
+}

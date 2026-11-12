@@ -1,0 +1,31 @@
+# rightsize propose --push --open-pr against GitHub (this repository), 2026-11-12. Both PRs closed on purpose, branches deleted.
+# attempt 1 (binary from claude/p1-product-completeness): PR #44
+{
+  "branch": "rightsize/deployment-shop-44cf00276b845d54",
+  "commit": "39f1755d4ff12657ef96deebcbdabb0d21262d6f",
+  "diff": "diff --git a/hack/lab/synthetic-users.yaml b/hack/lab/synthetic-users.yaml\nindex c850aef..f2ff42d 100644\n--- a/hack/lab/synthetic-users.yaml\n+++ b/hack/lab/synthetic-users.yaml\n@@ -138,15 +138,15 @@ spec:\n       annotations: {prometheus.io/scrape: \"true\", prometheus.io/port: \"8080\", prometheus.io/path: /metrics}\n     spec:\n       containers:\n-      - name: app\n-        image: python:3.12-alpine\n-        command: [\"python\", \"-u\", \"/code/store.py\"]\n-        ports: [{containerPort: 8080}]\n-        readinessProbe: {httpGet: {path: /healthz, port: 8080}, periodSeconds: 5}\n-        volumeMounts: [{name: code, mountPath: /code}]\n-        resources:\n-          requests: {cpu: \"1\", memory: 256Mi}\n-          limits: {cpu: \"1\", memory: 512Mi}\n+        - name: app\n+          image: python:3.12-alpine\n+          command: [\"python\", \"-u\", \"/code/store.py\"]\n+          ports: [{containerPort: 8080}]\n+          readinessProbe: {httpGet: {path: /healthz, port: 8080}, periodSeconds: 5}\n+          volumeMounts: [{name: code, mountPath: /code}]\n+          resources:\n+            requests: {cpu: \"500m\", memory: \"128Mi\"}\n+            limits: {cpu: \"1\", memory: \"512Mi\"}\n       volumes: [{name: code, configMap: {name: store-code}}]\n ---\n apiVersion: v1\n@@ -164,13 +164,13 @@ spec:\n     metadata: {labels: {app: users}}\n     spec:\n       containers:\n-      - name: users\n-        image: python:3.12-alpine\n-        command: [\"python\", \"-u\", \"/code/users.py\"]\n-        env:\n-        - {name: PERIOD_MIN, value: \"60\"}\n-        - {name: BASE_USERS, value: \"4\"}\n-        - {name: PEAK_USERS, value: \"40\"}\n-        volumeMounts: [{name: code, mountPath: /code}]\n-        resources: {requests: {cpu: 200m, memory: 128Mi}}\n+        - name: users\n+          image: python:3.12-alpine\n+          command: [\"python\", \"-u\", \"/code/users.py\"]\n+          env:\n+            - {name: PERIOD_MIN, value: \"60\"}\n+            - {name: BASE_USERS, value: \"4\"}\n+            - {name: PEAK_USERS, value: \"40\"}\n+          volumeMounts: [{name: code, mountPath: /code}]\n+          resources: {requests: {cpu: 200m, memory: 128Mi}}\n       volumes: [{name: code, configMap: {name: store-code}}]\n",
+  "files": [
+    "hack/lab/synthetic-users.yaml"
+  ],
+  "next": "review the pull request; no cluster was contacted",
+  "notes": null,
+  "pullRequest": "https://github.com/<repo>/pull/44",
+  "pushed": true
+}
+
+# attempt 2 (after the minimal-diff fix): PR #45
+{
+  "branch": "rightsize/lab-pr-test-2",
+  "commit": "36cc8781c60c8607f2b814b69a7983f324f17003",
+  "diff": "diff --git a/hack/lab/synthetic-users.yaml b/hack/lab/synthetic-users.yaml\nindex c850aef..a663e33 100644\n--- a/hack/lab/synthetic-users.yaml\n+++ b/hack/lab/synthetic-users.yaml\n@@ -145,7 +145,7 @@ spec:\n         readinessProbe: {httpGet: {path: /healthz, port: 8080}, periodSeconds: 5}\n         volumeMounts: [{name: code, mountPath: /code}]\n         resources:\n-          requests: {cpu: \"1\", memory: 256Mi}\n+          requests: {cpu: \"500m\", memory: 128Mi}\n           limits: {cpu: \"1\", memory: 512Mi}\n       volumes: [{name: code, configMap: {name: store-code}}]\n ---\n",
+  "files": [
+    "hack/lab/synthetic-users.yaml"
+  ],
+  "next": "review the pull request; no cluster was contacted",
+  "notes": null,
+  "pullRequest": "https://github.com/<repo>/pull/45",
+  "pushed": true
+}
+
+# PR #45 title and body as GitHub shows them
+{"baseRefName":"claude/bold-carson-5479vm","body":"container app:\n  cpu: 1 -> 0.5 cores (Decrease)\n  memory: 268435456 -> 134217728 bytes (Decrease)\nconfidence: Medium\nestimated potential saving (not a bill): cpu 0.00 + memory 0.00 USD/month\nrisks:\n  - the window (7h0m0s) is shorter than 7 days: weekly seasonality is not observed\n  - memory reductions can cause OOMKilled; apply behind a canary and watch restarts\n\nProposed by rightsize from observed usage. Review it like any other change: nothing was applied to a cluster.\n","headRefName":"rightsize/lab-pr-test-2","state":"CLOSED","title":"rightsize: lab/shop app resources (recommendation 44cf00276b845d54)"}

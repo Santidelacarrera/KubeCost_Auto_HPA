@@ -27,6 +27,7 @@ func editValues(raw []byte, r recommend.Recommendation, keys map[string]string) 
 		return nil, errors.New("the values file must be one YAML mapping")
 	}
 	root := top(docs[0])
+	ed := &edits{}
 	for _, v := range r.Views() {
 		if !isChange(v.CPU) && !isChange(v.Memory) {
 			continue
@@ -45,11 +46,11 @@ func editValues(raw []byte, r recommend.Recommendation, keys map[string]string) 
 				return nil, fmt.Errorf("values key %q: %q is not a mapping in the file (the layout is the chart's; it is not invented)", key, p)
 			}
 		}
-		if err := setResources(parent, v); err != nil {
+		if err := setResources(parent, v, ed); err != nil {
 			return nil, fmt.Errorf("container %s (values key %s): %w", v.Container, key, err)
 		}
 	}
-	return encodeAll(docs)
+	return render(raw, docs, ed)
 }
 
 // patchName is the file the Kustomize format owns, one per workload.
@@ -114,14 +115,14 @@ func kustomizePatch(r recommend.Recommendation, base, prior, kraw []byte, name s
 				if !isChange(x.rr) {
 					continue
 				}
-				setScalar(req, x.n, x.f(x.rr.Current))
+				setScalar(req, x.n, x.f(x.rr.Current), nil)
 				if x.rr.Limit > 0 {
-					setScalar(lim, x.n, x.f(x.rr.Limit))
+					setScalar(lim, x.n, x.f(x.rr.Limit), nil)
 				}
 			}
 			cs.Content = append(cs.Content, c)
 		}
-		if err := setResources(c, v); err != nil {
+		if err := setResources(c, v, nil); err != nil {
 			return nil, nil, fmt.Errorf("container %s: %w", v.Container, err)
 		}
 	}
