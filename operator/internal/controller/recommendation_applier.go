@@ -311,6 +311,9 @@ func (r *RecommendationApplier) finish(ctx context.Context, cr *v1alpha1.Workloa
 
 // SetupWithManager registers the controller. Two workers: an observation can last minutes.
 func (r *RecommendationApplier) SetupWithManager(mgr ctrl.Manager) error {
+	if err := RegisterOutcomeCollector(mgr.GetClient()); err != nil {
+		return err
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.WorkloadRecommendation{}).
 		Named("recommendation-applier").

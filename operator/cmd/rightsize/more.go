@@ -165,8 +165,9 @@ func planCmd(args []string, out io.Writer) error {
 // report summarises the audit trail into process outcomes (acceptance, rollback rate, estimated savings kept).
 func reportCmd(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("report", flag.ContinueOnError)
-	var file, since string
+	var file, since, format string
 	fs.StringVar(&file, "audit-file", "", "JSONL audit file written with --audit-file (required).")
+	fs.StringVar(&format, "format", "json", "json, or prometheus (text exposition format for the node_exporter textfile collector or a Pushgateway).")
 	fs.StringVar(&since, "since", "", "only events at or after this RFC3339 time.")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -190,7 +191,14 @@ func reportCmd(args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	return printJSON(out, s)
+	switch format {
+	case "json":
+		return printJSON(out, s)
+	case "prometheus":
+		return outcome.WritePrometheus(out, s)
+	default:
+		return fmt.Errorf("--format must be json or prometheus")
+	}
 }
 
 // propose writes the recommendation into a manifest on a new local git branch (no push, no cluster access).
