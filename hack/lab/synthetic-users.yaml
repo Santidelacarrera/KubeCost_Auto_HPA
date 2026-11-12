@@ -1,0 +1,176 @@
+# SYNTHETIC USERS for the recommender: a small store whose routes do real CPU and memory work, and a population of simulated
+# shoppers (sessions, think time, browse/search/cart/checkout mix) whose number follows a compressed daily and weekly cycle with
+# random "flash sale" spikes. Everything here is simulated: these are not people, and one "day" lasts PERIOD_MIN minutes.
+# Used by hack/lab-synthetic-users.sh. The store is deliberately over-provisioned (2 x 1 CPU) so a decrease is due.
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: store-code, namespace: lab}
+data:
+  store.py: |
+    import hashlib, os, random, threading, time
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    BUCKETS = [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0]
+    lock = threading.Lock()
+    hist = {}    # route -> [counts per bucket..., +Inf], sum
+    total = {}   # (route, code) -> n
+    def work(route):
+        if route == "/":            # catalog page: a little CPU
+            n, mem = 2400, 0
+        elif route == "/search":    # search: CPU
+            n, mem = 40000, 0
+        elif route == "/cart":      # cart: memory churn
+            n, mem = 4000, 8 * 1024 * 1024
+        elif route == "/checkout":  # checkout: the heaviest
+            n, mem = 90000, 4 * 1024 * 1024
+        else:
+            return 404
+        buf = bytearray(mem) if mem else None
+        h = b"x"
+        for _ in range(n):
+            h = hashlib.sha256(h).digest()
+        if buf is not None:
+            buf[random.randrange(len(buf))] = 1
+        return 200
+    def observe(route, code, dt):
+        with lock:
+            b = hist.setdefault(route, [[0] * (len(BUCKETS) + 1), 0.0])
+            for i, le in enumerate(BUCKETS):
+                if dt <= le:
+                    b[0][i] += 1
+            b[0][-1] += 1
+            b[1] += dt
+            total[(route, code)] = total.get((route, code), 0) + 1
+    def metrics():
+        out = ["# TYPE http_request_duration_seconds histogram"]
+        with lock:
+            for r, (c, s) in hist.items():
+                for i, le in enumerate(BUCKETS):
+                    out.append('http_request_duration_seconds_bucket{route="%s",le="%s"} %d' % (r, le, c[i]))
+                out.append('http_request_duration_seconds_bucket{route="%s",le="+Inf"} %d' % (r, c[-1]))
+                out.append('http_request_duration_seconds_sum{route="%s"} %f' % (r, s))
+                out.append('http_request_duration_seconds_count{route="%s"} %d' % (r, c[-1]))
+            out.append("# TYPE http_requests_total counter")
+            for (r, code), n in total.items():
+                out.append('http_requests_total{route="%s",code="%d"} %d' % (r, code, n))
+        return ("\n".join(out) + "\n").encode()
+    class H(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+        def do_GET(self):
+            if self.path == "/metrics":
+                body = metrics(); self.send_response(200); self.send_header("Content-Type", "text/plain")
+                self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body); return
+            if self.path == "/healthz":
+                self.send_response(200); self.send_header("Content-Length", "2"); self.end_headers(); self.wfile.write(b"ok"); return
+            t = time.perf_counter(); route = self.path.split("?")[0]
+            code = work(route)
+            observe(route if code == 200 else "other", code, time.perf_counter() - t)
+            self.send_response(code); self.send_header("Content-Length", "2"); self.end_headers(); self.wfile.write(b"ok")
+    ThreadingHTTPServer.daemon_threads = True
+    ThreadingHTTPServer(("", 8080), H).serve_forever()
+  users.py: |
+    # Simulated shoppers. Concurrent users U(t) = BASE + (PEAK - BASE) * daily(t) * weekly(t), plus flash sales.
+    # One simulated day = PERIOD_MIN minutes; days 5 and 6 of each simulated week are a quieter weekend (60%).
+    # Flash sales: each simulated day, with probability FLASH_P, a burst of FLASH_X times the users for 1/12 of a day.
+    import math, os, random, threading, time, urllib.request
+    BASE, PEAK = int(os.environ.get("BASE_USERS", "4")), int(os.environ.get("PEAK_USERS", "40"))
+    PERIOD = float(os.environ.get("PERIOD_MIN", "60")) * 60
+    FLASH_P, FLASH_X = float(os.environ.get("FLASH_P", "0.4")), float(os.environ.get("FLASH_X", "2.0"))
+    URL = os.environ.get("STORE", "http://shop:8080")
+    rng = random.Random(int(os.environ.get("SEED", "7")))
+    T0 = time.time()
+    flash = {}
+    for d in range(400):
+        if rng.random() < FLASH_P:
+            flash[d] = rng.uniform(0.35, 0.85)          # start, as a fraction of the day (business hours)
+    def target(now):
+        x = (now - T0) / PERIOD; day = int(x); frac = x - day
+        daily = max(0.0, math.sin(math.pi * (frac - 0.25) / 0.7)) if 0.25 <= frac <= 0.95 else 0.0
+        weekly = 0.6 if day % 7 in (5, 6) else 1.0
+        u = BASE + (PEAK - BASE) * daily * weekly
+        if day in flash and flash[day] <= frac < flash[day] + 1 / 12:
+            u *= FLASH_X
+        return int(round(u)), day, frac
+    active = 0; alock = threading.Lock(); done = [0]
+    def get(path):
+        try:
+            urllib.request.urlopen(URL + path, timeout=5).read()
+        except Exception:
+            pass
+        with alock:
+            done[0] += 1
+    def shopper():
+        global active
+        r = random.Random()
+        for _ in range(r.randint(3, 8)):                 # pages in this session
+            get("/")
+            if r.random() < 0.40: get("/search")
+            if r.random() < 0.25: get("/cart")
+            time.sleep(r.expovariate(1 / 1.5))           # think time
+        if r.random() < 0.10: get("/checkout")
+        with alock:
+            active -= 1
+    last = time.time()
+    while True:
+        u, day, frac = target(time.time())
+        with alock:
+            need = u - active
+        for _ in range(max(0, need)):
+            with alock:
+                active += 1
+            threading.Thread(target=shopper, daemon=True).start()
+        if time.time() - last >= 60:
+            with alock:
+                n = done[0]; done[0] = 0
+            print("day=%d frac=%.2f target=%d active=%d req_per_min=%d flash=%s" % (day, frac, u, active, n, day in flash and flash[day] <= frac < flash[day] + 1/12), flush=True)
+            last = time.time()
+        time.sleep(0.5)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: shop, namespace: lab}
+spec:
+  replicas: 2
+  selector: {matchLabels: {app: shop}}
+  template:
+    metadata:
+      labels: {app: shop}
+      annotations: {prometheus.io/scrape: "true", prometheus.io/port: "8080", prometheus.io/path: /metrics}
+    spec:
+      containers:
+      - name: app
+        image: python:3.12-alpine
+        command: ["python", "-u", "/code/store.py"]
+        ports: [{containerPort: 8080}]
+        readinessProbe: {httpGet: {path: /healthz, port: 8080}, periodSeconds: 5}
+        volumeMounts: [{name: code, mountPath: /code}]
+        resources:
+          requests: {cpu: "1", memory: 256Mi}
+          limits: {cpu: "1", memory: 512Mi}
+      volumes: [{name: code, configMap: {name: store-code}}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: shop, namespace: lab}
+spec: {selector: {app: shop}, ports: [{port: 8080}]}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: users, namespace: lab}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: users}}
+  template:
+    metadata: {labels: {app: users}}
+    spec:
+      containers:
+      - name: users
+        image: python:3.12-alpine
+        command: ["python", "-u", "/code/users.py"]
+        env:
+        - {name: PERIOD_MIN, value: "60"}
+        - {name: BASE_USERS, value: "4"}
+        - {name: PEAK_USERS, value: "40"}
+        volumeMounts: [{name: code, mountPath: /code}]
+        resources: {requests: {cpu: 200m, memory: 128Mi}}
+      volumes: [{name: code, configMap: {name: store-code}}]

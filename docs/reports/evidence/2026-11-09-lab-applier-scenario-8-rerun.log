@@ -1,0 +1,13 @@
+== 0. images and install (applier ON for namespace lab only, observe-only ON)
+PASS  the CRD is installed
+PASS  the operator runs the applier
+== 8. a crash after the change: automatic rollback by the controller (last, because it leaves restarts in the window)
+PASS  phase RolledBack
+PASS  the previous requests are back
+PASS  the reason names the restart
+PASS  a Warning event was recorded on the object
+== diagnostics (final phase of every object; last approve error, if any)
+api4-e61ba4bdc2c1e7ad phase=RolledBack msg=degraded after the change and restored reasons=["1 container restart(s) (max 0)"]
+== cleanup
+
+RESULT: 6 passed, 0 failed

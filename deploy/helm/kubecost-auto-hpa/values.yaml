@@ -7,6 +7,22 @@ operator:
   image: {repository: ghcr.io/santidelacarrera/kubecost-auto-hpa-operator, tag: "", pullPolicy: IfNotPresent}
   replicas: 2
   leaderElect: true
+  # Starts in observe-only: every decision is computed and reported, nothing is written to the cluster
+  # (also disables Spot draining). Set to false only after reviewing decisions (see docs/OPERATIONS.md).
+  observeOnly: true
+  # OPT-IN controller that applies APPROVED WorkloadRecommendation objects under the policy below. Off by default.
+  # It needs permission to UPDATE workloads: set `namespaces` to limit that permission to the namespaces you authorise
+  # (an empty list grants it cluster-wide). While operator.observeOnly is true it only reports what it would do.
+  recommendationApplier:
+    enabled: false
+    namespaces: []
+    maxObserve: 15m
+    # ValidatingAdmissionPolicies (Kubernetes 1.30+): the approver must be the authenticated user and cannot be the publisher.
+    enforceSeparationOfDuties: true
+    # The safety policy (docs/SAFETY.md). The default authorises nothing: no namespace is allowed.
+    policy: |
+      allowNamespaces: []
+      killSwitch: false
   enableSpotDrain: true
   enableCostAutoscaler: true   # KubeCostAutoscaler controller (needs kubecost.url)
   kubecostMaxAttempts: 3

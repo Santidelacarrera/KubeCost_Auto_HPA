@@ -1,0 +1,44 @@
+== 0. images and install (applier ON for namespace lab only, observe-only ON)
+PASS  the CRD is installed
+PASS  the operator runs the applier
+PASS  the operator is in observe-only mode
+== 1. publish: creating the object changes nothing, and nobody has approved yet
+PASS  a WorkloadRecommendation exists
+PASS  it is Pending (waiting for approval)
+PASS  the workload is untouched
+== 2. approval needs its own permission: a publisher cannot approve, an approver can (RBAC by impersonation)
+PASS  the publisher is refused (Forbidden) when approving
+PASS  and the phase is still Pending
+== 3. observe-only: an approval produces a DryRun, never a write
+PASS  the approver succeeds and the identity is the server's
+PASS  phase DryRun (observe-only)
+PASS  the workload is still untouched
+== 4. observe-only OFF: the same approved object is applied, observed and verified
+PASS  phase Verified
+requests: 1/1Gi -> 500m/512Mi
+PASS  the workload really changed
+PASS  the previous state is on the workload
+PASS  the object carries the approver and times
+== 5. namespace isolation: an object in another namespace cannot act on lab
+PASS  the cross-namespace object is Denied
+PASS  with the reason: own namespace
+== 6. the kill switch in the policy ConfigMap acts without a restart, and lifting it lets the same object proceed
+PASS  with the kill switch on: Denied
+PASS  and nothing was written
+PASS  after lifting the switch the same object is applied and Verified (policy re-read, no restart)
+== 7. restart the operator while a change is being observed: it resumes, it does not re-apply
+PASS  after the operator restart the change is Verified
+PASS  it was applied exactly once (last-applied-at is unchanged)
+== 8. a crash after the change: automatic rollback by the controller (last, because it leaves restarts in the window)
+FAIL  phase RolledBack
+FAIL  the previous requests are back
+FAIL  the reason names the restart
+FAIL  a Warning event was recorded on the object
+== diagnostics (final phase of every object)
+api-f26c2c143492b247 phase=Verified msg=applied and healthy for the whole observation window reasons=
+api2-294b12278ab03bd0 phase=Verified msg=applied and healthy for the whole observation window reasons=
+api3-328c07dfcd97cfad phase=Verified msg=applied and healthy for the whole observation window reasons=
+api4-b751b22133ba3599 phase=Verified msg=applied and healthy for the whole observation window reasons=
+== cleanup
+
+RESULT: 22 passed, 4 failed

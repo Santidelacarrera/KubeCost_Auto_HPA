@@ -21,6 +21,12 @@ spec:
         {{- if .Values.operator.leaderElect }}
         - --leader-elect
         {{- end }}
+        - --observe-only={{ .Values.operator.observeOnly }}
+        {{- if .Values.operator.recommendationApplier.enabled }}
+        - --enable-recommendation-applier=true
+        - --applier-policy-configmap={{ .Release.Namespace }}/{{ include "kch.name" . }}-applier-policy
+        - --applier-max-observe={{ .Values.operator.recommendationApplier.maxObserve }}
+        {{- end }}
         - --enable-spot-drain={{ .Values.operator.enableSpotDrain }}
         - --enable-cost-autoscaler={{ .Values.operator.enableCostAutoscaler }}
         - --kubecost-max-attempts={{ .Values.operator.kubecostMaxAttempts }}

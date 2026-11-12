@@ -1,0 +1,13 @@
+requests before: 1/1Gi
+== apply with a long observation, then kill the process
+PASS  the change was applied before the interruption
+requests after the kill: 500m/512Mi
+PASS  the new values are in place (the tool died mid-watch)
+PASS  the previous state survived on the object
+PASS  a second process refuses to apply the same ID again
+== a NEW process rolls back from the saved state alone
+PASS  requests are back to the original
+PASS  the rolled-back marker is set and the saved state cleared
+PASS  audit has applied and rolled_back by the recovery actor
+
+RESULT: 7 passed, 0 failed

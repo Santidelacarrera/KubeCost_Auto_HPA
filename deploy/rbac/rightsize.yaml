@@ -1,0 +1,62 @@
+# Least-privilege roles for the `rightsize` CLI, split by what a person is allowed to do.
+#
+#   kubecost-rightsize-read   plan / nodes / cost / report: reads only. Bind with a ClusterRoleBinding.
+#   kubecost-rightsize-apply  approve (annotation) / apply / rollback: UPDATE on workloads. Bind with a RoleBinding in each namespace you authorise,
+#                             never with a ClusterRoleBinding. Combine with kubecost-rightsize-read for the same person.
+#
+# The `rightsize` binary never deletes objects and never touches Secrets, ConfigMaps or RBAC. The only object it creates is a WorkloadRecommendation (plan --publish).
+# `approve` also calls SelfSubjectReview (authentication.k8s.io), which every authenticated user can create by default (system:basic-user).
+# Verified on a real cluster with --as impersonation: hack/lab-rbac.sh. This is the role of the HUMAN running the CLI, not of the operator
+# (the operator's own role is deploy/helm/kubecost-auto-hpa/templates/rbac.yaml and docs/RBAC.md).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kubecost-rightsize-read
+rules:
+- apiGroups: ["apps"]
+  resources: ["deployments", "statefulsets", "daemonsets"]
+  verbs: ["get", "list"]
+- apiGroups: ["autoscaling"]
+  resources: ["horizontalpodautoscalers"]
+  verbs: ["list"]
+- apiGroups: ["autoscaling.k8s.io"]
+  resources: ["verticalpodautoscalers"]
+  verbs: ["list"]
+- apiGroups: [""]
+  resources: ["pods", "nodes"]
+  verbs: ["list"]
+- apiGroups: ["policy"]
+  resources: ["poddisruptionbudgets"]
+  verbs: ["list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kubecost-rightsize-apply
+rules:
+- apiGroups: ["apps"]
+  resources: ["deployments", "statefulsets", "daemonsets"]
+  verbs: ["update"]
+---
+# WorkloadRecommendation flow (only with the operator applier, docs/SAFETY.md): publishing and approving are DIFFERENT permissions.
+# Bind each per namespace with a RoleBinding. Whoever can publish cannot approve, and the applier acts only on approved ones.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kubecost-rightsize-publish
+rules:
+- apiGroups: ["autoscaling.kubecost.io"]
+  resources: ["workloadrecommendations"]
+  verbs: ["create", "get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kubecost-rightsize-approve
+rules:
+- apiGroups: ["autoscaling.kubecost.io"]
+  resources: ["workloadrecommendations"]
+  verbs: ["get", "list"]
+- apiGroups: ["autoscaling.kubecost.io"]
+  resources: ["workloadrecommendations/status"]
+  verbs: ["get", "update"]

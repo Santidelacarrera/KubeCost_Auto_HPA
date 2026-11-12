@@ -74,6 +74,20 @@
         "leaderElect": {
           "type": "boolean"
         },
+        "observeOnly": {
+          "type": "boolean"
+        },
+        "recommendationApplier": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "enforceSeparationOfDuties": {"type": "boolean"},
+            "namespaces": {"type": "array", "items": {"type": "string", "minLength": 1}},
+            "maxObserve": {"type": "string", "pattern": "^[0-9]+(s|m|h)$"},
+            "policy": {"type": "string"}
+          }
+        },
         "enableSpotDrain": {
           "type": "boolean"
         },
