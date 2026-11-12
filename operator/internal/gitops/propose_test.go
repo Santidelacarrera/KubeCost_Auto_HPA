@@ -91,7 +91,7 @@ func TestProposeCommitsOnANewBranchAndRestoresTheOriginal(t *testing.T) {
 		t.Fatal("the original branch was modified")
 	}
 	changed := run(t, dir, "show", res.Branch+":k8s/api.yaml")
-	for _, want := range []string{`cpu: "1"`, `memory: "2Gi"`, "# platform team: do not remove", "# the main container", "kind: Service"} {
+	for _, want := range []string{`cpu: "1"`, `memory: 2Gi`, "# platform team: do not remove", "# the main container", "kind: Service"} {
 		if !strings.Contains(changed, want) {
 			t.Errorf("missing %q in:\n%s", want, changed)
 		}
@@ -161,5 +161,29 @@ func TestProposeCreatesMissingResourcesBlock(t *testing.T) {
 	}
 	if got := run(t, dir, "show", res.Branch+":k8s/api.yaml"); !strings.Contains(got, `cpu: "500m"`) || strings.Contains(got, "limits") {
 		t.Fatal(got)
+	}
+}
+
+// Only the changed values change: every other byte of the file, its list indentation and the other documents included, is kept
+// (the first real --open-pr re-indented a whole file, docs/LAB.md result 21).
+func TestProposeChangesOnlyTheChangedLines(t *testing.T) {
+	dir := repo(t, manifest)
+	res, err := Propose(Options{RepoDir: dir, File: "k8s/api.yaml", Rec: rec()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := strings.Split(strings.TrimRight(manifest, "\n"), "\n") // run() trims the output
+	after := strings.Split(strings.ReplaceAll(run(t, dir, "show", res.Branch+":k8s/api.yaml"), "\r\n", "\n"), "\n")
+	if len(after) != len(before) {
+		t.Fatalf("line count changed: %d -> %d", len(before), len(after))
+	}
+	var diff []string
+	for i := range before {
+		if before[i] != after[i] {
+			diff = append(diff, before[i]+" => "+after[i])
+		}
+	}
+	if len(diff) != 2 || !strings.Contains(diff[0], `cpu: "2" => `) || !strings.Contains(diff[1], "memory: 4Gi => ") {
+		t.Fatalf("only the cpu and memory request lines may change, got %q", diff)
 	}
 }

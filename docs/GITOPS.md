@@ -21,7 +21,7 @@ at the next sync (wasted change, flapping) or hides drift. `allowGitOps` exists 
 `rightsize propose --recommendation rec.json --repo <dir> --file <path> [--format manifest|helm-values|kustomize]` writes the change where the repository declares it, commits on a new branch
 `rightsize/<kind>-<name>-<id>` with the recommendation summary (every container, confidence, the ESTIMATE and its risks) in the message, and returns to the branch you were on. It never contacts a cluster.
 
-* `--format manifest` (default): edits the Deployment/StatefulSet/DaemonSet document (multi-document YAML, comments and key order preserved).
+* `--format manifest` (default): edits the Deployment/StatefulSet/DaemonSet document (multi-document YAML). Only the changed values are rewritten in the file text: comments, key order, quoting, list indentation and the other documents stay byte-for-byte. If a key must be added (no `requests` yet), the file is re-encoded instead, which keeps comments and key order but may re-indent lists.
 * `--format helm-values --helm-key app=resources,proxy=sidecar.resources`: edits the chart's values at the key each container's resources live under. Every changed container must be mapped, the key must end in `.resources`, and the path to it must already exist (the values layout is the chart's contract and is never invented).
 * `--format kustomize --file overlays/prod/kustomization.yaml [--base-file k8s/api.yaml]`: writes a strategic-merge patch `rightsize-<kind>-<name>.yaml` next to the kustomization and lists it under `patches` (once). With `--base-file` the recommendation is checked against the base exactly like a manifest edit; without it the result says the current values were not checked. A later recommendation updates the same patch and is checked against the values in it.
 * A combined record (`rightsize plan --container app,proxy`) changes every container it names.
@@ -29,7 +29,7 @@ at the next sync (wasted change, flapping) or hides drift. `allowGitOps` exists 
 
 It refuses: an abstained or no-op recommendation, values in the repository that differ from the ones the recommendation was computed for (stale), a lowered or newly created limit,
 an ambiguous match (two documents for the same workload), uncommitted changes in a file it would write, and paths outside the repository.
-Verified: unit tests with temporary repositories, a local bare remote for `--push` and a fake PR opener (`operator/internal/gitops`), and `hack/lab-e2e2.sh` step 6 (manifest format). Not verified: `gh pr create` against GitHub from this command.
+Verified: unit tests with temporary repositories, a local bare remote for `--push` and a fake PR opener (`operator/internal/gitops`), and `hack/lab-e2e2.sh` step 6 (manifest format). `--push --open-pr` against GitHub: run for real on this repository (docs/LAB.md result 21); the first run re-indented the whole file, which is fixed (a one-line diff since).
 
 ## What is still needed for a full integration (not built)
 

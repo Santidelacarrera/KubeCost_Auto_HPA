@@ -122,6 +122,7 @@ func (c *common) executor() (*execute.Executor, func(), error) {
 	sinks := execute.Multi{&execute.JSONL{W: os.Stderr}}
 	closer := func() {}
 	var closers []func()
+	var chain *execute.Chain
 	if c.auditFile != "" {
 		prev, err := execute.LastHash(c.auditFile)
 		if err != nil {
@@ -131,7 +132,8 @@ func (c *common) executor() (*execute.Executor, func(), error) {
 		if err != nil {
 			return nil, nil, err
 		}
-		sinks = append(sinks, execute.NewChain(f, prev))
+		chain = execute.NewChain(f, prev)
+		sinks = append(sinks, chain)
 		closers = append(closers, func() { _ = f.Close() })
 	}
 	if c.auditURL != "" {
@@ -147,7 +149,11 @@ func (c *common) executor() (*execute.Executor, func(), error) {
 			tok = strings.TrimSpace(string(b))
 		}
 		hs := execute.NewHTTPSink(c.auditURL, tok, nil)
-		sinks = append(sinks, hs)
+		if chain != nil {
+			chain.Next = hs // ship the CHAINED events, so the collector's copy verifies like the file (found preparing LAB result 21)
+		} else {
+			sinks = append(sinks, hs) // no local file to continue a chain from: shipped unchained
+		}
 		closers = append([]func(){func() {
 			if err := hs.Close(); err != nil {
 				fmt.Fprintln(os.Stderr, "WARNING:", err)

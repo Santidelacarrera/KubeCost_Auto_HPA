@@ -332,4 +332,19 @@ Evidence: `evidence/2026-11-12-p1-real-cluster.log`. 2026-11-12, the minikube la
 
 * **Defect found here and fixed (commit 2f4051a)**: every real `applied` event failed `audit-verify`. Its details hold the previous resources as a typed map of structs, whose JSON keys follow the struct order; a reader decodes into `map[string]any` and re-encodes them sorted, so the hash could never match. The unit test had used plain integers in the details. The chain now hashes each event in its decoded form, and the test uses the executor's real detail types.
 * Run 1's "one spec update" check was wrong, not the product: a Deployment's `metadata.generation` also increases on annotation writes (the approval and the applied markers), so it went 2 -> 4. Rollouts are now counted as new ReplicaSets: exactly one (`kubectl get rs` in the evidence).
-* Not covered: the operator's applier with a signed `status.approval` (the CLI path ran; the operator path is unit-tested), `--audit-url` against a real collector, `propose --open-pr` against GitHub, the FOCUS adapters on a real export with node rows.
+* Not covered: the operator's applier with a signed `status.approval` (the CLI path ran; the operator path is unit-tested), `--audit-url` against a real collector, `propose --open-pr` against GitHub, the FOCUS adapters on a real export with node rows. The first three: result 21.
+
+## Result 21: the three ninth-pass paths that had only unit tests, run for real: 11/11 on minikube, and two defects found and fixed
+
+Evidence: `evidence/2026-11-12-p1-verify.log` (`hack/lab-p1-verify.sh`, minikube lab) and `evidence/2026-11-12-gitops-open-pr.log` (GitHub). 2026-11-12, operator image and CLI built from this branch.
+
+| Check | Result |
+|---|---|
+| **Operator applier**, policy `requireSignedApproval` with one approver key: an **unsigned** `status.approval` (`approve --cr`) | **Denied**, reason `signed approval required: the approval carries no signature`; the workload untouched |
+| the same with a **signed** approval (`approve --cr --sign-key`) | signature in `status.approval.signature`, **Verified**, requests 500m/128Mi -> 350m/64Mi |
+| **`--audit-url`** to a real HTTP collector (`hack/lab/audit-collector.py`: bearer token, first POST refused with 503) during `approve` and `apply --execute` | all 4 events delivered after the retry; the collector's copy is **byte-for-byte the local chained file**; `audit-verify` passes on it (4 chained, no break); nothing reported undelivered |
+| **`propose --push --open-pr`** against GitHub (this repository, base `claude/bold-carson-5479vm`) | the branch was pushed and the PR opened with the commit's title and body (PRs #44 and #45, both closed on purpose, branches deleted) |
+
+* **Defect 1, found while writing the collector check, fixed**: with `--audit-file` and `--audit-url` together, the collector received the events **without** `prev`/`hash` (the HTTP sink sat next to the chain, not after it), so the shipped copy could not be verified, which defeats the point of shipping it. The chain now forwards each event after chaining it (unit test `TestAuditChainForwardsChainedEvents`); the check above is the verification.
+* **Defect 2, found by the first real `--open-pr` (PR #44), fixed**: the change re-encoded the whole file, which re-indented every list and also rewrote the other Deployment in the same file, so a reviewer saw a 30-line diff for a 1-line change. Propose now replaces only the changed values in the file text (keeping the file's quoting) and checks that the result parses to the edited tree; it re-encodes only when a key must be added. PR #45, from the fixed binary, is a **one-line diff** (unit test `TestProposeChangesOnlyTheChangedLines`).
+* Not covered: the operator's `--audit-url` (https only; needs a collector with a certificate the operator trusts), a WORM / object-lock bucket behind the collector, a signed approval forged by editing `status.approval` on the cluster (unit-tested).

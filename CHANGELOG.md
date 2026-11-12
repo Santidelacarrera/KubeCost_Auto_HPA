@@ -11,9 +11,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 - **GitOps**: `rightsize propose --format helm-values|kustomize`, combined records, `--push` and `--open-pr` (gh), both off by default.
 - **Signed approvals**: `rightsize keygen`, `approve --sign-key` (annotation and `--cr`), policy `requireSignedApproval` + `approverKeys`; CRD `status.approval.signature`.
 - **Audit**: `--audit-file` is hash-chained and resumes across runs; `rightsize audit-verify`; `--audit-url` ships events to an append-only collector.
+- `hack/lab-p1-verify.sh` and `hack/lab/audit-collector.py`: the operator with signed approvals, and `--audit-url` against a real collector (result 21).
 - `hack/aks-costsource.sh` (Kubecost with custom pricing next to OpenCost on AKS, docs/LAB.md result 18); `hack/lab-synthetic-users.sh` and `hack/lab/synthetic-users.yaml` (a compressed week of simulated shoppers, result 19); `hack/aks-validate.sh` sets `CA_PROFILE` (result 17).
 
 ### Fixed (ninth pass)
+- **`--audit-url` shipped unchained events** next to a chained `--audit-file`, so the collector's copy could not be verified; it now ships the chained events (docs/LAB.md result 21).
+- **`rightsize propose` re-encoded the whole file**, re-indenting every list and rewriting other documents; it now replaces only the changed values in the text (one-line diff on a real PR, result 21).
 - **The cost client asked for `window=1h`, which Kubecost and OpenCost read as the current clock hour**: the operator refused cost data during the first half of every hour (coverage below 50%). It now asks for whole minutes (`60m`); found on AKS with OpenCost and verified live (docs/LAB.md result 18).
 - `hack/aks-validate.sh`: AKS's autoscaler default `skip-nodes-with-system-pods=true` kept every node holding a kube-system pod, so no node saving could ever be measured there (result 14); the script now sets the profile explicitly (result 17).
 - `hack/lab-synthetic-users.sh` asked for the production 24 h minimum history on a 7 h compressed week, so the recommender (correctly) abstained; the minimum is now one simulated day.

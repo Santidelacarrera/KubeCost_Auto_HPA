@@ -71,6 +71,9 @@ at the start). A file can still be truncated at its end or replaced whole by who
 `--audit-url https://collector/... [--audit-token-file t]` POSTs each event as JSON to an append-only collector (a log store, or a writer to a WORM / object-lock bucket). The sender never
 blocks the command, retries each event, and reports at exit how many it could not deliver. The operator's applier does the same with `--audit-url` / `--audit-token-file`
 (chart: `operator.recommendationApplier.auditURL` and `auditTokenSecret: {name, key}`; https only), in addition to the Kubernetes Events it always writes.
+With both `--audit-file` and `--audit-url`, the CLI ships the events **after chaining them** (with `prev` and `hash`), so the collector's copy is the same file and `audit-verify` runs on it
+too (verified against a real collector, docs/LAB.md result 21). With `--audit-url` alone there is no local file to continue a chain from, so events are shipped unchained. The operator
+ships unchained events (its trail is the Kubernetes Events and the object status).
 
 
 ## Signed approvals (optional, `requireSignedApproval`)
