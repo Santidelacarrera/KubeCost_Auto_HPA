@@ -12,7 +12,7 @@ var now = time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC) // a Monday
 
 func rec() recommend.Recommendation {
 	return recommend.Recommendation{
-		ID: "abc", Namespace: "shop", Workload: "api", Kind: "Deployment", Container: "app", Confidence: recommend.ConfHigh,
+		ID: "abc", Namespace: "shop", Workload: "api", Kind: "Deployment", Container: "app", Confidence: recommend.ConfHigh, GeneratedAt: now,
 		CPU:    recommend.ResourceResult{Action: recommend.Decrease, Current: 2, Recommended: 1},
 		Memory: recommend.ResourceResult{Action: recommend.NoChange, Current: 1 << 30, Recommended: 1 << 30},
 	}
@@ -141,10 +141,12 @@ func TestMaintenanceWindows(t *testing.T) {
 	// wraps midnight: Sunday 22:00-02:00 covers Monday 01:00
 	p.Windows = []Window{{Days: []string{"Sun"}, Start: "22:00", End: "02:00"}}
 	at := time.Date(2026, 11, 9, 1, 0, 0, 0, time.UTC)
-	if d := Evaluate(p, rec(), facts(), at, nil); !d.Allowed {
+	early := rec()
+	early.GeneratedAt = at.Add(-time.Hour)
+	if d := Evaluate(p, early, facts(), at, nil); !d.Allowed {
 		t.Fatalf("%+v", d)
 	}
-	if d := Evaluate(p, rec(), facts(), at.Add(2*time.Hour), nil); d.Allowed {
+	if d := Evaluate(p, early, facts(), at.Add(2*time.Hour), nil); d.Allowed {
 		t.Fatal("03:00 is outside the wrapped window")
 	}
 }
@@ -226,7 +228,7 @@ func TestApproversAllowList(t *testing.T) {
 // A multi-container record is allowed only if every container it changes is allowed; an unchanged sidecar is not judged.
 func TestMultiContainerEvaluationJudgesEveryChangedContainer(t *testing.T) {
 	base := func() recommend.Recommendation {
-		return recommend.Recommendation{ID: "m1", Namespace: "shop", Workload: "api", Kind: "Deployment", Container: "app", Confidence: recommend.ConfHigh,
+		return recommend.Recommendation{ID: "m1", Namespace: "shop", Workload: "api", Kind: "Deployment", Container: "app", Confidence: recommend.ConfHigh, GeneratedAt: now,
 			CPU: recommend.ResourceResult{Action: recommend.Decrease, Current: 1, Recommended: 0.8}}
 	}
 	f := Facts{Known: true, Namespace: "shop", Kind: "Deployment", Name: "api", Approved: "m1", ApprovedBy: "alice"}
@@ -260,10 +262,37 @@ func TestSignedApprovalPolicyNeedsTrustedKeysThatMatchTheirIDs(t *testing.T) {
 		t.Fatal("an unparsable key must be invalid")
 	}
 	unsigned := Facts{Known: true, Namespace: "shop", Kind: "Deployment", Name: "api", Approved: "m1", ApprovedBy: "alice"}
-	r := recommend.Recommendation{ID: "m1", Namespace: "shop", Workload: "api", Kind: "Deployment", Container: "app", Confidence: recommend.ConfHigh,
+	r := recommend.Recommendation{ID: "m1", Namespace: "shop", Workload: "api", Kind: "Deployment", Container: "app", Confidence: recommend.ConfHigh, GeneratedAt: now,
 		CPU: recommend.ResourceResult{Action: recommend.Decrease, Current: 1, Recommended: 0.8}}
 	p := Policy{AllowNamespaces: []string{"shop"}, RequireSignedApproval: true, ApproverKeys: map[string]string{"x": "y"}}
 	if d := Evaluate(p, r, unsigned, time.Now(), nil); d.Allowed || !d.NeedsApproval {
 		t.Fatalf("an unsigned approval must not satisfy requireSignedApproval: %+v", d)
+	}
+}
+
+// An old recommendation is refused even when approved: the load it was computed from may no longer hold (2026-11-12 review).
+func TestRecommendationAgeIsLimited(t *testing.T) {
+	p := allow()
+	old := rec()
+	old.GeneratedAt = now.Add(-8 * 24 * time.Hour)
+	mustDeny(t, "older than the default 7 days", eval(p, old, facts()), "maxRecommendationAge")
+	p.MaxRecommendationAge = "240h"
+	if d := eval(p, old, facts()); !d.Allowed {
+		t.Fatalf("a longer limit must allow it: %+v", d)
+	}
+	p.MaxRecommendationAge = "0s"
+	if d := eval(p, old, facts()); !d.Allowed {
+		t.Fatalf("0s disables the check: %+v", d)
+	}
+	p.MaxRecommendationAge = ""
+	none := rec()
+	none.GeneratedAt = time.Time{}
+	mustDeny(t, "no generation time", eval(p, none, facts()), "no generation time")
+	future := rec()
+	future.GeneratedAt = now.Add(time.Hour)
+	mustDeny(t, "future", eval(p, future, facts()), "in the future")
+	p.MaxRecommendationAge = "soon"
+	if err := p.Validate(); err == nil {
+		t.Fatal("a bad duration must be refused")
 	}
 }

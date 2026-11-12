@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -88,7 +89,8 @@ func Propose(o Options) (Result, error) {
 	}
 	inside := func(rel string) (string, error) {
 		path := filepath.Join(o.RepoDir, rel)
-		if rr, err := filepath.Rel(o.RepoDir, path); err != nil || strings.HasPrefix(rr, "..") || rel == "" {
+		rr, err := filepath.Rel(o.RepoDir, path)
+		if err != nil || rr == ".." || strings.HasPrefix(rr, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) || rel == "" {
 			return "", errors.New("the file path must stay inside the repository")
 		}
 		return path, nil
@@ -138,6 +140,9 @@ func Propose(o Options) (Result, error) {
 		} else {
 			res.Notes = append(res.Notes, "no base manifest given: the current values were not checked against the repository (pass the base file to refuse stale recommendations)")
 		}
+		if !dns1123.MatchString(r.Workload) || !dns1123.MatchString(strings.ToLower(r.Kind)) {
+			return res, fmt.Errorf("workload %q / kind %q is not a Kubernetes name: refusing to derive a file name from it", r.Workload, r.Kind)
+		}
 		patchRel := filepath.ToSlash(filepath.Join(filepath.Dir(o.File), patchName(r)))
 		prior, _ := read(patchRel) // our own earlier patch, if any
 		patch, kout, err := kustomizePatch(r, base, prior, kraw, patchName(r))
@@ -178,7 +183,12 @@ func Propose(o Options) (Result, error) {
 	}
 	restore := func() { _, _ = g.out("checkout", orig) }
 	for _, f := range files {
-		if err := os.WriteFile(filepath.Join(o.RepoDir, f), edits[f], 0o644); err != nil {
+		path, err := inside(f) // every path written, the derived kustomize patch included, must stay inside the repository
+		if err != nil {
+			restore()
+			return res, err
+		}
+		if err := os.WriteFile(path, edits[f], 0o644); err != nil {
 			restore()
 			return res, err
 		}
@@ -223,6 +233,9 @@ func Propose(o Options) (Result, error) {
 	}
 	return res, nil
 }
+
+// dns1123 is a Kubernetes object name (RFC 1123 label/subdomain): no "/", "..", or path separators.
+var dns1123 = regexp.MustCompile(`^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$`)
 
 // message is the commit message and the pull request text: what changes, by how much, how sure, and what it is not.
 func message(r recommend.Recommendation) (string, string) {

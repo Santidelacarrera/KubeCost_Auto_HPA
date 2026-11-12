@@ -7,6 +7,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 ### Added (eleventh pass: weekday coverage)
 - A window of 7 days or more no longer counts as "weekly seasonality observed" when its data misses most of a day of the week: `recommend.MissingWeekdays` checks, per day of the week (UTC), that at least half of the window's hours have a CPU sample. Otherwise it adds a risk naming the days and High confidence drops to Medium. The Prometheus source now keeps each CPU sample's timestamp (`Input.CPUTimes`). Without timestamps (other sources), only the existing window-length caveat applies. Run on the real GKE soak history: docs/LAB.md result 24.
 
+### Security (eleventh pass: review of 2026-11-12)
+- **`rightsize propose --format kustomize`** derived the patch file name from the recommendation's workload, ignored a read error on it and wrote it without re-checking the path. A tampered record with the workload `../../x` could write outside the repository. Every written path is now checked, and the workload and kind must be Kubernetes names. Regression test fails without the fix.
+- **Policy `maxRecommendationAge`** (default `168h`): an approved recommendation older than this, or with no or a future generation time, is refused. Before, an approval stayed usable forever.
+- **Signed approvals** refuse fields with line breaks: the payload is newline-joined, so one signature could otherwise verify for another split of approver and time.
+- **`tools/audit-collector`** refuses to serve without a token except on localhost. It is now built, vetted and scanned (`govulncheck`) in CI, which it was not.
+
+### Changed (eleventh pass)
+- **`HTTPSink`** retries each event in order for up to 60 s (backoff 0.25 s to 5 s) instead of 4 attempts over about 3.5 s, and 4 s per event after `Close`. It reports each loss through `OnDrop` and counts `Dropped`/`Delivered`. The operator logs each loss and exports `kubecost_audit_events_not_delivered_total` and `kubecost_audit_events_delivered_total`; the CLI warns. Measured: docs/LAB.md result 25 (a 15 s collector outage lost 4 events before, 0 after).
+- `hack/lab-audit-load.sh` and `operator/tools/auditload`: load test of the audit path.
+
 ### Fixed (eleventh pass)
 - `hack/gke-soak.sh report` passed `--window 7d` to `backtest`, which Go durations reject: the day-7 backtest would have failed. Now `168h`; the report also runs a 7-day `plan` and records the weekday coverage.
 

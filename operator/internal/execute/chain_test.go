@@ -3,14 +3,17 @@ package execute
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"encoding/pem"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -193,5 +196,63 @@ func TestAuditHTTPClientTrustsOnlyTheGivenCA(t *testing.T) {
 	_ = os.WriteFile(bad, []byte("not a cert"), 0o600)
 	if _, err := AuditHTTPClient(bad); err == nil {
 		t.Fatal("a file without a PEM certificate must be refused")
+	}
+}
+
+// A collector outage shorter than MaxRetry delays events instead of losing them, and keeps their order (docs/LAB.md result 25 found
+// that the earlier fixed 4 attempts lost events in a 15 s outage). Past the budget, each loss is reported through OnDrop at once.
+func TestHTTPSinkRidesOutAnOutageInOrder(t *testing.T) {
+	var up atomic.Bool
+	var mu sync.Mutex
+	var order []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !up.Load() {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		var e Event
+		_ = json.NewDecoder(r.Body).Decode(&e)
+		mu.Lock()
+		order = append(order, e.Type)
+		mu.Unlock()
+	}))
+	defer srv.Close()
+	s := NewHTTPSink(srv.URL, "", srv.Client())
+	var slept time.Duration
+	s.sleep = func(d time.Duration) { // virtual time: the collector comes back after 20 s of backoff
+		slept += d
+		if slept >= 20*time.Second {
+			up.Store(true)
+		}
+	}
+	var drops atomic.Int32
+	s.OnDrop = func(string) { drops.Add(1) }
+	for _, ty := range []string{"a", "b", "c"} {
+		s.Record(Event{Time: t0, Type: ty})
+	}
+	for s.Delivered() < 3 && drops.Load() == 0 {
+		time.Sleep(10 * time.Millisecond)
+	}
+	err := s.Close()
+	mu.Lock()
+	got := strings.Join(order, "")
+	mu.Unlock()
+	if err != nil || got != "abc" || drops.Load() != 0 {
+		t.Fatalf("err=%v order=%v drops=%d", err, order, drops.Load())
+	}
+
+	down := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusBadGateway) }))
+	defer down.Close()
+	d := NewHTTPSink(down.URL, "", down.Client())
+	d.sleep = func(time.Duration) {}
+	d.MaxRetry = time.Millisecond
+	var reasons []string
+	d.OnDrop = func(r string) { mu.Lock(); reasons = append(reasons, r); mu.Unlock() }
+	d.Record(Event{Time: t0, Type: "x"})
+	_ = d.Close() // waits for the sender, so OnDrop has run
+	mu.Lock()
+	defer mu.Unlock()
+	if d.Dropped() != 1 || d.Delivered() != 0 || len(reasons) != 1 || !strings.Contains(reasons[0], "retry budget") {
+		t.Fatalf("dropped=%d delivered=%d reasons=%v", d.Dropped(), d.Delivered(), reasons)
 	}
 }

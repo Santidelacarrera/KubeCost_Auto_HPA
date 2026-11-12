@@ -154,6 +154,9 @@ func (c *common) executor() (*execute.Executor, func(), error) {
 			return nil, nil, fmt.Errorf("--audit-ca-file: %w", err)
 		}
 		hs := execute.NewHTTPSink(c.auditURL, tok, hc)
+		hs.OnDrop = func(reason string) {
+			fmt.Fprintln(os.Stderr, "warning: an audit event was NOT delivered to --audit-url:", reason)
+		}
 		if chain != nil {
 			chain.Next = hs // ship the CHAINED events, so the collector's copy verifies like the file (found preparing LAB result 21)
 		} else {

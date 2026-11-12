@@ -69,8 +69,8 @@ Since the ninth pass `--audit-file` is **hash-chained**: each event carries `pre
 chain of the existing file. `rightsize audit-verify --audit-file f` reports the first line that was edited, deleted, reordered or inserted (lines written before chaining are accepted only
 at the start). A file can still be truncated at its end or replaced whole by whoever can write it, so for an audit trail that must hold up, also ship the events off the machine:
 `--audit-url https://collector/... [--audit-token-file t]` POSTs each event as JSON to an append-only collector (a log store, or a writer to a WORM / object-lock bucket). The sender never
-blocks the command, retries each event, and reports at exit how many it could not deliver. The operator's applier does the same with `--audit-url` / `--audit-token-file`
-(chart: `operator.recommendationApplier.auditURL` and `auditTokenSecret: {name, key}`; https only), in addition to the Kubernetes Events it always writes.
+blocks the command and delivers events in order. Each failed event is retried with backoff for up to 60 s, so a collector outage under a minute delays events instead of losing them. After the command ends, the remaining events get 4 s each. Each event it cannot deliver is reported at once and counted at exit. The queue holds 1024 events; a larger burst loses the excess, and the sender reports that loss too (docs/LAB.md result 25). The operator's applier does the same with `--audit-url` / `--audit-token-file`
+(chart: `operator.recommendationApplier.auditURL` and `auditTokenSecret: {name, key}`; https only), in addition to the Kubernetes Events it always writes. It logs every event it could not deliver, and exports `kubecost_audit_events_not_delivered_total` and `kubecost_audit_events_delivered_total`: alert on the first.
 With both `--audit-file` and `--audit-url`, the CLI ships the events **after chaining them** (with `prev` and `hash`), so the collector's copy is the same file and `audit-verify` runs on it
 too (verified against a real collector, docs/LAB.md result 21). With `--audit-url` alone there is no local file to continue a chain from, so events are shipped unchained. The operator
 ships unchained events (its trail is the Kubernetes Events and the object status).
@@ -78,12 +78,16 @@ ships unchained events (its trail is the Kubernetes Events and the object status
 **A collector with a private CA** (for example one inside the cluster): pass its PEM CA bundle with `--audit-ca-file` (CLI and operator) or the chart's
 `operator.recommendationApplier.auditCASecret: {name, key}`; it is trusted in addition to the system roots, and TLS verification is never turned off.
 
-**Reference collector with WORM storage**: `tools/audit-collector` (its own Go module and image) accepts the POSTs over HTTPS with a bearer token and writes **each event as one
+**Reference collector with WORM storage**: `tools/audit-collector` (its own Go module and image) accepts the POSTs over HTTPS with a bearer token (required unless it listens on localhost only) and writes **each event as one
 object in an S3 bucket with Object Lock** (COMPLIANCE by default, `--retain 24h` or longer), answering 2xx only once the object is stored. Until the retention ends no credential,
 the collector's own and the store's root included, can delete or overwrite that object version. It refuses a bucket without Object Lock. `audit-collector dump` reads the events
 back in arrival order (for `rightsize audit-verify`), `probe-delete` checks that the store refuses a delete. Works with any S3 API that implements Object Lock (AWS S3,
 MinIO, ...). Verified on the lab with MinIO: docs/LAB.md result 23.
 
+
+## Recommendation age (`maxRecommendationAge`, default 7 days)
+
+The policy refuses a recommendation generated longer ago than `maxRecommendationAge` (a Go duration, default `168h`; `0s` disables the check). It also refuses one with no generation time, or with a time in the future. The executor already refuses a recommendation computed for other live values (stale values). This check adds the other half: the load behind an approved recommendation may have changed even when the requests have not, and before it, an approval (signed or not) stayed usable forever.
 
 ## Signed approvals (optional, `requireSignedApproval`)
 
@@ -92,7 +96,7 @@ MinIO, ...). Verified on the lab with MinIO: docs/LAB.md result 23.
 the approver's username (from SelfSubjectReview) and the approval time, and stores `<keyID>:<signature>` in `autoscaling.kubecost.io/approval-signature` (or `status.approval.signature`).
 
 With `requireSignedApproval: true` and `approverKeys: {<keyID>: <public key, PEM or base64>}` in the policy, an approval counts only if its signature verifies with a listed key.
-Refused: an unsigned approval, an unknown key, a key whose ID does not match its map entry, a forged `approved-by` or `approved-at`, and an approval of another record that reuses the ID.
+Refused: a field holding a line break (the payload is newline-joined), an unsigned approval, an unknown key, a key whose ID does not match its map entry, a forged `approved-by` or `approved-at`, and an approval of another record that reuses the ID.
 For a combined (multi-container) record the signature covers the whole record. Verified: unit tests and an end-to-end test on the fake clientset (`internal/approval`, `internal/execute/chain_test.go`);
 see docs/LAB.md for the run on a real cluster.
 
