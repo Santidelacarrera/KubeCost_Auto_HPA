@@ -138,15 +138,15 @@ spec:
       annotations: {prometheus.io/scrape: "true", prometheus.io/port: "8080", prometheus.io/path: /metrics}
     spec:
       containers:
-      - name: app
-        image: python:3.12-alpine
-        command: ["python", "-u", "/code/store.py"]
-        ports: [{containerPort: 8080}]
-        readinessProbe: {httpGet: {path: /healthz, port: 8080}, periodSeconds: 5}
-        volumeMounts: [{name: code, mountPath: /code}]
-        resources:
-          requests: {cpu: "1", memory: 256Mi}
-          limits: {cpu: "1", memory: 512Mi}
+        - name: app
+          image: python:3.12-alpine
+          command: ["python", "-u", "/code/store.py"]
+          ports: [{containerPort: 8080}]
+          readinessProbe: {httpGet: {path: /healthz, port: 8080}, periodSeconds: 5}
+          volumeMounts: [{name: code, mountPath: /code}]
+          resources:
+            requests: {cpu: "500m", memory: "128Mi"}
+            limits: {cpu: "1", memory: "512Mi"}
       volumes: [{name: code, configMap: {name: store-code}}]
 ---
 apiVersion: v1
@@ -164,13 +164,13 @@ spec:
     metadata: {labels: {app: users}}
     spec:
       containers:
-      - name: users
-        image: python:3.12-alpine
-        command: ["python", "-u", "/code/users.py"]
-        env:
-        - {name: PERIOD_MIN, value: "60"}
-        - {name: BASE_USERS, value: "4"}
-        - {name: PEAK_USERS, value: "40"}
-        volumeMounts: [{name: code, mountPath: /code}]
-        resources: {requests: {cpu: 200m, memory: 128Mi}}
+        - name: users
+          image: python:3.12-alpine
+          command: ["python", "-u", "/code/users.py"]
+          env:
+            - {name: PERIOD_MIN, value: "60"}
+            - {name: BASE_USERS, value: "4"}
+            - {name: PEAK_USERS, value: "40"}
+          volumeMounts: [{name: code, mountPath: /code}]
+          resources: {requests: {cpu: 200m, memory: 128Mi}}
       volumes: [{name: code, configMap: {name: store-code}}]
