@@ -404,3 +404,35 @@ Before this check, a window of exactly 7 days raised no seasonality caveat, what
 
 * **A defect found in the day-7 script**: `hack/gke-soak.sh report` passed `--window 7d` to `backtest`. Go durations have no `d` unit, so the day-7 backtest would have failed. It now passes `168h`.
 * **What this does not prove**: that the threshold, half of a weekday's hours, is the right one, or that a full week of real traffic has no weekday effect. The day-7 report on 2026-11-17 runs the same plan on a complete week.
+
+## Result 25: the audit path under load and through collector outages (`hack/lab-audit-load.sh`, localhost)
+
+Evidence: `evidence/2026-11-12-audit-load.log`. The path tested:
+
+* the real sender, `execute.Chain` + `HTTPSink` (driven by `operator/tools/auditload`);
+* the reference collector, `tools/audit-collector`, with HTTPS, a bearer token and a private CA;
+* MinIO built from the pinned source, with Object Lock in COMPLIANCE mode.
+
+Everything ran on one Windows laptop. For each scenario, the bucket's copy was read back and checked with `rightsize audit-verify`.
+
+| scenario | before (4 attempts, about 3.5 s) | after (in-order retry, up to 60 s) |
+|---|---|---|
+| steady 20 events/s for 30 s | 600/600 stored, chain passes | 600/600, passes |
+| burst of 1000 at once | 1000/1000, about 107 events/s | 1000/1000, about 106 events/s |
+| burst of 3000 at once | **1975 lost** (queue of 1024 full), reported by the sender; the bucket's copy still **passed** `audit-verify` (the loss was the tail) | **1973 lost**, reported; this time `audit-verify` found the gap (an event got in after the drops) |
+| collector down 3 s during 10 events/s | 0 lost | 0 lost |
+| collector down 15 s | **4 lost**; `audit-verify` on the bucket found the gap | **0 lost** |
+| collector down 75 s | (not run) | 14 lost: the stream ended at 30 s and `Close` gives each remaining event 4 s; `audit-verify` found the gap |
+| delete a stored event with the store's root credentials | refused (COMPLIANCE) | refused |
+
+**Changed because of this run:**
+
+* **Retries.** `HTTPSink` retries each event in order for up to 60 s (backoff 0.25 s doubling to 5 s) instead of 4 attempts over about 3.5 s. A collector outage shorter than a minute now delays events instead of losing them.
+* **Losses are visible while the operator runs.** It logs each lost event and exports `kubecost_audit_events_not_delivered_total` and `kubecost_audit_events_delivered_total`. Until now, a long-running operator reported losses only at shutdown. The CLI prints a warning for each one.
+* **Token required.** The collector refuses to serve without `--token-file` unless it listens on localhost only: anyone who reached it could otherwise fill the WORM bucket with events that can never be deleted.
+
+**What this does not prove:**
+
+* **The collector's throughput:** about 100 events/s, one collector serialising writes, local MinIO. That is not a figure for a cloud bucket.
+* **High availability:** it still runs as one replica.
+* **Tail loss:** a loss at the very end of a stream leaves a valid prefix. The bucket alone cannot show it; the sender's count, the metric, or a comparison with the local chained file does.

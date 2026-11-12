@@ -2,6 +2,7 @@ package approval
 
 import (
 	"bytes"
+	"crypto/ed25519"
 	"encoding/base64"
 	"strings"
 	"testing"
@@ -83,5 +84,17 @@ func TestPublicKeysParseFromPEMOrRawBase64(t *testing.T) {
 	}
 	if _, err := ParsePrivate(pubPEM); err == nil {
 		t.Fatal("a public key is not a private key")
+	}
+}
+
+// The signed fields are newline-joined: a field holding a line break could make one signature verify for another split of the
+// approver and the time, so signing and verifying refuse it.
+func TestFieldsWithLineBreaksAreRefused(t *testing.T) {
+	_, priv, _ := ed25519.GenerateKey(nil)
+	if _, err := Sign(priv, rec(), "alice\nadmin", "2026-11-12T10:00:00Z"); err == nil {
+		t.Fatal("an approver with a newline must be refused")
+	}
+	if _, err := Sign(priv, rec(), "alice", "2026-11-12\r"); err == nil {
+		t.Fatal("a time with a carriage return must be refused")
 	}
 }

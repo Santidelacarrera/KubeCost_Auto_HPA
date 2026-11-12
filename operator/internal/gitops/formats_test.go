@@ -197,3 +197,24 @@ func TestProposePushesAndOpensAPullRequestOnlyWhenAsked(t *testing.T) {
 		t.Fatalf("by default nothing leaves the machine: %v %+v", err, quiet)
 	}
 }
+
+// A tampered recommendation must not make propose write outside the repository: the kustomize patch name is derived from the
+// workload, so a workload of "../../x" would otherwise escape (found in the 2026-11-12 security review).
+func TestProposeRefusesPathsOutsideTheRepository(t *testing.T) {
+	dir := repo(t, manifestWithSidecarRequests)
+	write(t, dir, "overlays/prod/kustomization.yaml", "resources:\n- ../../k8s\n")
+	commitAll(t, dir)
+	evil := rec()
+	evil.Workload = "../../../../escaped"
+	if _, err := Propose(Options{RepoDir: dir, File: "overlays/prod/kustomization.yaml", Format: FormatKustomize, Rec: evil, Branch: "evil"}); err == nil {
+		t.Fatal("a workload that is not a Kubernetes name must be refused")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "..", "..", "escaped")); err == nil {
+		t.Fatal("a file was written outside the repository")
+	}
+	for _, f := range []string{"../outside.yaml", "k8s/../../outside.yaml"} {
+		if _, err := Propose(Options{RepoDir: dir, File: f, Rec: rec(), Branch: "evil2"}); err == nil || !strings.Contains(err.Error(), "inside the repository") {
+			t.Fatalf("%s: %v", f, err)
+		}
+	}
+}

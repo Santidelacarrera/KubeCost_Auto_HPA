@@ -1,6 +1,6 @@
 // audit-collector is a reference append-only collector for `--audit-url` (the rightsize CLI and the operator's applier).
 //
-//	serve         HTTPS (or plain HTTP on localhost only), bearer token. Each POSTed JSON audit event becomes ONE object in an S3 bucket
+//	serve         HTTPS (or plain HTTP on localhost only), bearer token (required unless on localhost). Each POSTed JSON audit event becomes ONE object in an S3 bucket
 //	              that has Object Lock enabled, written with a retention (COMPLIANCE by default): until it expires, no credential,
 //	              the collector's own included, can overwrite or delete that object version. 2xx is answered only after the object
 //	              is stored, so the sender's retry covers a store outage. The bucket must already have Object Lock (or is created with
@@ -171,13 +171,18 @@ func main() {
 			}
 			tok = strings.TrimSpace(string(b))
 		}
+		local := strings.HasPrefix(*listen, "127.0.0.1:") || strings.HasPrefix(*listen, "localhost:")
+		if tok == "" && !local {
+			// anyone who can reach it could otherwise fill the WORM bucket with events that can never be deleted
+			log.Fatal("--token-file is required unless the collector listens on localhost only")
+		}
 		sv := &server{st: st, token: tok, mode: m, retain: *retain}
 		hs := &http.Server{Addr: *listen, Handler: sv, ReadHeaderTimeout: 10 * time.Second}
 		log.Printf("serving on %s, bucket %s, %s retention %s", *listen, *bucket, m, *retain)
 		if *cert != "" {
 			log.Fatal(hs.ListenAndServeTLS(*cert, *key))
 		}
-		if !strings.HasPrefix(*listen, "127.0.0.1:") && !strings.HasPrefix(*listen, "localhost:") {
+		if !local {
 			log.Fatal("without --tls-cert the collector listens on localhost only")
 		}
 		log.Fatal(hs.ListenAndServe())

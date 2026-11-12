@@ -62,7 +62,7 @@ func pod(name string, ready bool, restarts int32, oom bool) *corev1.Pod {
 }
 
 func rec() recommend.Recommendation {
-	return recommend.Recommendation{ID: "rec1", Namespace: "shop", Workload: "api", Kind: "Deployment", Container: "app", Confidence: recommend.ConfHigh,
+	return recommend.Recommendation{ID: "rec1", Namespace: "shop", Workload: "api", Kind: "Deployment", Container: "app", Confidence: recommend.ConfHigh, GeneratedAt: t0,
 		CPU:    recommend.ResourceResult{Action: recommend.Decrease, Current: 2, Recommended: 1, Limit: 4},
 		Memory: recommend.ResourceResult{Action: recommend.Decrease, Current: 2 << 30, Recommended: 1 << 30, Limit: 2 << 30}}
 }

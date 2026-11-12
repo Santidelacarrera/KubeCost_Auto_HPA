@@ -60,6 +60,10 @@ type Policy struct {
 	// target, the approver's username and the time, so a forged or replayed annotation is refused (internal/approval).
 	RequireSignedApproval bool              `json:"requireSignedApproval,omitempty"`
 	ApproverKeys          map[string]string `json:"approverKeys,omitempty"`
+	// MaxRecommendationAge refuses a recommendation generated longer ago than this (Go duration; default "168h", 7 days). The load
+	// it was computed from may no longer hold, and an approval (signed or not) of an old record would otherwise stay usable forever.
+	// "0s" disables the check.
+	MaxRecommendationAge string `json:"maxRecommendationAge,omitempty"`
 	// AllowGitOps lets the apply proceed on a workload managed by Argo CD / Flux. Default false.
 	AllowGitOps bool `json:"allowGitOps,omitempty"`
 	// AllowCPUWithHPA lets a CPU request change proceed when an HPA scales on CPU utilisation. Default false.
@@ -97,6 +101,17 @@ type Decision struct {
 
 func (p Policy) approval() bool { return p.RequireApproval == nil || *p.RequireApproval }
 
+func (p Policy) maxAge() time.Duration {
+	if p.MaxRecommendationAge == "" {
+		return 7 * 24 * time.Hour
+	}
+	d, err := time.ParseDuration(p.MaxRecommendationAge)
+	if err != nil || d < 0 {
+		return 0 // Validate reports it; evaluateOne then denies on the invalid policy
+	}
+	return d
+}
+
 func (p Policy) maxFrac() float64 {
 	if p.MaxChangeFraction <= 0 {
 		return 0.5
@@ -111,6 +126,11 @@ func (p Policy) Validate() error {
 	}
 	if p.MinCPU < 0 || p.MinMem < 0 || p.MaxCPU < 0 || p.MaxMem < 0 || (p.MaxCPU > 0 && p.MinCPU > p.MaxCPU) || (p.MaxMem > 0 && p.MinMem > p.MaxMem) {
 		return fmt.Errorf("invalid min/max bounds")
+	}
+	if p.MaxRecommendationAge != "" {
+		if d, err := time.ParseDuration(p.MaxRecommendationAge); err != nil || d < 0 {
+			return fmt.Errorf("maxRecommendationAge %q is not a non-negative Go duration (e.g. 72h)", p.MaxRecommendationAge)
+		}
 	}
 	if p.RequireSignedApproval && len(p.ApproverKeys) == 0 {
 		return fmt.Errorf("requireSignedApproval needs at least one entry in approverKeys")
@@ -289,6 +309,16 @@ func evaluateOne(p Policy, rec recommend.Recommendation, f Facts, now time.Time,
 	changes := rec.CPU.Action == recommend.Increase || rec.CPU.Action == recommend.Decrease || rec.Memory.Action == recommend.Increase || rec.Memory.Action == recommend.Decrease
 	if !changes {
 		d("the recommendation changes nothing")
+	}
+	if age := p.maxAge(); age > 0 {
+		switch {
+		case rec.GeneratedAt.IsZero():
+			d("the recommendation has no generation time: its age (maxRecommendationAge %s) cannot be checked", age)
+		case now.Sub(rec.GeneratedAt) > age:
+			d("the recommendation was generated %s ago, more than maxRecommendationAge %s: compute a new one", now.Sub(rec.GeneratedAt).Round(time.Minute), age)
+		case rec.GeneratedAt.Sub(now) > 5*time.Minute:
+			d("the recommendation's generation time %s is in the future", rec.GeneratedAt.Format(time.RFC3339))
+		}
 	}
 	if f.Namespace != rec.Namespace || f.Name != rec.Workload || f.Kind != rec.Kind {
 		d("facts describe %s/%s/%s but the recommendation is for %s/%s/%s", f.Namespace, f.Kind, f.Name, rec.Namespace, rec.Kind, rec.Workload)

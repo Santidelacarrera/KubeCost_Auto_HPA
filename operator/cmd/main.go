@@ -11,6 +11,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
+
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/dynamic"
@@ -252,6 +255,15 @@ func main() {
 				os.Exit(1)
 			}
 			hs := execute.NewHTTPSink(auditURL, tok, hc)
+			// a long-running operator must not learn of lost audit events only at shutdown: log each, and export both counts
+			hs.OnDrop = func(reason string) {
+				log.Error(nil, "an audit event was NOT delivered to --audit-url", "reason", reason)
+			}
+			ctrlmetrics.Registry.MustRegister(
+				prometheus.NewCounterFunc(prometheus.CounterOpts{Name: "kubecost_audit_events_not_delivered_total",
+					Help: "Audit events given up by the --audit-url sender (queue full or retry budget exhausted)."}, func() float64 { return float64(hs.Dropped()) }),
+				prometheus.NewCounterFunc(prometheus.CounterOpts{Name: "kubecost_audit_events_delivered_total",
+					Help: "Audit events the --audit-url collector accepted."}, func() float64 { return float64(hs.Delivered()) }))
 			extra = hs
 			_ = mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
 				<-ctx.Done()

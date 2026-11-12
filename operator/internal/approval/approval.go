@@ -44,6 +44,13 @@ func Digest(rec recommend.Recommendation) (string, error) {
 
 // Payload is the exact byte string that is signed.
 func Payload(rec recommend.Recommendation, approver, at string) ([]byte, error) {
+	// the fields are joined with newlines: a newline inside one would let the same signature read as another split of
+	// approver and time (found in the 2026-11-12 review), so none may contain one
+	for _, f := range []string{rec.ID, rec.Namespace, rec.Kind, rec.Workload, approver, at} {
+		if strings.ContainsAny(f, "\r\n") {
+			return nil, errors.New("an approval field contains a line break")
+		}
+	}
 	d, err := Digest(rec)
 	if err != nil {
 		return nil, err
