@@ -88,7 +88,7 @@ func planCmd(args []string, out io.Writer) error {
 	fs.StringVar(&ns, "namespace", "", "namespace (required).")
 	fs.StringVar(&wl, "workload", "", "workload name (required).")
 	fs.StringVar(&kind, "kind", "Deployment", "Deployment, StatefulSet or DaemonSet.")
-	fs.StringVar(&container, "container", "", "container name (required).")
+	fs.StringVar(&container, "container", "", "container name (required); a comma-separated list makes ONE record for those containers of the pod (the first is the primary), applied in one rollout.")
 	fs.StringVar(&cluster, "cluster", "", "cluster name recorded in the output (default: the context).")
 	fs.StringVar(&slo, "slo-breach-query", "", "optional instant PromQL that is > 0 while the SLO is breached.")
 	fs.StringVar(&now, "now", "", "evaluation time, RFC3339 (default now).")
@@ -137,14 +137,26 @@ func planCmd(args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	in, err := (&promsrc.Client{BaseURL: promURL, HTTP: hc}).Collect(ctx,
-		promsrc.Target{Cluster: cluster, Namespace: ns, Workload: wl, Kind: kind, Container: container, SLOBreachQuery: slo}, window, step, at)
-	if err != nil {
-		return err
+	var recs []recommend.Recommendation
+	for _, cn := range strings.Split(container, ",") {
+		cn = strings.TrimSpace(cn)
+		if cn == "" {
+			return fmt.Errorf("--container has an empty name")
+		}
+		in, err := (&promsrc.Client{BaseURL: promURL, HTTP: hc}).Collect(ctx,
+			promsrc.Target{Cluster: cluster, Namespace: ns, Workload: wl, Kind: kind, Container: cn, SLOBreachQuery: slo}, window, step, at)
+		if err != nil {
+			return fmt.Errorf("container %s: %w", cn, err)
+		}
+		in.HPAOnCPU, in.VPAAuto = facts.HPAOnCPU, facts.VPAAuto
+		in.Excluded = strings.EqualFold(facts.Labels[LabelExclude], "true")
+		r, err := recommend.Recommend(in, cfg)
+		if err != nil {
+			return fmt.Errorf("container %s: %w", cn, err)
+		}
+		recs = append(recs, r)
 	}
-	in.HPAOnCPU, in.VPAAuto = facts.HPAOnCPU, facts.VPAAuto
-	in.Excluded = strings.EqualFold(facts.Labels[LabelExclude], "true")
-	rec, err := recommend.Recommend(in, cfg)
+	rec, err := recommend.Combine(recs...)
 	if err != nil {
 		return err
 	}
@@ -310,7 +322,7 @@ func backtestCmd(args []string, out io.Writer) error {
 	fs.StringVar(&ns, "namespace", "", "namespace (required).")
 	fs.StringVar(&wl, "workload", "", "workload name (required).")
 	fs.StringVar(&kind, "kind", "Deployment", "Deployment, StatefulSet or DaemonSet.")
-	fs.StringVar(&container, "container", "", "container name (required).")
+	fs.StringVar(&container, "container", "", "container name (required); a comma-separated list makes ONE record for those containers of the pod (the first is the primary), applied in one rollout.")
 	fs.StringVar(&now, "now", "", "evaluation time, RFC3339 (default now).")
 	fs.DurationVar(&window, "window", 14*24*time.Hour, "total history to use.")
 	fs.DurationVar(&holdout, "holdout", 24*time.Hour, "the most recent part kept unseen as the test period.")

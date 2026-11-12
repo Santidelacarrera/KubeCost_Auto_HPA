@@ -162,7 +162,8 @@ func (r *RecommendationApplier) afterWatch(ctx context.Context, cr *v1alpha1.Wor
 		started = cr.Status.AppliedAt.Time
 	}
 	v, err := ex.WatchAndRollback(ctx, rec, th)
-	saving := rec.CPU.PotentialMonthlyUSD + rec.Memory.PotentialMonthlyUSD
+	cpuUSD, memUSD := rec.PotentialMonthlyUSD()
+	saving := cpuUSD + memUSD
 	if ctx.Err() == nil {
 		mRecApplySeconds.Observe(r.now().Sub(started).Seconds())
 		switch {

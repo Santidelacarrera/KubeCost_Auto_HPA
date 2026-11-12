@@ -96,13 +96,15 @@ func Totals(items []v1alpha1.WorkloadRecommendation) OutcomeTotals {
 			t.UnreadableVerifiedRecords++
 			continue
 		}
-		if rec.CPU.Action == recommend.Decrease && rec.CPU.Current > rec.CPU.Recommended {
-			t.CPUCores += rec.CPU.Current - rec.CPU.Recommended
-			t.EstUSD += rec.CPU.PotentialMonthlyUSD
-		}
-		if rec.Memory.Action == recommend.Decrease && rec.Memory.Current > rec.Memory.Recommended {
-			t.MemBytes += rec.Memory.Current - rec.Memory.Recommended
-			t.EstUSD += rec.Memory.PotentialMonthlyUSD
+		for _, v := range rec.Views() {
+			if v.CPU.Action == recommend.Decrease && v.CPU.Current > v.CPU.Recommended {
+				t.CPUCores += v.CPU.Current - v.CPU.Recommended
+				t.EstUSD += v.CPU.PotentialMonthlyUSD
+			}
+			if v.Memory.Action == recommend.Decrease && v.Memory.Current > v.Memory.Recommended {
+				t.MemBytes += v.Memory.Current - v.Memory.Recommended
+				t.EstUSD += v.Memory.PotentialMonthlyUSD
+			}
 		}
 	}
 	applied := t.ByPhase[v1alpha1.RecPhaseApplying] + t.ByPhase[v1alpha1.RecPhaseVerified] + t.ByPhase[v1alpha1.RecPhaseRolledBack] + t.ByPhase[v1alpha1.RecPhaseFailed]

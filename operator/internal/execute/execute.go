@@ -392,13 +392,19 @@ func (e *Executor) Apply(ctx context.Context, rec recommend.Recommendation, pol 
 		if w.onDelete {
 			deny("the update strategy is OnDelete: a template change would not replace the pods, so the change would never roll out")
 		}
-		// a recommendation made for other values than the live ones is stale
-		if c := findContainer(w.tmpl, rec.Container); c == nil {
-			deny(fmt.Sprintf("container %q not found", rec.Container))
-		} else if why := stale(*c, rec); why != "" {
-			deny(why)
-		} else if why := limitLowered(*c, rec); why != "" {
-			deny(why)
+		// a recommendation made for other values than the live ones is stale; every container of a combined record is checked
+		for _, v := range rec.Views() {
+			pre := ""
+			if v.Container != rec.Container {
+				pre = "container " + v.Container + ": "
+			}
+			if c := findContainer(w.tmpl, v.Container); c == nil {
+				deny(fmt.Sprintf("container %q not found", v.Container))
+			} else if why := stale(*c, v); why != "" {
+				deny(pre + why)
+			} else if why := limitLowered(*c, v); why != "" {
+				deny(pre + why)
+			}
 		}
 	}
 	e.record("decision", rec, map[string]any{"allowed": res.Decision.Allowed, "reasons": res.Decision.Reasons, "execute": execute})
@@ -429,15 +435,22 @@ func (e *Executor) Apply(ctx context.Context, rec recommend.Recommendation, pol 
 		for _, c := range cur.tmpl.Spec.Containers {
 			prev.Containers[c.Name] = capture(c)
 		}
-		c := findContainer(cur.tmpl, rec.Container)
-		if c == nil {
-			return res, fmt.Errorf("container %q disappeared", rec.Container)
-		}
-		if why := stale(*c, rec); why != "" {
-			return res, fmt.Errorf("%s (nothing was changed)", why)
-		}
-		if err := applyRec(c, rec); err != nil {
-			return res, err
+		// all containers of the record are changed in this ONE update: one rollout, and one Previous to roll back to
+		for _, v := range rec.Views() {
+			c := findContainer(cur.tmpl, v.Container)
+			if c == nil {
+				return res, fmt.Errorf("container %q disappeared (nothing was changed)", v.Container)
+			}
+			if why := stale(*c, v); why != "" {
+				pre := ""
+				if v.Container != rec.Container {
+					pre = "container " + v.Container + ": "
+				}
+				return res, fmt.Errorf("%s%s (nothing was changed)", pre, why)
+			}
+			if err := applyRec(c, v); err != nil {
+				return res, err
+			}
 		}
 		raw, _ := json.Marshal(prev)
 		ann := cur.obj.GetAnnotations()
@@ -460,8 +473,17 @@ func (e *Executor) Apply(ctx context.Context, rec recommend.Recommendation, pol 
 		return res, fmt.Errorf("update %s (nothing was changed): %w", strings.ToLower(rec.Kind), err)
 	}
 	res.Applied, res.Previous = true, &prev
-	e.record("applied", rec, map[string]any{"previous": prev.Containers, "cpu": rec.CPU.Recommended, "memory": rec.Memory.Recommended,
-		"cpuPotentialMonthlyUSD": rec.CPU.PotentialMonthlyUSD, "memoryPotentialMonthlyUSD": rec.Memory.PotentialMonthlyUSD, "approvedBy": facts.ApprovedBy})
+	cpuUSD, memUSD := rec.PotentialMonthlyUSD()
+	details := map[string]any{"previous": prev.Containers, "cpu": rec.CPU.Recommended, "memory": rec.Memory.Recommended,
+		"cpuPotentialMonthlyUSD": cpuUSD, "memoryPotentialMonthlyUSD": memUSD, "approvedBy": facts.ApprovedBy}
+	if len(rec.Additional) > 0 {
+		var names []string
+		for _, v := range rec.Views() {
+			names = append(names, v.Container)
+		}
+		details["containers"] = names
+	}
+	e.record("applied", rec, details)
 	return res, nil
 }
 
@@ -881,8 +903,11 @@ func (e *Executor) Identity(ctx context.Context) (string, error) {
 // Approve records the approval of exactly this recommendation, stamped with the identity the API server reports.
 // It refuses abstentions and recommendations that change nothing, and a recommendation that does not match the live object.
 func (e *Executor) Approve(ctx context.Context, rec recommend.Recommendation) (string, error) {
-	if rec.Abstained || !(rec.CPU.Action == recommend.Increase || rec.CPU.Action == recommend.Decrease ||
-		rec.Memory.Action == recommend.Increase || rec.Memory.Action == recommend.Decrease) {
+	changes := false
+	for _, v := range rec.Views() {
+		changes = changes || v.Changes()
+	}
+	if rec.Abstained || !changes {
 		return "", errors.New("this recommendation changes nothing (or abstained): there is nothing to approve")
 	}
 	who, err := e.Identity(ctx)
@@ -894,12 +919,8 @@ func (e *Executor) Approve(ctx context.Context, rec recommend.Recommendation) (s
 		if err != nil {
 			return err
 		}
-		c := findContainer(w.tmpl, rec.Container)
-		if c == nil {
-			return fmt.Errorf("container %q not found", rec.Container)
-		}
-		if why := stale(*c, rec); why != "" {
-			return errors.New(why)
+		if err := freshIn(w.tmpl, rec); err != nil {
+			return err
 		}
 		ann := w.obj.GetAnnotations()
 		if ann == nil {
@@ -925,12 +946,22 @@ func (e *Executor) Fresh(ctx context.Context, rec recommend.Recommendation) erro
 	if err != nil {
 		return err
 	}
-	c := findContainer(w.tmpl, rec.Container)
-	if c == nil {
-		return fmt.Errorf("container %q not found", rec.Container)
-	}
-	if why := stale(*c, rec); why != "" {
-		return errors.New(why)
+	return freshIn(w.tmpl, rec)
+}
+
+// freshIn checks every container of the record against the live pod template.
+func freshIn(t *corev1.PodTemplateSpec, rec recommend.Recommendation) error {
+	for _, v := range rec.Views() {
+		c := findContainer(t, v.Container)
+		if c == nil {
+			return fmt.Errorf("container %q not found", v.Container)
+		}
+		if why := stale(*c, v); why != "" {
+			if v.Container != rec.Container {
+				why = "container " + v.Container + ": " + why
+			}
+			return errors.New(why)
+		}
 	}
 	return nil
 }

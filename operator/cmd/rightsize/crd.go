@@ -43,9 +43,13 @@ func summaryOf(rec recommend.Recommendation) map[string]any {
 	}
 	cpu := func(v float64) string { return fmt.Sprintf("%.0fm", v*1000) }
 	mem := func(v float64) string { return fmt.Sprintf("%.0fMi", v/(1<<20)) }
+	more := ""
+	if n := len(rec.Additional); n > 0 {
+		more = fmt.Sprintf(" (+%d more container(s), see record)", n)
+	}
 	return map[string]any{
-		"cpu": line(rec.CPU, cpu), "memory": line(rec.Memory, mem), "confidence": string(rec.Confidence),
-		"potentialMonthlyUSD": fmt.Sprintf("%.2f (ESTIMATE)", rec.CPU.PotentialMonthlyUSD+rec.Memory.PotentialMonthlyUSD),
+		"cpu": line(rec.CPU, cpu) + more, "memory": line(rec.Memory, mem) + more, "confidence": string(rec.Confidence),
+		"potentialMonthlyUSD": fmt.Sprintf("%.2f (ESTIMATE)", sumUSD(rec)),
 	}
 }
 
@@ -124,4 +128,9 @@ func approveRecommendation(ctx context.Context, ex *execute.Executor, rec recomm
 		return "", fmt.Errorf("approving through the status subresource: %w", err)
 	}
 	return who, nil
+}
+
+func sumUSD(rec recommend.Recommendation) float64 {
+	c, m := rec.PotentialMonthlyUSD()
+	return c + m
 }

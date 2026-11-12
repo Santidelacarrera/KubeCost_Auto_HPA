@@ -222,3 +222,32 @@ func TestApproversAllowList(t *testing.T) {
 		t.Fatalf("%+v", d)
 	}
 }
+
+// A multi-container record is allowed only if every container it changes is allowed; an unchanged sidecar is not judged.
+func TestMultiContainerEvaluationJudgesEveryChangedContainer(t *testing.T) {
+	base := func() recommend.Recommendation {
+		return recommend.Recommendation{ID: "m1", Namespace: "shop", Workload: "api", Kind: "Deployment", Container: "app", Confidence: recommend.ConfHigh,
+			CPU: recommend.ResourceResult{Action: recommend.Decrease, Current: 1, Recommended: 0.8}}
+	}
+	f := Facts{Known: true, Namespace: "shop", Kind: "Deployment", Name: "api", Approved: "m1", ApprovedBy: "alice"}
+	p := Policy{AllowNamespaces: []string{"shop"}}
+	ok := base()
+	ok.Additional = []recommend.ContainerResult{{Container: "proxy", Confidence: recommend.ConfHigh,
+		CPU: recommend.ResourceResult{Action: recommend.NoChange, Current: 0.5, Recommended: 0.5}}}
+	if d := Evaluate(p, ok, f, time.Now(), nil); !d.Allowed {
+		t.Fatalf("an unchanged sidecar must not block: %v", d.Reasons)
+	}
+	big := base()
+	big.Additional = []recommend.ContainerResult{{Container: "proxy", Confidence: recommend.ConfHigh,
+		CPU: recommend.ResourceResult{Action: recommend.Decrease, Current: 1, Recommended: 0.1}}}
+	d := Evaluate(p, big, f, time.Now(), nil)
+	if d.Allowed || !strings.Contains(strings.Join(d.Reasons, " "), "container proxy: cpu change") {
+		t.Fatalf("%+v", d)
+	}
+	low := base()
+	low.Additional = []recommend.ContainerResult{{Container: "proxy", Confidence: recommend.ConfLow,
+		Memory: recommend.ResourceResult{Action: recommend.Decrease, Current: 100, Recommended: 90}}}
+	if d := Evaluate(p, low, f, time.Now(), nil); d.Allowed {
+		t.Fatal("a low-confidence sidecar change must be refused by the default minConfidence")
+	}
+}

@@ -201,7 +201,44 @@ func minRank(s string) int {
 
 // Evaluate checks the recommendation against the policy. recent are the timestamps of changes already applied in the
 // same namespace (for the rate limit). It never returns Allowed for a recommendation that changes nothing.
+//
+// A multi-container record (rec.Additional) is ONE change to the pod template: it is allowed only if every container that it
+// changes is allowed on its own (bounds, change fraction, confidence, HPA/VPA rules apply per container). Containers it leaves
+// unchanged are not judged. Reasons about a non-primary container are prefixed with its name.
 func Evaluate(p Policy, rec recommend.Recommendation, f Facts, now time.Time, recent []time.Time) Decision {
+	if len(rec.Additional) == 0 {
+		return evaluateOne(p, rec, f, now, recent)
+	}
+	views := rec.Views()
+	var judged []recommend.Recommendation
+	for _, v := range views {
+		if v.Changes() {
+			judged = append(judged, v)
+		}
+	}
+	if len(judged) == 0 {
+		judged = views[:1] // "changes nothing" is then reported by the primary's evaluation
+	}
+	out := Decision{Allowed: true}
+	seen := map[string]bool{}
+	for _, v := range judged {
+		d := evaluateOne(p, v, f, now, recent)
+		out.Allowed = out.Allowed && d.Allowed
+		out.NeedsApproval = out.NeedsApproval || d.NeedsApproval
+		for _, r := range d.Reasons {
+			if v.Container != rec.Container {
+				r = "container " + v.Container + ": " + r
+			}
+			if !seen[r] {
+				seen[r] = true
+				out.Reasons = append(out.Reasons, r)
+			}
+		}
+	}
+	return out
+}
+
+func evaluateOne(p Policy, rec recommend.Recommendation, f Facts, now time.Time, recent []time.Time) Decision {
 	var deny []string
 	d := func(format string, a ...any) { deny = append(deny, fmt.Sprintf(format, a...)) }
 

@@ -211,6 +211,19 @@ type Recommendation struct {
 	GeneratedAt time.Time
 	// Abstained is true when neither resource may be recommended; Reasons explains.
 	Abstained bool
+	// Additional holds the other containers of the SAME pod template (sidecars), changed in the same rollout and rolled back
+	// together. Empty for a single-container record, so records written before this field existed read unchanged. See Combine.
+	Additional []ContainerResult `json:",omitempty"`
+}
+
+// ContainerResult is the recommendation for one more container of the record's pod template.
+type ContainerResult struct {
+	Container   string
+	Samples     int
+	Confidence  Confidence
+	Abstained   bool
+	CPU, Memory ResourceResult
+	Risks       []string `json:",omitempty"`
 }
 
 // Percentile uses linear interpolation between closest ranks on a sorted copy. NaN/Inf/negative values are ignored.
