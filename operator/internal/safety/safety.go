@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/approval"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/recommend"
 )
 
@@ -54,6 +55,11 @@ type Policy struct {
 	// The stamp is written by "rightsize approve" from a SelfSubjectReview; it can still be forged by anyone with update rights,
 	// which is why the Kubernetes audit log of the writer is the authoritative record.
 	Approvers []string `json:"approvers,omitempty"`
+	// RequireSignedApproval additionally requires the approval to be signed (`rightsize approve --sign-key`) by one of
+	// ApproverKeys (key ID -> Ed25519 public key, PEM or base64 of the 32 raw bytes). The signature binds the record's digest, the
+	// target, the approver's username and the time, so a forged or replayed annotation is refused (internal/approval).
+	RequireSignedApproval bool              `json:"requireSignedApproval,omitempty"`
+	ApproverKeys          map[string]string `json:"approverKeys,omitempty"`
 	// AllowGitOps lets the apply proceed on a workload managed by Argo CD / Flux. Default false.
 	AllowGitOps bool `json:"allowGitOps,omitempty"`
 	// AllowCPUWithHPA lets a CPU request change proceed when an HPA scales on CPU utilisation. Default false.
@@ -68,6 +74,8 @@ type Facts struct {
 	Approved string
 	// ApprovedBy is the identity stamped next to the approval (the API server's view of who ran the approve command).
 	ApprovedBy string
+	// ApprovedAt and ApprovalSignature are the signed fields of the approval ("" when unsigned).
+	ApprovedAt, ApprovalSignature string
 	// RolledBack is the ID of the last recommendation that was rolled back on this workload.
 	RolledBack string
 	// AlreadyApplied is the ID of the recommendation currently applied (idempotency).
@@ -103,6 +111,18 @@ func (p Policy) Validate() error {
 	}
 	if p.MinCPU < 0 || p.MinMem < 0 || p.MaxCPU < 0 || p.MaxMem < 0 || (p.MaxCPU > 0 && p.MinCPU > p.MaxCPU) || (p.MaxMem > 0 && p.MinMem > p.MaxMem) {
 		return fmt.Errorf("invalid min/max bounds")
+	}
+	if p.RequireSignedApproval && len(p.ApproverKeys) == 0 {
+		return fmt.Errorf("requireSignedApproval needs at least one entry in approverKeys")
+	}
+	for id, k := range p.ApproverKeys {
+		pub, err := approval.ParsePublic(k)
+		if err != nil {
+			return fmt.Errorf("approverKeys[%s]: %w", id, err)
+		}
+		if approval.KeyID(pub) != id {
+			return fmt.Errorf("approverKeys[%s] holds the key %s: the map key must be the key ID that rightsize keygen printed", id, approval.KeyID(pub))
+		}
 	}
 	switch p.MinConfidence {
 	case "", "Low", "Medium", "High":
@@ -206,6 +226,18 @@ func minRank(s string) int {
 // changes is allowed on its own (bounds, change fraction, confidence, HPA/VPA rules apply per container). Containers it leaves
 // unchanged are not judged. Reasons about a non-primary container are prefixed with its name.
 func Evaluate(p Policy, rec recommend.Recommendation, f Facts, now time.Time, recent []time.Time) Decision {
+	d := evaluateViews(p, rec, f, now, recent)
+	// the signature covers the WHOLE record (all containers), so it is checked once, here
+	if p.approval() && p.RequireSignedApproval && f.Approved == rec.ID {
+		if _, err := approval.Verify(p.ApproverKeys, rec, f.ApprovedBy, f.ApprovedAt, f.ApprovalSignature); err != nil {
+			d.Allowed, d.NeedsApproval = false, true
+			d.Reasons = append(d.Reasons, "signed approval required: "+err.Error())
+		}
+	}
+	return d
+}
+
+func evaluateViews(p Policy, rec recommend.Recommendation, f Facts, now time.Time, recent []time.Time) Decision {
 	if len(rec.Additional) == 0 {
 		return evaluateOne(p, rec, f, now, recent)
 	}

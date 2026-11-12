@@ -21,6 +21,7 @@ import (
 	"io"
 	"os"
 	"os/user"
+	"strings"
 	"time"
 
 	"k8s.io/client-go/dynamic"
@@ -28,6 +29,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/yaml"
 
+	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/approval"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/execute"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/httpx"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/recommend"
@@ -37,7 +39,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: rightsize plan|publish|approve|apply|rollback|propose|report|backtest|nodes|cost [flags]")
+		fmt.Fprintln(os.Stderr, "usage: rightsize plan|publish|approve|apply|rollback|propose|report|backtest|nodes|cost|keygen|audit-verify [flags]")
 		os.Exit(2)
 	}
 	var err error
@@ -62,6 +64,10 @@ func main() {
 		err = nodesCmd(os.Args[2:], os.Stdout)
 	case "cost":
 		err = costCmd(os.Args[2:], os.Stdout)
+	case "keygen":
+		err = keygenCmd(os.Args[2:], os.Stdout)
+	case "audit-verify":
+		err = auditVerifyCmd(os.Args[2:], os.Stdout)
 	default:
 		err = fmt.Errorf("unknown command %q", os.Args[1])
 	}
@@ -73,6 +79,7 @@ func main() {
 
 type common struct {
 	kubeconfig, kctx, actor, auditFile, impersonate string
+	auditURL, auditTokenFile, signKey               string
 }
 
 func (c *common) bind(fs *flag.FlagSet) {
@@ -80,7 +87,9 @@ func (c *common) bind(fs *flag.FlagSet) {
 	fs.StringVar(&c.kctx, "context", "", "kubeconfig context (REQUIRED with --execute and for rollback).")
 	fs.StringVar(&c.impersonate, "as", "", "impersonate this user or service account (system:serviceaccount:ns:name): proves a minimal role is enough.")
 	fs.StringVar(&c.actor, "actor", "", "who is responsible (default: the current OS user).")
-	fs.StringVar(&c.auditFile, "audit-file", "", "also append JSONL audit events to this file (they are always printed to stderr).")
+	fs.StringVar(&c.auditFile, "audit-file", "", "also append JSONL audit events to this file, hash-chained (rightsize audit-verify checks it); they are always printed to stderr.")
+	fs.StringVar(&c.auditURL, "audit-url", "", "also POST each audit event as JSON to this append-only collector (https).")
+	fs.StringVar(&c.auditTokenFile, "audit-token-file", "", "file with a bearer token for --audit-url.")
 }
 
 func (c *common) executor() (*execute.Executor, func(), error) {
@@ -112,15 +121,55 @@ func (c *common) executor() (*execute.Executor, func(), error) {
 	}
 	sinks := execute.Multi{&execute.JSONL{W: os.Stderr}}
 	closer := func() {}
+	var closers []func()
 	if c.auditFile != "" {
+		prev, err := execute.LastHash(c.auditFile)
+		if err != nil {
+			return nil, nil, err
+		}
 		f, err := os.OpenFile(c.auditFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 		if err != nil {
 			return nil, nil, err
 		}
-		sinks = append(sinks, &execute.JSONL{W: f})
-		closer = func() { _ = f.Close() }
+		sinks = append(sinks, execute.NewChain(f, prev))
+		closers = append(closers, func() { _ = f.Close() })
 	}
-	return &execute.Executor{KC: kc, Dyn: dyn, Audit: sinks, Actor: actor}, closer, nil
+	if c.auditURL != "" {
+		if !strings.HasPrefix(c.auditURL, "https://") && !strings.HasPrefix(c.auditURL, "http://localhost") && !strings.HasPrefix(c.auditURL, "http://127.0.0.1") {
+			return nil, nil, fmt.Errorf("--audit-url must be https (or a localhost collector)")
+		}
+		tok := ""
+		if c.auditTokenFile != "" {
+			b, err := os.ReadFile(c.auditTokenFile)
+			if err != nil {
+				return nil, nil, err
+			}
+			tok = strings.TrimSpace(string(b))
+		}
+		hs := execute.NewHTTPSink(c.auditURL, tok, nil)
+		sinks = append(sinks, hs)
+		closers = append([]func(){func() {
+			if err := hs.Close(); err != nil {
+				fmt.Fprintln(os.Stderr, "WARNING:", err)
+			}
+		}}, closers...)
+	}
+	closer = func() {
+		for _, f := range closers {
+			f()
+		}
+	}
+	ex := &execute.Executor{KC: kc, Dyn: dyn, Audit: sinks, Actor: actor}
+	if c.signKey != "" {
+		b, err := os.ReadFile(c.signKey)
+		if err != nil {
+			return nil, nil, err
+		}
+		if ex.SignKey, err = approval.ParsePrivate(b); err != nil {
+			return nil, nil, fmt.Errorf("--sign-key: %w", err)
+		}
+	}
+	return ex, closer, nil
 }
 
 func apply(args []string, out io.Writer) error {

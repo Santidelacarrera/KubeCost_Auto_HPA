@@ -16,6 +16,7 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/util/retry"
 
+	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/approval"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/execute"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/recommend"
 )
@@ -97,7 +98,11 @@ func isChange(x recommend.ResourceResult) bool {
 // approveRecommendation writes status.approval through the status subresource, with the identity the API server reports.
 // Needs "update workloadrecommendations/status": a permission that publishing alone does not give.
 func approveRecommendation(ctx context.Context, ex *execute.Executor, rec recommend.Recommendation) (string, error) {
-	if rec.Abstained || !(isChange(rec.CPU) || isChange(rec.Memory)) {
+	changes := false
+	for _, v := range rec.Views() {
+		changes = changes || v.Changes()
+	}
+	if rec.Abstained || !changes {
 		return "", errors.New("this recommendation changes nothing (or abstained): there is nothing to approve")
 	}
 	if err := ex.Fresh(ctx, rec); err != nil {
@@ -106,6 +111,15 @@ func approveRecommendation(ctx context.Context, ex *execute.Executor, rec recomm
 	who, err := ex.Identity(ctx)
 	if err != nil {
 		return "", err
+	}
+	at := time.Now().UTC().Format(time.RFC3339)
+	ap := map[string]any{"recommendationID": rec.ID, "by": who, "at": at}
+	if ex.SignKey != nil {
+		sig, err := approval.Sign(ex.SignKey, rec, who, at)
+		if err != nil {
+			return "", err
+		}
+		ap["signature"] = sig
 	}
 	name := wrecName(rec)
 	err = retry.RetryOnConflict(retry.DefaultBackoff, func() error {
@@ -116,9 +130,7 @@ func approveRecommendation(ctx context.Context, ex *execute.Executor, rec recomm
 		if id, _, _ := unstructured.NestedString(cur.Object, "spec", "recommendationID"); id != rec.ID {
 			return fmt.Errorf("the object %s holds recommendation %q, not %q", name, id, rec.ID)
 		}
-		if err := unstructured.SetNestedField(cur.Object, map[string]any{
-			"recommendationID": rec.ID, "by": who, "at": time.Now().UTC().Format(time.RFC3339),
-		}, "status", "approval"); err != nil {
+		if err := unstructured.SetNestedField(cur.Object, ap, "status", "approval"); err != nil {
 			return err
 		}
 		_, err = ex.Dyn.Resource(wrecGVR).Namespace(rec.Namespace).UpdateStatus(ctx, cur, metav1.UpdateOptions{})

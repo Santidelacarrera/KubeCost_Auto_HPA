@@ -106,7 +106,9 @@ func (r *RecommendationApplier) Reconcile(ctx context.Context, req ctrl.Request)
 		return r.finish(ctx, &cr, v1alpha1.RecPhaseDenied, "no usable policy: "+err.Error(), []string{err.Error()}, time.Minute)
 	}
 	ex := &execute.Executor{KC: r.KC, Dyn: r.Dyn, Audit: &crSink{r: r.Recorder, obj: &cr}, Actor: "operator/recommendation-applier", Now: r.Now, Sleep: r.Sleep,
-		ApprovalOverride: func(_, _, _ string) (string, string, bool) { return ap.RecommendationID, ap.By, true }}
+		ApprovalOverride: func(_, _, _ string) (execute.Approval, bool) {
+			return execute.Approval{ID: ap.RecommendationID, By: ap.By, At: ap.At.UTC().Format(time.RFC3339), Signature: ap.Signature}, true
+		}}
 
 	th := execute.Thresholds{ObserveFor: capDur(5*time.Minute, r.MaxObserve), RolloutTimeout: capDur(5*time.Minute, r.MaxRollout)}
 	if cr.Spec.SLOQueryName != "" {

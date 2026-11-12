@@ -8,6 +8,7 @@ package execute
 
 import (
 	"context"
+	"crypto/ed25519"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -29,6 +30,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/util/retry"
 
+	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/approval"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/recommend"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/safety"
 )
@@ -38,10 +40,12 @@ const (
 	AnnApproved   = "autoscaling.kubecost.io/approved-recommendation"
 	AnnApprovedBy = "autoscaling.kubecost.io/approved-by"
 	AnnApprovedAt = "autoscaling.kubecost.io/approved-at"
-	AnnApplied    = "autoscaling.kubecost.io/applied-recommendation"
-	AnnPrevious   = "autoscaling.kubecost.io/previous-resources"
-	AnnRolledBack = "autoscaling.kubecost.io/rolled-back-recommendation"
-	AnnAppliedAt  = "autoscaling.kubecost.io/last-applied-at"
+	// AnnApprovalSignature is "<keyID>:<base64 Ed25519 signature>" over the approval (internal/approval); absent when unsigned.
+	AnnApprovalSignature = "autoscaling.kubecost.io/approval-signature"
+	AnnApplied           = "autoscaling.kubecost.io/applied-recommendation"
+	AnnPrevious          = "autoscaling.kubecost.io/previous-resources"
+	AnnRolledBack        = "autoscaling.kubecost.io/rolled-back-recommendation"
+	AnnAppliedAt         = "autoscaling.kubecost.io/last-applied-at"
 )
 
 var errNoSavedState = errors.New("no saved state")
@@ -57,9 +61,11 @@ type Executor struct {
 	// ApprovalOverride, if set, replaces the approval annotations on the workload as the source of the approval: it returns the approved
 	// recommendation ID and the approver identity, or ok=false for "not approved". The applier controller uses it so approval comes from
 	// a WorkloadRecommendation status (its own RBAC permission) and annotations on the workload are ignored.
-	ApprovalOverride func(kind, ns, name string) (id, by string, ok bool)
-	Now              func() time.Time
-	Sleep            func(time.Duration)
+	ApprovalOverride func(kind, ns, name string) (Approval, bool)
+	// SignKey, if set, makes Approve sign the approval (internal/approval) and store the signature next to it.
+	SignKey ed25519.PrivateKey
+	Now     func() time.Time
+	Sleep   func(time.Duration)
 }
 
 func (e *Executor) now() time.Time {
@@ -232,12 +238,11 @@ func (e *Executor) Inspect(ctx context.Context, kind, ns, name string) (safety.F
 	}
 	ann, lbl := w.obj.GetAnnotations(), w.obj.GetLabels()
 	f.Labels = lbl
-	f.Approved = ann[AnnApproved]
-	f.ApprovedBy = ann[AnnApprovedBy]
+	f.Approved, f.ApprovedBy, f.ApprovedAt, f.ApprovalSignature = ann[AnnApproved], ann[AnnApprovedBy], ann[AnnApprovedAt], ann[AnnApprovalSignature]
 	if e.ApprovalOverride != nil {
-		f.Approved, f.ApprovedBy = "", ""
-		if id, by, ok := e.ApprovalOverride(kind, ns, name); ok {
-			f.Approved, f.ApprovedBy = id, by
+		f.Approved, f.ApprovedBy, f.ApprovedAt, f.ApprovalSignature = "", "", "", ""
+		if a, ok := e.ApprovalOverride(kind, ns, name); ok {
+			f.Approved, f.ApprovedBy, f.ApprovedAt, f.ApprovalSignature = a.ID, a.By, a.At, a.Signature
 		}
 	}
 	f.AlreadyApplied = ann[AnnApplied]
@@ -351,6 +356,9 @@ func (e *Executor) recentApplies(ctx context.Context, ns string) ([]time.Time, e
 }
 
 // Result describes what Apply did.
+// Approval is an approval read from somewhere other than the workload's annotations (the WorkloadRecommendation status).
+type Approval struct{ ID, By, At, Signature string }
+
 type Result struct {
 	Decision safety.Decision
 	Facts    safety.Facts
@@ -914,6 +922,13 @@ func (e *Executor) Approve(ctx context.Context, rec recommend.Recommendation) (s
 	if err != nil {
 		return "", err
 	}
+	at := e.now().UTC().Format(time.RFC3339)
+	sig := ""
+	if e.SignKey != nil {
+		if sig, err = approval.Sign(e.SignKey, rec, who, at); err != nil {
+			return "", err
+		}
+	}
 	err = retry.RetryOnConflict(conflictBackoff, func() error {
 		w, err := e.get(ctx, rec.Kind, rec.Namespace, rec.Workload)
 		if err != nil {
@@ -928,14 +943,22 @@ func (e *Executor) Approve(ctx context.Context, rec recommend.Recommendation) (s
 		}
 		ann[AnnApproved] = rec.ID
 		ann[AnnApprovedBy] = who
-		ann[AnnApprovedAt] = e.now().UTC().Format(time.RFC3339)
+		ann[AnnApprovedAt] = at
+		delete(ann, AnnApprovalSignature)
+		if sig != "" {
+			ann[AnnApprovalSignature] = sig
+		}
 		w.obj.SetAnnotations(ann)
 		return w.save(ctx)
 	})
 	if err != nil {
 		return "", err
 	}
-	e.record("approved", rec, map[string]any{"approvedBy": who})
+	det := map[string]any{"approvedBy": who, "signed": sig != ""}
+	if sig != "" {
+		det["keyID"], _, _ = strings.Cut(sig, ":")
+	}
+	e.record("approved", rec, det)
 	return who, nil
 }
 

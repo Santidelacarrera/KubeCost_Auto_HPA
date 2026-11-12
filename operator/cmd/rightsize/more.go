@@ -44,6 +44,7 @@ func approveCmd(args []string, out io.Writer) error {
 	var viaCR bool
 	fs.StringVar(&recFile, "recommendation", "", "JSON written by cmd/recommend or rightsize plan (required).")
 	fs.BoolVar(&viaCR, "cr", false, "approve through the WorkloadRecommendation status subresource (for the operator applier) instead of annotating the workload.")
+	fs.StringVar(&c.signKey, "sign-key", "", "sign the approval with this Ed25519 private key (rightsize keygen); needed when the policy sets requireSignedApproval.")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}

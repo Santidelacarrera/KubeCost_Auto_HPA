@@ -251,3 +251,19 @@ func TestMultiContainerEvaluationJudgesEveryChangedContainer(t *testing.T) {
 		t.Fatal("a low-confidence sidecar change must be refused by the default minConfidence")
 	}
 }
+
+func TestSignedApprovalPolicyNeedsTrustedKeysThatMatchTheirIDs(t *testing.T) {
+	if err := (Policy{AllowNamespaces: []string{"shop"}, RequireSignedApproval: true}).Validate(); err == nil {
+		t.Fatal("requireSignedApproval without keys must be invalid")
+	}
+	if err := (Policy{ApproverKeys: map[string]string{"deadbeefdeadbeef": "not a key"}}).Validate(); err == nil {
+		t.Fatal("an unparsable key must be invalid")
+	}
+	unsigned := Facts{Known: true, Namespace: "shop", Kind: "Deployment", Name: "api", Approved: "m1", ApprovedBy: "alice"}
+	r := recommend.Recommendation{ID: "m1", Namespace: "shop", Workload: "api", Kind: "Deployment", Container: "app", Confidence: recommend.ConfHigh,
+		CPU: recommend.ResourceResult{Action: recommend.Decrease, Current: 1, Recommended: 0.8}}
+	p := Policy{AllowNamespaces: []string{"shop"}, RequireSignedApproval: true, ApproverKeys: map[string]string{"x": "y"}}
+	if d := Evaluate(p, r, unsigned, time.Now(), nil); d.Allowed || !d.NeedsApproval {
+		t.Fatalf("an unsigned approval must not satisfy requireSignedApproval: %+v", d)
+	}
+}

@@ -148,6 +148,12 @@ spec:
                     description: 'RecommendationID must equal spec.recommendationID:
                       an approval of another recommendation is ignored.'
                     type: string
+                  signature:
+                    description: |-
+                      Signature is "<keyID>:<base64 Ed25519 signature>" over this approval and the record's digest (rightsize approve --cr
+                      --sign-key). Required only when the policy sets requireSignedApproval.
+                    maxLength: 200
+                    type: string
                 required:
                 - at
                 - by
