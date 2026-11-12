@@ -2,8 +2,8 @@ apiVersion: v2
 name: kubecost-auto-hpa
 description: Unit Economics autoscaler - SLO/cost-aware in-place resizing and Spot node draining
 type: application
-version: 0.1.0
-appVersion: "0.1.0"
+version: 0.2.0
+appVersion: "0.2.0"
 home: https://github.com/Santidelacarrera/KubeCost_Auto_HPA
 sources:
   - https://github.com/Santidelacarrera/KubeCost_Auto_HPA

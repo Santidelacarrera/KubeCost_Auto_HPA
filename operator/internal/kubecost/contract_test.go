@@ -43,11 +43,41 @@ func TestContractOpenCostShapedResponse(t *testing.T) {
 		t.Fatalf("request %s %s", gotReq.Method, gotReq.URL)
 	}
 	v := gotReq.URL.Query()
-	if len(v) != 3 || v.Get("window") != "1h" || v.Get("aggregate") != "controller" || v.Get("accumulate") != "true" {
+	if len(v) != 3 || v.Get("window") != "60m" || v.Get("aggregate") != "cluster,namespace,controllerKind,controller" || v.Get("accumulate") != "true" {
 		t.Fatalf("query %v", v)
 	}
 	if err := s.Validate(t0, 5*time.Minute, 0.5); err != nil {
 		t.Fatalf("fresh, fully covered sample must validate: %v", err)
+	}
+}
+
+// Captured from a REAL Kubecost 2.8.7 (minikube, hack/lab-kubecost.sh, 2026-11-10): the answer to the aggregation the client sends.
+func TestContractRealKubecost287Response(t *testing.T) {
+	c, _ := newTest(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Write(fixture(t, "kubecost_2.8.7_aggregate_full.json"))
+	})
+	s, err := c.Allocation(context.Background(), Query{Namespace: "shop", Controller: "payments-api", ControllerKind: "deployment", Window: time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.TotalCost.String() != "0.000570" || s.Minutes != 5 || !s.WindowEnd.Equal(time.Date(2026, 11, 10, 12, 10, 0, 0, time.UTC)) {
+		t.Fatalf("%+v", s)
+	}
+	// the cluster property is present too, so a configured cluster disambiguates
+	if _, err := c.Allocation(context.Background(), Query{Namespace: "shop", Controller: "payments-api", ControllerKind: "deployment", Cluster: "kubecost-real", Window: time.Hour}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The same real Kubecost answers `aggregate=controller` with the controller property only. Read that way, the workload must be
+// "not present" (fail closed), never another namespace's cost: this is why the client does not ask for that aggregation.
+func TestContractRealKubecostControllerOnlyAggregationFailsClosed(t *testing.T) {
+	c, _ := newTest(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Write(fixture(t, "kubecost_2.8.7_aggregate_controller.json"))
+	})
+	_, err := c.Allocation(context.Background(), Query{Namespace: "shop", Controller: "payments-api", ControllerKind: "deployment", Window: time.Hour})
+	if ClassOf(err) != ClassNoData {
+		t.Fatalf("controller-only properties must not match a namespaced query, got %v", err)
 	}
 }
 

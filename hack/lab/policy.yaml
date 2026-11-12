@@ -1,0 +1,6 @@
+# Lab policy: authorises only namespace "lab". Approval is still required (the default).
+allowNamespaces: [lab]
+maxChangeFraction: 0.6
+maxChanges: 5
+per: 1h
+minConfidence: Medium

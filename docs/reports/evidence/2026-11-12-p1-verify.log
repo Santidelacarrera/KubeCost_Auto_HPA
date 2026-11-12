@@ -1,0 +1,59 @@
+# hack/lab-p1-verify.sh on the minikube lab, 2026-11-12 (redacted: local actor -> <id>; the lab token is not included)
+== 0. approver key, workloads, operator image, chart (applier ON for lab, observe-only OFF, signed approvals REQUIRED)
+PASS  the operator runs the applier
+waiting for history (14 min window, 8 min minimum)
+== A1. an UNSIGNED approval of an object is refused by the operator's policy; the workload is untouched
+PASS  phase Denied
+PASS  the reason names the missing signature
+PASS  sig1 untouched
+== A2. a SIGNED approval (approve --cr --sign-key) is applied by the operator and Verified
+PASS  the signature is in status.approval
+PASS  phase Verified
+sig2 requests: 500m/128Mi -> 350m/64Mi
+PASS  sig2 really changed
+== B. --audit-url: events shipped to a real collector equal the local chained file
+apply exit 0
+local 4 events, collected 4
+PASS  the collector received every event (the first POST was refused with 503 and retried)
+PASS  the collector's copy is byte-for-byte the local chained file
+PASS  audit-verify passes on the collector's copy
+PASS  no undelivered events reported
+== diagnostics
+NAME                    PHASE      MSG
+sig1-9e3d5f690ec122a8   Denied     the policy refused it
+sig2-0ceacf6192386936   Verified   applied and healthy for the whole observation window
+{
+  "Lines": 4,
+  "Chained": 4,
+  "Unchained": 0,
+  "FirstBreak": 0,
+  "Problem": "",
+  "LastHash": "014894a871c9d88cc771f5f460e12f8f44099d8ae88982859ae119dc23ea7e6c"
+}
+
+RESULT: 11 passed, 0 failed
+
+# policy given to the operator (public key only)
+allowNamespaces: [lab]
+maxChangeFraction: 0.6
+maxChanges: 9
+per: 1h
+minConfidence: Medium
+requireSignedApproval: true
+approverKeys:
+  9fac81b82fc60845: XHu5nV80FEqhEICgTb+8S7KXowvqyuj2y1VixlnuJYo=
+
+# local chained audit file
+{"time":"2026-11-12T02:56:15.1190265Z","type":"approved","actor":"<id>","recommendationId":"7d37041bc27cdeb6","target":"lab/Deployment/aud1","details":{"approvedBy":"minikube-user","keyID":"9fac81b82fc60845","signed":true},"hash":"145c2b9a441588236a8db5a0c53d7efe283e2cd56aa384de80eab713dbd6f811"}
+{"time":"2026-11-12T02:56:15.595207Z","type":"decision","actor":"<id>","recommendationId":"7d37041bc27cdeb6","target":"lab/Deployment/aud1","details":{"allowed":true,"execute":true,"reasons":null},"prev":"145c2b9a441588236a8db5a0c53d7efe283e2cd56aa384de80eab713dbd6f811","hash":"06db3fe57b8fecd380945149a5416c4e133155f969a19b6af26224b5ee134f4c"}
+{"time":"2026-11-12T02:56:15.6115792Z","type":"applied","actor":"<id>","recommendationId":"7d37041bc27cdeb6","target":"lab/Deployment/aud1","details":{"approvedBy":"minikube-user","cpu":0.35000000000000003,"cpuPotentialMonthlyUSD":0,"memory":67108864,"memoryPotentialMonthlyUSD":0,"previous":{"app":{"cpuLimit":"1","cpuRequest":"500m","memLimit":"256Mi","memRequest":"128Mi"}}},"prev":"06db3fe57b8fecd380945149a5416c4e133155f969a19b6af26224b5ee134f4c","hash":"fe4b87eb8e8eeb9a37ed2bbe69a95354879330df147e2800d2181620d5b2f0d7"}
+{"time":"2026-11-12T02:58:00.7326213Z","type":"verified","actor":"<id>","recommendationId":"7d37041bc27cdeb6","target":"lab/Deployment/aud1","details":{"observedFor":"1m30s"},"prev":"fe4b87eb8e8eeb9a37ed2bbe69a95354879330df147e2800d2181620d5b2f0d7","hash":"014894a871c9d88cc771f5f460e12f8f44099d8ae88982859ae119dc23ea7e6c"}
+# collector copy
+{"time":"2026-11-12T02:56:15.1190265Z","type":"approved","actor":"<id>","recommendationId":"7d37041bc27cdeb6","target":"lab/Deployment/aud1","details":{"approvedBy":"minikube-user","keyID":"9fac81b82fc60845","signed":true},"hash":"145c2b9a441588236a8db5a0c53d7efe283e2cd56aa384de80eab713dbd6f811"}
+{"time":"2026-11-12T02:56:15.595207Z","type":"decision","actor":"<id>","recommendationId":"7d37041bc27cdeb6","target":"lab/Deployment/aud1","details":{"allowed":true,"execute":true,"reasons":null},"prev":"145c2b9a441588236a8db5a0c53d7efe283e2cd56aa384de80eab713dbd6f811","hash":"06db3fe57b8fecd380945149a5416c4e133155f969a19b6af26224b5ee134f4c"}
+{"time":"2026-11-12T02:56:15.6115792Z","type":"applied","actor":"<id>","recommendationId":"7d37041bc27cdeb6","target":"lab/Deployment/aud1","details":{"approvedBy":"minikube-user","cpu":0.35000000000000003,"cpuPotentialMonthlyUSD":0,"memory":67108864,"memoryPotentialMonthlyUSD":0,"previous":{"app":{"cpuLimit":"1","cpuRequest":"500m","memLimit":"256Mi","memRequest":"128Mi"}}},"prev":"06db3fe57b8fecd380945149a5416c4e133155f969a19b6af26224b5ee134f4c","hash":"fe4b87eb8e8eeb9a37ed2bbe69a95354879330df147e2800d2181620d5b2f0d7"}
+{"time":"2026-11-12T02:58:00.7326213Z","type":"verified","actor":"<id>","recommendationId":"7d37041bc27cdeb6","target":"lab/Deployment/aud1","details":{"observedFor":"1m30s"},"prev":"fe4b87eb8e8eeb9a37ed2bbe69a95354879330df147e2800d2181620d5b2f0d7","hash":"014894a871c9d88cc771f5f460e12f8f44099d8ae88982859ae119dc23ea7e6c"}
+# wrec sig1 status
+{"approval":{"at":"2026-11-12T02:53:59Z","by":"system:serviceaccount:lab:rs-appr","recommendationID":"9e3d5f690ec122a8"},"conditions":[{"lastTransitionTime":"2026-11-12T02:53:48Z","message":"the policy refused it","observedGeneration":1,"reason":"Denied","status":"False","type":"Ready"}],"message":"the policy refused it","observedGeneration":1,"phase":"Denied","reasons":["signed approval required: the approval carries no signature (or not in the keyID:signature form)"]}
+# wrec sig2 status
+{"appliedAt":"2026-11-12T02:54:31Z","approval":{"at":"2026-11-12T02:54:31Z","by":"system:serviceaccount:lab:rs-appr","recommendationID":"0ceacf6192386936","signature":"9fac81b82fc60845:98iiqthGRr0XBfIy3ezmcqOKPeqbrRwutOFvJDx40X6RIl5oi6wRZ/k81GaIHfH562SIWdQOGWHs9kcazlsXCA=="},"conditions":[{"lastTransitionTime":"2026-11-12T02:56:11Z","message":"applied and healthy for the whole observation window","observedGeneration":1,"reason":"Verified","status":"True","type":"Ready"}],"finishedAt":"2026-11-12T02:56:11Z","message":"applied and healthy for the whole observation window","observedGeneration":1,"phase":"Verified"}

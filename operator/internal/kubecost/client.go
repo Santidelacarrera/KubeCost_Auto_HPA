@@ -279,10 +279,16 @@ func (c *Client) backoff(attempt int) time.Duration {
 	return time.Duration(d * c.jit()) // full jitter
 }
 
+// AllocationAggregate is the aggregation the client asks for. A real Kubecost 2.8.7 answers `aggregate=controller` with ONLY the
+// controller property (no namespace, kind or cluster), which both hides the workload from the namespace match and merges
+// same-named controllers of different namespaces into one cost (testdata/kubecost_2.8.7_aggregate_controller.json).
+// Aggregating by all four keys keeps each property and one allocation per workload, in Kubecost and in OpenCost.
+const AllocationAggregate = "cluster,namespace,controllerKind,controller"
+
 func (c *Client) once(ctx context.Context, q Query) (Sample, error) {
 	v := url.Values{}
 	v.Set("window", formatWindow(q.Window))
-	v.Set("aggregate", "controller")
+	v.Set("aggregate", AllocationAggregate)
 	v.Set("accumulate", "true")
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+"/model/allocation?"+v.Encode(), nil)
 	if err != nil {
@@ -320,14 +326,13 @@ func (c *Client) once(ctx context.Context, q Query) (Sample, error) {
 	return s, nil
 }
 
+// formatWindow always asks for whole MINUTES. Kubecost and OpenCost share one window parser (opencost core/pkg/opencost/window.go)
+// that rounds a duration window forward to its own unit: "1h" is the current clock hour (HH:00 to HH+1:00), so five minutes past
+// the hour it covers 5 of 60 minutes and the coverage check refuses it until half past; "24h" is whole UTC days. "60m" is the
+// last 60 minutes, ending at the next whole minute. Measured on AKS with OpenCost (docs/LAB.md result 18): with "1h" the
+// workload's minutes and cost reset at every hour. Sub-minute windows round up to one minute ("s" is not a unit there).
 func formatWindow(d time.Duration) string {
-	if d%time.Hour == 0 {
-		return strconv.Itoa(int(d/time.Hour)) + "h"
-	}
-	if d%time.Minute == 0 {
-		return strconv.Itoa(int(d/time.Minute)) + "m"
-	}
-	return strconv.Itoa(int(math.Ceil(d.Seconds()))) + "s"
+	return strconv.Itoa(int(math.Ceil(d.Minutes()))) + "m"
 }
 
 type envelope struct {

@@ -842,3 +842,32 @@ func TestSampleManifestMatchesTheAPIAndResolves(t *testing.T) {
 		t.Fatalf("%+v", s)
 	}
 }
+
+// The operator-wide observe-only mode (--observe-only) holds even when the spec asks for writes,
+// reports the reason, and does not leave the resource owning the replicas.
+func TestObserveOnlyOperatorNeverWritesWhateverTheSpecSays(t *testing.T) {
+	a := baseAutoscaler()
+	a.Spec.DryRun = false
+	e := newKCAEnv(t, a, 4)
+	e.r.ObserveOnly = true
+	e.pricePerReplica = "0.2"
+	e.res.util = 0.97 // would trigger a safety scale-up
+	e.mustReconcile()
+	st := e.get().Status
+	if len(e.scl.writes) != 0 || e.replicas() != 4 {
+		t.Fatalf("observe-only must not write replicas: %+v", e.scl.writes)
+	}
+	if st.LastDecision.Type != "ScaleUp" || !st.LastDecision.DryRun || !strings.HasPrefix(st.LastDecision.Message, "observe-only") ||
+		st.ScalingOwner != v1alpha1.OwnerNone || st.LastScaleTime != nil {
+		t.Fatalf("%+v", st)
+	}
+	e.requireCond("ScalingActive", metav1.ConditionFalse, "ObserveOnly")
+
+	// switching it off (operator restarted without the flag) lets the same resource act
+	e.r.ObserveOnly = false
+	e.advance(2 * time.Minute)
+	e.mustReconcile()
+	if len(e.scl.writes) != 1 {
+		t.Fatalf("the autoscaler must act again once observe-only is lifted: %+v", e.scl.writes)
+	}
+}

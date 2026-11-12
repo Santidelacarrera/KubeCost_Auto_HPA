@@ -1,0 +1,248 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.16.5
+  name: workloadrecommendations.autoscaling.kubecost.io
+spec:
+  group: autoscaling.kubecost.io
+  names:
+    kind: WorkloadRecommendation
+    listKind: WorkloadRecommendationList
+    plural: workloadrecommendations
+    shortNames:
+    - wrec
+    singular: workloadrecommendation
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.target.name
+      name: Target
+      type: string
+    - jsonPath: .spec.target.kind
+      name: Kind
+      type: string
+    - jsonPath: .spec.summary.cpu
+      name: CPU
+      type: string
+    - jsonPath: .spec.summary.memory
+      name: Memory
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.approval.by
+      name: Approved by
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: WorkloadRecommendation is a published, auditable rightsizing
+          recommendation.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: |-
+              WorkloadRecommendationSpec is a recommendation produced by the read-only recommender (rightsize plan --publish).
+              Creating this object changes nothing in the cluster. Only an explicit approval (status.approval) plus the operator's
+              applier policy can cause a change, and only to a workload in the SAME namespace as this object.
+            properties:
+              recommendationID:
+                maxLength: 128
+                minLength: 1
+                type: string
+              record:
+                description: Record is the full recommendation as JSON, exactly as
+                  the recommender produced it, so it can be reproduced and audited.
+                maxLength: 262144
+                minLength: 2
+                type: string
+              sloQueryName:
+                description: SLOQueryName selects one of the named SLO queries in
+                  the operator's policy ConfigMap (key "slo.<name>"). Free-form PromQL
+                  is not accepted.
+                maxLength: 63
+                pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                type: string
+              summary:
+                description: Summary is a human-readable digest for kubectl; it is
+                  NOT what is applied (Record is).
+                properties:
+                  confidence:
+                    type: string
+                  cpu:
+                    type: string
+                  memory:
+                    type: string
+                  potentialMonthlyUSD:
+                    description: PotentialMonthlyUSD is an ESTIMATE of the requests
+                      reduction times supplied unit prices. It is not a bill and not
+                      an observed saving.
+                    type: string
+                type: object
+              target:
+                description: RecommendationTarget names the workload and container.
+                properties:
+                  container:
+                    minLength: 1
+                    type: string
+                  kind:
+                    enum:
+                    - Deployment
+                    - StatefulSet
+                    - DaemonSet
+                    type: string
+                  name:
+                    minLength: 1
+                    type: string
+                required:
+                - container
+                - kind
+                - name
+                type: object
+            required:
+            - recommendationID
+            - record
+            - target
+            type: object
+          status:
+            description: WorkloadRecommendationStatus is owned by the operator and
+              the approvers.
+            properties:
+              appliedAt:
+                format: date-time
+                type: string
+              approval:
+                description: |-
+                  RecommendationApproval is written through the status subresource, so approving needs its own RBAC permission
+                  (update workloadrecommendations/status) separate from creating recommendations.
+                properties:
+                  at:
+                    format: date-time
+                    type: string
+                  by:
+                    description: By is the username the API server reported for the
+                      approver (SelfSubjectReview), not a typed name.
+                    type: string
+                  recommendationID:
+                    description: 'RecommendationID must equal spec.recommendationID:
+                      an approval of another recommendation is ignored.'
+                    type: string
+                  signature:
+                    description: |-
+                      Signature is "<keyID>:<base64 Ed25519 signature>" over this approval and the record's digest (rightsize approve --cr
+                      --sign-key). Required only when the policy sets requireSignedApproval.
+                    maxLength: 200
+                    type: string
+                required:
+                - at
+                - by
+                - recommendationID
+                type: object
+              conditions:
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              finishedAt:
+                format: date-time
+                type: string
+              message:
+                type: string
+              observedGeneration:
+                format: int64
+                type: integer
+              phase:
+                enum:
+                - Pending
+                - DryRun
+                - Applying
+                - Verified
+                - RolledBack
+                - Denied
+                - Failed
+                type: string
+              reasons:
+                items:
+                  type: string
+                type: array
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

@@ -2,12 +2,15 @@
 
 [![ci](https://github.com/Santidelacarrera/KubeCost_Auto_HPA/actions/workflows/ci.yml/badge.svg)](https://github.com/Santidelacarrera/KubeCost_Auto_HPA/actions/workflows/ci.yml)
 [![release](https://github.com/Santidelacarrera/KubeCost_Auto_HPA/actions/workflows/release.yml/badge.svg)](https://github.com/Santidelacarrera/KubeCost_Auto_HPA/actions/workflows/release.yml)
-[![Latest Release](https://img.shields.io/github/v/release/Santidelacarrera/KubeCost_Auto_HPA)](https://github.com/Santidelacarrera/KubeCost_Auto_HPA/releases/tag/v0.1.0)
+[![Latest Release](https://img.shields.io/github/v/release/Santidelacarrera/KubeCost_Auto_HPA)](https://github.com/Santidelacarrera/KubeCost_Auto_HPA/releases/latest)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Kubernetes](https://img.shields.io/badge/kubernetes-1.33-326ce5.svg)](https://kubernetes.io)
 [![Live Demo](https://img.shields.io/badge/Live_Console-GitHub_Pages-2ea44f.svg)](https://santidelacarrera.github.io/KubeCost_Auto_HPA/app.html)
 
 Operador autónomo de Kubernetes de alta disponibilidad con **Unit Economics Scaling** y **paridad funcional total con ScaleOps**: ajusta réplicas de forma predictiva, redimensiona contenedores en caliente (*in-place resize*) sin reinicios, previene caídas por OOM y consolida el clúster (*node bin-packing*) para maximizar el ahorro en AWS/GCP sin violar los SLOs de latencia p99.
+
+> **Estado (2026-11-12): listo para producción en modo observe-only**, que es el modo por defecto del chart: el operador mide, recomienda e informa, y no escribe nada en el clúster. Verificado en clústeres gestionados reales (GKE 1.36.4 y AKS 1.36.5) además del laboratorio: [`docs/LAB.md`](docs/LAB.md).
+> **La aplicación de cambios** (applier con aprobación humana, rollback automático por SLO) pasó todas sus pruebas en GKE y AKS reales (AKS: 27/27) y está **lista para un piloto supervisado**, no para operar sin supervisión: falta tráfico real de semanas, la conciliación con una factura y EKS ([`docs/ROADMAP.md`](docs/ROADMAP.md), P0).
 
 🌐 **Consola Enterprise en Vivo:** [https://santidelacarrera.github.io/KubeCost_Auto_HPA/app.html](https://santidelacarrera.github.io/KubeCost_Auto_HPA/app.html)  
 🏢 **Landing Comercial y ROI:** [https://santidelacarrera.github.io/KubeCost_Auto_HPA/](https://santidelacarrera.github.io/KubeCost_Auto_HPA/)
@@ -47,6 +50,10 @@ Operador autónomo de Kubernetes de alta disponibilidad con **Unit Economics Sca
 | `engine/` | Motor Unit Economics & ScaleOps (Python 3.12). Algoritmos de predicción, escudo OOM, bin-packing, productor de telemetría Nexus y API HTTP `POST /v1/evaluate`. |
 | `operator/` | Operador Go (controller-runtime): CRDs `KubeCostAutoscaler` y `KubeCostHPA`, reconciliadores, actuadores in-place, clientes Prometheus/KubeCost. |
 | `operator/internal/{policy,kubecost,money,infra,ownership,resmetrics}` | Motor de decisión puro (Go), cliente KubeCost, dinero exacto, clasificación Spot, propiedad de réplicas y métricas de recursos del `KubeCostAutoscaler`. |
+| `operator/config/` | Kustomize: `default` (CRD, RBAC, operador, motor, Redis) y `overlays/local` (+ workload demo). |
+| `deploy/helm/kubecost-auto-hpa/` | Chart de Helm equivalente. |
+| `operator/cmd/recommend`, `operator/internal/recommend/` | Read-only rightsizing recommender (CLI, Prometheus history). Phase 1, unverified on a real cluster: [`docs/RECOMMENDER.md`](docs/RECOMMENDER.md). |
+| `operator/internal/{safety,execute,cost,capacity}`, `operator/cmd/rightsize` | Política fail-closed, aplicación con rollback y auditoría, asignación de costos, análisis de capacidad (ver más abajo). |
 | `frontend/` | Consola web comercial independiente (`index.html`, `app.html`, `pricing.html`) desplegada en GitHub Pages. |
 | `deploy/helm/kubecost-auto-hpa/` | Chart de Helm enterprise versionado, con validación OpenAPI v3 y flags `features.*` y `telemetry.*`. |
 | `docker-compose.yml` | Stack local: Redis, motor, Prometheus, Grafana (+ operador con `--profile operator`). |
@@ -283,6 +290,40 @@ y `docs/RELEASING.md` (ensayos y procedimiento de release). Para evaluarlo en un
 permisos, política de fallos, pausa, rollback y criterios de salida) y `docs/THREAT_MODEL.md` (amenazas, controles y riesgos
 residuales). Antes de ejecutar la suite completa, `make -C operator test-all` (requiere `KUBEBUILDER_ASSETS`).
 
+## Rightsizing seguro: recomendar, autorizar, aplicar, observar, revertir
+
+Segunda mitad del repositorio (ADR-0001 y ADR-0002), independiente del autoscaler de réplicas. **Por defecto no cambia nada**: el chart instala el operador en
+`observe-only` (`operator.observeOnly=true`) y la herramienta `rightsize` es dry-run salvo `--execute` con `--context` explícito.
+
+```
+cmd/recommend  -> recomendación JSON (percentiles + headroom; se abstiene sin datos fiables; no reduce con OOM, throttling, restarts o SLO roto)
+cmd/rightsize plan      -> recomendación + hechos del clúster (HPA en CPU, VPA, etiqueta de exclusión)
+cmd/rightsize approve   -> aprobación del ID exacto, sellada con la identidad que reporta el API server
+cmd/rightsize apply     -> política (fail-closed) -> aplica (Deployment, StatefulSet, DaemonSet) con estado previo guardado -> observa -> rollback automático
+cmd/rightsize propose   -> GitOps: commit del cambio en una rama local nueva (sin push)
+cmd/rightsize report    -> aceptación, tasa de rollback y ahorro ESTIMADO mantenido, desde la auditoría
+cmd/rightsize backtest  -> repite combinaciones percentil/headroom sobre TU historial (entrena con el pasado, prueba con lo reciente)
+plan --publish + approve --cr + operador (opt-in, apagado por defecto) -> objeto WorkloadRecommendation aprobado por permiso propio y aplicado bajo política (ADR-0003)
+cmd/rightsize rollback  -> restaura el estado guardado y lo verifica
+cmd/rightsize nodes|cost-> informes de solo lectura: ¿se liberaría algún nodo? / asignación de costo (estimado vs facturado vs asignado)
+```
+
+Guías: [`docs/RECOMMENDER.md`](docs/RECOMMENDER.md), [`docs/SAFETY.md`](docs/SAFETY.md), [`docs/COST.md`](docs/COST.md), [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md),
+[`docs/GITOPS.md`](docs/GITOPS.md), [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md), [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md), [`docs/ROADMAP.md`](docs/ROADMAP.md), laboratorio y evidencia: [`docs/LAB.md`](docs/LAB.md).
+
+### Estado honesto de esta parte (2026-11-09)
+
+| Categoría | Qué |
+|---|---|
+| **Verificado en un clúster real de laboratorio** (Kubernetes 1.33.4, minikube, Prometheus + kube-state-metrics reales; `hack/lab-e2e.sh` 22/22, `hack/lab-helm.sh` 16/16, `hack/lab-e2e2.sh` 23/23, `hack/lab-rbac.sh` 14/14, `hack/lab-crash.sh` 7/7, `hack/lab-gitops.sh` 15/15 con Argo CD y Flux reales, `hack/lab-multinode.sh` 9/9, `hack/lab-applier.sh` (escenarios 1-7 y 8 en dos ejecuciones), `hack/lab-traffic.sh` con tráfico y latencia reales, `hack/lab-hardening.sh` (actualización del chart, separación de funciones por admisión, 60 objetos, API server detenido); CI de GitHub con `-race`, envtest y e2e-kind en verde) | recomendación desde métricas reales; denegaciones (política vacía, sin aprobación, kill switch, HPA real en CPU, VPA real, anotación de Argo CD, etiqueta de exclusión); dry-run sin cambios; aplicación aprobada con identidad del API server; Deployment y StatefulSet; no se aplica dos veces; rollback automático por reinicio de contenedor y por SLO (señal sintética); recuperación tras matar el proceso; RBAC mínimo probado por impersonación; nadie puede aprobar su propia recomendación (ValidatingAdmissionPolicy, probado con dos usuarios reales); comparación de capacidad con un drain real en dos nodos; auditoría; contrato del cliente de costos contra un OpenCost real; instalación/actualización/rollback/desinstalación del chart; `observe-only` mantiene las réplicas y al desactivarlo el operador actúa |
+| **Implementado, solo con pruebas unitarias/fakes** | DaemonSet, detección de Flux, ventanas de mantenimiento, límite de tasa, asignación de costos y reconciliación, presupuestos y alertas de desviación, lector de facturación CSV, propuesta GitOps con git local |
+| **Simulado** | KubeCost en el laboratorio (mock con costo inventado), datos de facturación del informe `cost` en el laboratorio, la señal de SLO del escenario de rollback, el fallo inyectado |
+| **Experimental / sin afinar** | los valores por defecto del recomendador (p95+15 %, p99+20 %, 200 muestras, 24 h) |
+| **Mecánica verificada en un clúster gestionado real (GKE 1.36.4, 2 horas; no cumple aún los criterios de validación de `docs/CLOUD_VALIDATION.md`: 7 días, ciclo de negocio, factura)** | `hack/cloud-validate.sh` 9/9; recomendación, aprobación, aplicación con SLO de latencia real y rollback (11/11 tras corregir un defecto que solo apareció en GKE); el autoescalador de GKE quitó un nodo tras el cambio: **0,067 USD/h menos a precio de lista (-33 %)**, medido en dos ventanas equivalentes de 20 min, no es una factura ([`docs/LAB.md`](docs/LAB.md) resultado 12) |
+| **Verificado después en AKS 1.36.5 real** | applier 27/27 en una sola ejecución, ciclo de vida de Helm 4/4 (`docs/LAB.md` resultados 14-16); Kubecost 2.8.7 deja de servir datos a los ~10 min (el cliente falla cerrado) |
+| **Pendiente / bloqueado** | validación en EKS y con una exportación FOCUS real (runbook y script de solo lectura listos: [`docs/CLOUD_VALIDATION.md`](docs/CLOUD_VALIDATION.md); falta TU cuenta de nube), Kubecost con datos frescos (Kubecost 2.8.7 gratuito se detuvo en cuatro corridas; **usa OpenCost**, que dio datos frescos 2 h en AKS: [`docs/LAB.md`](docs/LAB.md) resultado 18), tráfico de producción y semanas reales (una semana simulada de compradores pasó 4/4: resultado 19), afinar los valores por defecto con datos reales (`rightsize backtest` es la herramienta), emparejar nodos con filas FOCUS reales de Azure (las de GCP ya se probaron: resultado 22), multi-tenancy completo (hoy: política por namespace `policy.<ns>.yaml`), operador con varias réplicas bajo caída del API server |
+
+No se afirma ahorro garantizado ni paridad con otros productos. Un "ahorro" de requests no es un ahorro de infraestructura hasta que un nodo se libera (`docs/COST.md`).
 ## Comercialización y Soporte Enterprise
 
 KubeCost Auto-HPA cuenta con una suite completa para organizaciones y equipos de ingeniería que requieren soporte con SLA, consultoría y características avanzadas para producción:

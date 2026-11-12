@@ -1,0 +1,37 @@
+* [kubecost-gitops] minikube v1.39.0 en Microsoft Windows 11 Home Single Language 25H2
+* Using the docker driver based on user configuration
+* Using Docker Desktop driver with root privileges
+* Starting "kubecost-gitops" primary control-plane node in "kubecost-gitops" cluster
+* Pulling base image v0.0.51 ...
+* Preparando Kubernetes v1.33.4 en containerd 2.3.4...
+* Configurando CNI CNI ...
+* Verifying Kubernetes components...
+  - Using image gcr.io/k8s-minikube/storage-provisioner:v5
+* Complementos habilitados: storage-provisioner, default-storageclass
+
+applied Application, GitRepository, Kustomization
+== versions (recorded for COMPATIBILITY.md)
+== 1. both controllers manage a workload
+PASS  Argo CD: Synced/Healthy
+PASS  Flux: Kustomization applied
+marks written by Argo CD:  web-argo:apps/Deployment:gitops-demo/web-argo
+marks written by Flux:     {"kustomize.toolkit.fluxcd.io/name":"web-flux","kustomize.toolkit.fluxcd.io/namespace":"flux-system"}
+== 2. the tool detects both from the REAL marks and refuses
+PASS  web-argo: denied, managed by argocd
+PASS  web-flux: denied, managed by flux
+PASS  --execute on an Argo CD workload changed nothing
+== 3. why the refusal exists: a direct patch is reverted by the reconcilers
+patched both to 300m; waiting for the reconcilers
+PASS  Argo CD self-heal reverted the direct patch
+PASS  Flux reverted the direct patch at its interval
+== 4. the GitOps path: propose -> review/merge -> push -> the controllers apply it
+PASS  web-argo: proposal branch created (rightsize/deployment-web-argo-handmade-web-argo), working branch untouched
+PASS  web-argo: the YAML comment survived
+PASS  web-flux: proposal branch created (rightsize/deployment-web-flux-handmade-web-flux), working branch untouched
+PASS  web-flux: the YAML comment survived
+PASS  Argo CD applied the merged change (500m/128Mi -> 250m/64Mi)
+PASS  Flux applied the merged change
+PASS  the values persist (no reconciler fought them)
+PASS  the old recommendation is now stale/denied
+
+RESULT: 15 passed, 0 failed

@@ -1,0 +1,164 @@
+# Kubecost 2.8.7 (customPricesEnabled) and OpenCost side by side on one AKS 1.36.5 cluster, 2 h, 2026-11-11 (hack/aks-costsource.sh). Redacted.
+WARNING: Merged "kubecost-cs" as current context in C:\Proyectos\KubeCost_Auto_HPA\.claude\worktrees\kubecost-auto-hpa-prompt-91afa7\.lab\aks-costsource\kubeconfig
+== AKS v1.36.5, 1 x Standard_D4as_v4
+== workload shop/payments-api
+PASS  the workload runs
+== Kubecost 2.8.7, custom pricing (no cloud pricing API)
+PASS  Kubecost installed
+== Prometheus for OpenCost, then OpenCost
+PASS  OpenCost installed
+OpenCost image: ghcr.io/opencost/opencost:1.121.4@sha256:daa04ae48f17b830de941c3602563c5a01fabb13522ede1ba057f09e96613aaa
+== sampling both every 5 min for 2 h (end of the newest data served for shop/payments-api)
+kubecost 2026-11-11T18:38:43Z	NONE		
+opencost 2026-11-11T18:38:52Z	NONE		
+kubecost 2026-11-11T18:43:55Z	2026-11-11T18:45:00Z	-1.1	0.000570
+opencost 2026-11-11T18:43:56Z	2026-11-11T18:43:57Z	-0.0	0.000450
+kubecost 2026-11-11T18:48:58Z	2026-11-11T18:45:00Z	4.0	0.000570
+opencost 2026-11-11T18:49:00Z	2026-11-11T18:49:01Z	-0.0	0.001030
+kubecost 2026-11-11T18:54:03Z	2026-11-11T18:55:00Z	-0.9	0.001710
+opencost 2026-11-11T18:54:05Z	2026-11-11T18:54:05Z	0.0	0.001600
+kubecost 2026-11-11T18:59:07Z	2026-11-11T18:55:00Z	4.1	0.001710
+opencost 2026-11-11T18:59:09Z	2026-11-11T18:59:09Z	0.0	0.002180
+kubecost 2026-11-11T19:04:11Z	NONE		
+opencost 2026-11-11T19:04:13Z	2026-11-11T19:04:14Z	-0.0	0.000480
+kubecost 2026-11-11T19:09:22Z	NONE		
+opencost 2026-11-11T19:09:32Z	2026-11-11T19:09:31Z	0.0	0.001090
+kubecost 2026-11-11T19:14:33Z	NONE		
+opencost 2026-11-11T19:14:36Z	2026-11-11T19:14:36Z	0.0	0.001660
+kubecost 2026-11-11T19:19:37Z	NONE		
+opencost 2026-11-11T19:19:40Z	2026-11-11T19:19:40Z	0.0	0.002240
+kubecost 2026-11-11T19:24:41Z	NONE		
+opencost 2026-11-11T19:24:44Z	2026-11-11T19:24:44Z	0.0	0.002820
+kubecost 2026-11-11T19:29:46Z	NONE		
+opencost 2026-11-11T19:29:49Z	2026-11-11T19:29:49Z	0.0	0.003390
+kubecost 2026-11-11T19:34:50Z	NONE		
+opencost 2026-11-11T19:34:53Z	2026-11-11T19:34:53Z	0.0	0.003970
+kubecost 2026-11-11T19:39:55Z	NONE		
+opencost 2026-11-11T19:39:57Z	2026-11-11T19:39:58Z	-0.0	0.004550
+kubecost 2026-11-11T19:44:59Z	NONE		
+opencost 2026-11-11T19:45:01Z	2026-11-11T19:45:00Z	0.0	0.005120
+kubecost 2026-11-11T19:50:03Z	NONE		
+opencost 2026-11-11T19:50:06Z	2026-11-11T19:50:06Z	0.0	0.005700
+kubecost 2026-11-11T19:55:07Z	NONE		
+opencost 2026-11-11T19:55:10Z	2026-11-11T19:55:10Z	0.0	0.006280
+kubecost 2026-11-11T20:00:12Z	NONE		
+opencost 2026-11-11T20:00:14Z	NONE		
+kubecost 2026-11-11T20:05:16Z	NONE		
+opencost 2026-11-11T20:05:19Z	2026-11-11T20:05:19Z	0.0	0.000610
+kubecost 2026-11-11T20:10:20Z	NONE		
+opencost 2026-11-11T20:10:23Z	2026-11-11T20:10:23Z	0.0	0.001180
+kubecost 2026-11-11T20:15:25Z	NONE		
+opencost 2026-11-11T20:15:27Z	2026-11-11T20:15:28Z	-0.0	0.001760
+kubecost 2026-11-11T20:20:29Z	NONE		
+opencost 2026-11-11T20:20:32Z	2026-11-11T20:20:32Z	0.0	0.002340
+kubecost 2026-11-11T20:25:34Z	NONE		
+opencost 2026-11-11T20:25:36Z	2026-11-11T20:25:37Z	-0.0	0.002920
+kubecost 2026-11-11T20:30:38Z	NONE		
+opencost 2026-11-11T20:30:41Z	2026-11-11T20:30:41Z	0.0	0.003490
+kubecost 2026-11-11T20:35:42Z	NONE		
+opencost 2026-11-11T20:35:45Z	2026-11-11T20:35:45Z	0.0	0.004070
+== kubecost cadence summary
+samples 24, with data 4, missing 20
+age of the newest data (min): min -1.1, median 4.0, p95 4.1, max 4.1
+distinct data ends 2; minutes between successive ends: min 10.0, max 10.0
+== opencost cadence summary
+samples 24, with data 22, missing 2
+age of the newest data (min): min -0.0, median -0.0, p95 0.0, max 0.0
+distinct data ends 22; minutes between successive ends: min 5.0, max 10.2
+== Kubecost diagnostics
+NAME                                          READY   STATUS    RESTARTS   AGE    IP             NODE                                NOMINATED NODE   READINESS GATES
+kubecost-cost-analyzer-5674986795-4wvjm       4/4     Running   0          123m   10.244.0.84    aks-nodepool1-39511256-vmss000000   <none>           <none>
+kubecost-prometheus-server-67d644f4cf-qnvkq   1/1     Running   0          123m   10.244.0.250   aks-nodepool1-39511256-vmss000000   <none>           <none>
+     63 ERR error parsing window: error getting disks: compute.DisksClient#List: Failure responding to request: StatusCode=400 -- Original Error: autorest/azure: Service returne
+     61 WRN got error error getting disks: compute.DisksClient#List: Failure responding to request: StatusCode=400 -- Original Error: autorest/azure: Service returned an error. 
+     61 ERR error creating spot-ready workload distributions: error performing cluster sizing for spot-ready workload distribution: failed to recommend single pool cluster sizin
+     59 WRN got error error performing cluster sizing for spot-ready workload distribution: failed to recommend single pool cluster sizing: failed to find machine pool for vCPUs
+      9 RN got error error performing cluster sizing for spot-ready workload distribution: failed to recommend single pool cluster sizing: failed to find machine pool for vCPUs:
+      7 RR error creating spot-ready workload distributions: error performing cluster sizing for spot-ready workload distribution: failed to recommend single pool cluster sizing
+      7 RN got error error getting disks: compute.DisksClient#List: Failure responding to request: StatusCode=400 -- Original Error: autorest/azure: Service returned an error. S
+      6 RR error parsing window: error getting disks: compute.DisksClient#List: Failure responding to request: StatusCode=400 -- Original Error: autorest/azure: Service returned
+      1 R error creating spot-ready workload distributions: error performing cluster sizing for spot-ready workload distribution: failed to recommend single pool cluster sizing:
+      1 N got error error performing cluster sizing for spot-ready workload distribution: failed to recommend single pool cluster sizing: failed to find machine pool for vCPUs: 
+      1 N got error error getting disks: compute.DisksClient#List: Failure responding to request: StatusCode=400 -- Original Error: autorest/azure: Service returned an error. St
+== the client's live contract test against each, after 2 h
+FAIL  contract or freshness against kubecost
+    live_test.go:59: the documented contract did not hold against this installation: kubecost no_data: workload not present in allocation data
+PASS  contract and freshness against opencost
+    live_test.go:61: sample: total=0.004720 hourly=0.006832 minutes=41.5 windowEnd=2026-11-11 20:41:27 +0000 UTC age=0s
+== cadence-kubecost.tsv
+now_utc	data_end_utc	age_min	cost_usd_1h
+2026-11-11T18:38:43Z	NONE		
+2026-11-11T18:43:55Z	2026-11-11T18:45:00Z	-1.1	0.000570
+2026-11-11T18:48:58Z	2026-11-11T18:45:00Z	4.0	0.000570
+2026-11-11T18:54:03Z	2026-11-11T18:55:00Z	-0.9	0.001710
+2026-11-11T18:59:07Z	2026-11-11T18:55:00Z	4.1	0.001710
+2026-11-11T19:04:11Z	NONE		
+2026-11-11T19:09:22Z	NONE		
+2026-11-11T19:14:33Z	NONE		
+2026-11-11T19:19:37Z	NONE		
+2026-11-11T19:24:41Z	NONE		
+2026-11-11T19:29:46Z	NONE		
+2026-11-11T19:34:50Z	NONE		
+2026-11-11T19:39:55Z	NONE		
+2026-11-11T19:44:59Z	NONE		
+2026-11-11T19:50:03Z	NONE		
+2026-11-11T19:55:07Z	NONE		
+2026-11-11T20:00:12Z	NONE		
+2026-11-11T20:05:16Z	NONE		
+2026-11-11T20:10:20Z	NONE		
+2026-11-11T20:15:25Z	NONE		
+2026-11-11T20:20:29Z	NONE		
+2026-11-11T20:25:34Z	NONE		
+2026-11-11T20:30:38Z	NONE		
+2026-11-11T20:35:42Z	NONE		
+== contract-kubecost.log
+    live_test.go:59: the documented contract did not hold against this installation: kubecost no_data: workload not present in allocation data
+--- FAIL: TestLiveAllocationContract (0.61s)
+FAIL
+FAIL	github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/kubecost	6.685s
+FAIL
+== cadence-opencost.tsv
+now_utc	data_end_utc	age_min	cost_usd_1h
+2026-11-11T18:38:52Z	NONE		
+2026-11-11T18:43:56Z	2026-11-11T18:43:57Z	-0.0	0.000450
+2026-11-11T18:49:00Z	2026-11-11T18:49:01Z	-0.0	0.001030
+2026-11-11T18:54:05Z	2026-11-11T18:54:05Z	0.0	0.001600
+2026-11-11T18:59:09Z	2026-11-11T18:59:09Z	0.0	0.002180
+2026-11-11T19:04:13Z	2026-11-11T19:04:14Z	-0.0	0.000480
+2026-11-11T19:09:32Z	2026-11-11T19:09:31Z	0.0	0.001090
+2026-11-11T19:14:36Z	2026-11-11T19:14:36Z	0.0	0.001660
+2026-11-11T19:19:40Z	2026-11-11T19:19:40Z	0.0	0.002240
+2026-11-11T19:24:44Z	2026-11-11T19:24:44Z	0.0	0.002820
+2026-11-11T19:29:49Z	2026-11-11T19:29:49Z	0.0	0.003390
+2026-11-11T19:34:53Z	2026-11-11T19:34:53Z	0.0	0.003970
+2026-11-11T19:39:57Z	2026-11-11T19:39:58Z	-0.0	0.004550
+2026-11-11T19:45:01Z	2026-11-11T19:45:00Z	0.0	0.005120
+2026-11-11T19:50:06Z	2026-11-11T19:50:06Z	0.0	0.005700
+2026-11-11T19:55:10Z	2026-11-11T19:55:10Z	0.0	0.006280
+2026-11-11T20:00:14Z	NONE		
+2026-11-11T20:05:19Z	2026-11-11T20:05:19Z	0.0	0.000610
+2026-11-11T20:10:23Z	2026-11-11T20:10:23Z	0.0	0.001180
+2026-11-11T20:15:27Z	2026-11-11T20:15:28Z	-0.0	0.001760
+2026-11-11T20:20:32Z	2026-11-11T20:20:32Z	0.0	0.002340
+2026-11-11T20:25:36Z	2026-11-11T20:25:37Z	-0.0	0.002920
+2026-11-11T20:30:41Z	2026-11-11T20:30:41Z	0.0	0.003490
+2026-11-11T20:35:45Z	2026-11-11T20:35:45Z	0.0	0.004070
+== contract-opencost.log
+    live_test.go:61: sample: total=0.004720 hourly=0.006832 minutes=41.5 windowEnd=2026-11-11 20:41:27 +0000 UTC age=0s
+--- PASS: TestLiveAllocationContract (0.62s)
+ok  	github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/kubecost	5.079s
+== kubecost cost-model ERR/WRN counts (last 400 lines)
+NAME                                          READY   STATUS    RESTARTS   AGE    IP             NODE                                NOMINATED NODE   READINESS GATES
+kubecost-cost-analyzer-5674986795-4wvjm       4/4     Running   0          123m   10.244.0.84    aks-nodepool1-39511256-vmss000000   <none>           <none>
+kubecost-prometheus-server-67d644f4cf-qnvkq   1/1     Running   0          123m   10.244.0.250   aks-nodepool1-39511256-vmss000000   <none>           <none>
+     63 ERR error parsing window: error getting disks: compute.DisksClient#List: Failure responding to request: StatusCode=400 -- Original Error: autorest/azure: Service returne
+     61 WRN got error error getting disks: compute.DisksClient#List: Failure responding to request: StatusCode=400 -- Original Error: autorest/azure: Service returned an error. 
+     61 ERR error creating spot-ready workload distributions: error performing cluster sizing for spot-ready workload distribution: failed to recommend single pool cluster sizin
+     59 WRN got error error performing cluster sizing for spot-ready workload distribution: failed to recommend single pool cluster sizing: failed to find machine pool for vCPUs
+      9 RN got error error performing cluster sizing for spot-ready workload distribution: failed to recommend single pool cluster sizing: failed to find machine pool for vCPUs:
+      7 RR error creating spot-ready workload distributions: error performing cluster sizing for spot-ready workload distribution: failed to recommend single pool cluster sizing
+      7 RN got error error getting disks: compute.DisksClient#List: Failure responding to request: StatusCode=400 -- Original Error: autorest/azure: Service returned an error. S
+      6 RR error parsing window: error getting disks: compute.DisksClient#List: Failure responding to request: StatusCode=400 -- Original Error: autorest/azure: Service returned
+      1 R error creating spot-ready workload distributions: error performing cluster sizing for spot-ready workload distribution: failed to recommend single pool cluster sizing:
+      1 N got error error performing cluster sizing for spot-ready workload distribution: failed to recommend single pool cluster sizing: failed to find machine pool for vCPUs: 
+      1 N got error error getting disks: compute.DisksClient#List: Failure responding to request: StatusCode=400 -- Original Error: autorest/azure: Service returned an error. St

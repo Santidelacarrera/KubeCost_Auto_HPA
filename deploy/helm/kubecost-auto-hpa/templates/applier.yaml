@@ -1,0 +1,111 @@
+{{- $a := .Values.operator.recommendationApplier }}
+{{- if $a.enabled }}
+# OPT-IN. Everything in this file exists only when operator.recommendationApplier.enabled=true.
+# The applier changes workload requests, so its permissions are kept apart from the default role and, when
+# operator.recommendationApplier.namespaces is set, limited to those namespaces (Roles) instead of the whole cluster.
+{{- $name := include "kch.name" . }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}-applier-policy
+  labels: {{- include "kch.labels" . | nindent 4 }}
+data:
+  policy.yaml: |
+{{ $a.policy | indent 4 }}
+---
+# The recommendation objects: read everywhere (the controller watches them) and status written by the operator.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $name }}-applier-recommendations
+  labels: {{- include "kch.labels" . | nindent 4 }}
+rules:
+- apiGroups: [autoscaling.kubecost.io]
+  resources: [workloadrecommendations]
+  verbs: [get, list, watch]
+- apiGroups: [autoscaling.kubecost.io]
+  resources: [workloadrecommendations/status]
+  verbs: [get, update]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $name }}-applier-recommendations
+  labels: {{- include "kch.labels" . | nindent 4 }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: {{ $name }}-applier-recommendations}
+subjects:
+- {kind: ServiceAccount, name: {{ $name }}, namespace: {{ .Release.Namespace }}}
+---
+# The policy ConfigMap, by name only.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $name }}-applier-policy
+  labels: {{- include "kch.labels" . | nindent 4 }}
+rules:
+- apiGroups: [""]
+  resources: [configmaps]
+  resourceNames: [{{ $name }}-applier-policy]
+  verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $name }}-applier-policy
+  labels: {{- include "kch.labels" . | nindent 4 }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: {{ $name }}-applier-policy}
+subjects:
+- {kind: ServiceAccount, name: {{ $name }}, namespace: {{ .Release.Namespace }}}
+{{- /* workload permissions: per namespace when a list is given, cluster-wide otherwise */}}
+{{- if $a.namespaces }}
+{{- range $ns := $a.namespaces }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $name }}-applier-workloads
+  namespace: {{ $ns }}
+  labels: {{- include "kch.labels" $ | nindent 4 }}
+rules:
+- apiGroups: [apps]
+  resources: [deployments, statefulsets, daemonsets]
+  verbs: [get, list, update]
+- apiGroups: [autoscaling.k8s.io]
+  resources: [verticalpodautoscalers]
+  verbs: [list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $name }}-applier-workloads
+  namespace: {{ $ns }}
+  labels: {{- include "kch.labels" $ | nindent 4 }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: {{ $name }}-applier-workloads}
+subjects:
+- {kind: ServiceAccount, name: {{ $name }}, namespace: {{ $.Release.Namespace }}}
+{{- end }}
+{{- else }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $name }}-applier-workloads
+  labels: {{- include "kch.labels" . | nindent 4 }}
+rules:
+- apiGroups: [apps]
+  resources: [deployments, statefulsets, daemonsets]
+  verbs: [get, list, update]
+- apiGroups: [autoscaling.k8s.io]
+  resources: [verticalpodautoscalers]
+  verbs: [list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $name }}-applier-workloads
+  labels: {{- include "kch.labels" . | nindent 4 }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: {{ $name }}-applier-workloads}
+subjects:
+- {kind: ServiceAccount, name: {{ $name }}, namespace: {{ .Release.Namespace }}}
+{{- end }}
+{{- end }}

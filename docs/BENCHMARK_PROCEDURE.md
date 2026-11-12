@@ -25,7 +25,7 @@ must be reported with the cluster, versions and run count, and must not be mixed
 | Throughput and dropped/unserved requests | load generator |
 | Replicas over time, scale-up/down timestamps | `kube_deployment_status_replicas`, operator metrics, `kubectl get events` |
 | Time above target utilisation / pending pods / scheduling delay | Prometheus, `kube_pod_status_phase`, events |
-| Estimated cost for the run window | KubeCost `GET /model/allocation?window=<start>,<end>&aggregate=controller&accumulate=true` for each namespace |
+| Estimated cost for the run window | KubeCost `GET /model/allocation?window=<start>,<end>&aggregate=cluster,namespace,controllerKind,controller&accumulate=true` for each namespace |
 | Dependency health during the run | `kubecost_autoscaler_kubecost_api_errors_total`, `..._request_duration_seconds`, `..._metric_age_seconds`, `..._demand_metric_age_seconds` |
 | Recovery after each disturbance | `kubecost_autoscaler_recovery_duration_seconds` and time until A/B latency returns to baseline |
 

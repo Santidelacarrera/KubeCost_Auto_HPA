@@ -1,0 +1,130 @@
+# Kubecost chart 2.8.7 (free tier) on AKS 1.36.5, 1 x Standard_D4as_v4. hack/aks-kubecost.sh. Two runs on 2026-11-11, each on a fresh cluster.
+# Workload shop/payments-api (2 x nginx, 100m/64Mi). Sample every 5 min of /model/allocation?window=1h&aggregate=cluster,namespace,controllerKind,controller&accumulate=true
+
+################ aks-kubecost-run1
+== a workload to be priced
+PASS  the workload runs
+== Kubecost 2.8.7 (free tier; forecasting, Grafana and network costs off; 2.9.x refuses to install without a federated object store, it only prepares the move to 3.0 to fit the laptop VM)
+PASS  helm install of the real Kubecost chart succeeded
+== waiting until Kubecost has priced the workload (it needs a few scrapes and an allocation build)
+PASS  Kubecost's /model/allocation prices the workload (after 4 min)
+== the client's live contract test against it
+=== RUN   TestLiveAllocationContract
+FAIL
+FAIL	github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/kubecost	6.503s
+FAIL
+FAIL  live contract test PASSES against a real Kubecost
+RESULT: 3 passed, 1 failed
+    live_test.go:61: sample: total=0.000120 hourly=0.001440 minutes=5.0 windowEnd=2026-11-11 04:17:30 +0000 UTC age=-2m21s
+    live_test.go:72: sample failed freshness/coverage validation (max age 5m0s): kubecost stale: allocation covers 5.0 of 60.0 window minutes
+--- FAIL: TestLiveAllocationContract (0.45s)
+-- cadence (now, end of newest data served for the workload, age in min, cost of the 1h window USD)
+now_utc	data_end_utc	age_min	cost_usd_1h
+2026-11-11T04:15:10Z	2026-11-11T04:17:30Z	-2.3	0.000120
+2026-11-11T04:20:11Z	2026-11-11T04:17:30Z	2.7	0.000120
+2026-11-11T04:25:13Z	2026-11-11T04:25:00Z	0.2	0.000240
+2026-11-11T04:30:14Z	2026-11-11T04:25:00Z	5.2	0.000240
+2026-11-11T04:35:16Z	2026-11-11T04:25:00Z	10.3	0.000240
+2026-11-11T04:40:18Z	2026-11-11T04:25:00Z	15.3	0.000240
+2026-11-11T04:45:19Z	2026-11-11T04:25:00Z	20.3	0.000240
+2026-11-11T04:50:28Z	2026-11-11T04:25:00Z	25.5	0.000240
+2026-11-11T04:55:30Z	2026-11-11T04:25:00Z	30.5	0.000240
+2026-11-11T05:00:31Z	NONE		
+2026-11-11T05:05:32Z	NONE		
+2026-11-11T05:10:33Z	NONE		
+2026-11-11T05:15:35Z	NONE		
+2026-11-11T05:20:36Z	NONE		
+2026-11-11T05:25:37Z	NONE		
+2026-11-11T05:30:39Z	NONE		
+2026-11-11T05:35:40Z	NONE		
+2026-11-11T05:40:41Z	NONE		
+2026-11-11T05:45:43Z	NONE		
+2026-11-11T05:50:44Z	NONE		
+2026-11-11T05:55:45Z	NONE		
+2026-11-11T06:00:46Z	NONE		
+2026-11-11T06:05:47Z	NONE		
+2026-11-11T06:10:49Z	NONE		
+samples 24, with data 9, missing 15
+age of the newest data (min): min -2.3, median 10.3, p95 30.5, max 30.5
+distinct data ends 2; minutes between successive ends: min 7.5, max 7.5
+maxMetricAge must sit above the max age seen, or the operator freezes (fail closed) on this Kubecost.
+
+################ aks-kubecost
+== a workload to be priced
+PASS  the workload runs
+== Kubecost 2.8.7 (free tier; forecasting, Grafana and network costs off; 2.9.x refuses to install without a federated object store, it only prepares the move to 3.0 to fit the laptop VM)
+PASS  helm install of the real Kubecost chart succeeded
+== waiting until Kubecost has priced the workload (it needs a few scrapes and an allocation build)
+PASS  Kubecost's /model/allocation prices the workload (after 4 min)
+== the client's live contract test against it
+=== RUN   TestLiveAllocationContract
+FAIL
+FAIL	github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/kubecost	4.918s
+FAIL
+FAIL  live contract test PASSES against a real Kubecost
+RESULT: 3 passed, 1 failed
+    live_test.go:61: sample: total=0.000120 hourly=0.001440 minutes=5.0 windowEnd=2026-11-11 14:17:30 +0000 UTC age=-1m46s
+    live_test.go:72: sample failed freshness/coverage validation (max age 5m0s): kubecost stale: allocation covers 5.0 of 60.0 window minutes
+--- FAIL: TestLiveAllocationContract (0.55s)
+-- cadence (now, end of newest data served for the workload, age in min, cost of the 1h window USD)
+now_utc	data_end_utc	age_min	cost_usd_1h
+2026-11-11T14:15:46Z	2026-11-11T14:17:30Z	-1.7	0.000120
+2026-11-11T14:20:48Z	2026-11-11T14:17:30Z	3.3	0.000120
+2026-11-11T14:25:51Z	2026-11-11T14:17:30Z	8.4	0.000120
+2026-11-11T14:30:53Z	2026-11-11T14:25:00Z	5.9	0.000240
+2026-11-11T14:35:55Z	2026-11-11T14:25:00Z	10.9	0.000240
+2026-11-11T14:40:58Z	2026-11-11T14:25:00Z	16.0	0.000240
+2026-11-11T14:46:04Z	2026-11-11T14:25:00Z	21.1	0.000240
+2026-11-11T14:51:07Z	2026-11-11T14:25:00Z	26.1	0.000240
+2026-11-11T14:56:09Z	2026-11-11T14:25:00Z	31.2	0.000240
+2026-11-11T15:01:11Z	NONE		
+2026-11-11T15:06:14Z	NONE		
+2026-11-11T15:11:17Z	NONE		
+2026-11-11T15:16:27Z	NONE		
+2026-11-11T15:21:30Z	NONE		
+2026-11-11T15:26:33Z	NONE		
+2026-11-11T15:31:37Z	NONE		
+2026-11-11T15:36:39Z	NONE		
+2026-11-11T15:41:42Z	NONE		
+2026-11-11T15:46:45Z	NONE		
+2026-11-11T15:51:48Z	NONE		
+2026-11-11T15:56:52Z	NONE		
+2026-11-11T16:01:55Z	NONE		
+2026-11-11T16:06:58Z	NONE		
+2026-11-11T16:12:01Z	NONE		
+samples 24, with data 9, missing 15
+age of the newest data (min): min -1.7, median 10.9, p95 31.2, max 31.2
+distinct data ends 2; minutes between successive ends: min 7.5, max 7.5
+maxMetricAge must sit above the max age seen, or the operator freezes (fail closed) on this Kubecost.
+-- first two samples without data (HTTP code, body, Kubecost pods)
+== 2026-11-11T15:01:11Z http=200
+{"code":200,"data":[null]}
+kubecost-cost-analyzer-5877d78bdf-lnl2v      4/4   Running   0     50m
+kubecost-prometheus-server-9774c794f-jhzx5   1/1   Running   0     50m
+== 2026-11-11T15:06:14Z http=200
+{"code":200,"data":[null]}
+kubecost-cost-analyzer-5877d78bdf-lnl2v      4/4   Running   0     55m
+kubecost-prometheus-server-9774c794f-jhzx5   1/1   Running   0     55m
+-- every one of the 15 samples without data had http=200: 15
+-- end of run
+== Kubecost pods at the end
+NAME                                         READY   STATUS    RESTARTS   AGE    IP            NODE                                NOMINATED NODE   READINESS GATES
+kubecost-cost-analyzer-5877d78bdf-lnl2v      4/4     Running   0          125m   10.244.0.9    aks-nodepool1-31780369-vmss000000   <none>           <none>
+kubecost-prometheus-server-9774c794f-jhzx5   1/1     Running   0          125m   10.244.0.80   aks-nodepool1-31780369-vmss000000   <none>           <none>
+Allocated resources:
+  (Total limits may be over 100 percent, i.e., overcommitted.)
+  Resource           Requests      Limits
+  --------           --------      ------
+  cpu                1337m (34%)   9642m (249%)
+  memory             1232Mi (10%)  12755232Ki (105%)
+  ephemeral-storage  0 (0%)        0 (0%)
+-- cost-model log, distinct ERR/WRN messages (first 160 chars) and counts in the last 60 lines
+      7 ERR error creating spot-ready workload distributions: error performing cluster sizing for spot-ready workload distribution: failed to recommend single pool clu
+      9 ERR error parsing window: error getting disks: compute.DisksClient#List: Failure responding to request: StatusCode=400 -- Original Error: autorest/azure: Servi
+      1 RN got error error performing cluster sizing for spot-ready workload distribution: failed to recommend single pool cluster sizing: failed to find machine pool 
+      2 RR error creating spot-ready workload distributions: error performing cluster sizing for spot-ready workload distribution: failed to recommend single pool clus
+      9 WRN got error error getting disks: compute.DisksClient#List: Failure responding to request: StatusCode=400 -- Original Error: autorest/azure: Service returned 
+      8 WRN got error error performing cluster sizing for spot-ready workload distribution: failed to recommend single pool cluster sizing: failed to find machine pool
+-- contract test again after 2 h
+    live_test.go:59: the documented contract did not hold against this installation: kubecost no_data: workload not present in allocation data
+--- FAIL: TestLiveAllocationContract (0.63s)

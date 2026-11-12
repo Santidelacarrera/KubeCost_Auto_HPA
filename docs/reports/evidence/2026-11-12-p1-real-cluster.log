@@ -1,0 +1,88 @@
+# P1 features on a real cluster (minikube, kubecost-lab), 2026-11-12. .lab/multi/run.sh. Redacted.
+## run 1 (found the audit-chain defect; the generation check was wrong)
+PASS  keygen
+id 3aed200951a3b836 abstained False confidence Medium
+  app cpu Decrease 0.5 -> 0.25 mem Decrease 268435456 -> 134217728
+  proxy cpu Decrease 0.3 -> 0.15 mem Decrease 134217728 -> 67108864
+PASS  one record holds both containers
+PASS  an unsigned approval is refused by requireSignedApproval
+PASS  signed approval written
+e73d117cd85823a8:
+
+apply exit 0; generation 2 -> 4; requests now: app=250m/128Mi proxy=150m/64Mi 
+FAIL  one spec update (generation 2 -> 4)
+PASS  app requests changed
+FAIL  audit chain verifies
+error: the audit chain is broken at line 5: the event's hash does not match its content (the line was edited)
+PASS  an edited audit line is detected ("FirstBreak": 2)
+PASS  report in Prometheus format
+kubecost_audit_recommendations{outcome="evaluated"} 1
+kubecost_audit_recommendations{outcome="allowed"} 1
+kubecost_audit_recommendations{outcome="denied"} 1
+kubecost_audit_recommendations{outcome="applied"} 1
+kubecost_audit_recommendations{outcome="verified"} 1
+kubecost_audit_recommendations{outcome="degraded"} 0
+kubecost_audit_recommendations{outcome="rolled_back"} 0
+kubecost_audit_recommendations{outcome="failed"} 0
+kubecost_audit_acceptance_ratio 1
+kubecost_audit_rollback_ratio 0
+kubecost_audit_estimated_monthly_usd{state="kept"} 0
+kubecost_audit_estimated_monthly_usd{state="pending"} 0
+kubecost_audit_estimated_monthly_usd{state="rolled_back"} 0
+
+RESULT: 8 passed, 2 failed
+
+## run 2 (after the fix, commit 2f4051a)
+PASS  keygen
+id c7d292bf8f9ec835 abstained False confidence Medium
+  app cpu Decrease 0.5 -> 0.25 mem Decrease 268435456 -> 134217728
+  proxy cpu Decrease 0.3 -> 0.15 mem Decrease 134217728 -> 67108864
+PASS  one record holds both containers
+PASS  an unsigned approval is refused by requireSignedApproval
+PASS  signed approval written
+a7e917f872095b82:
+
+apply exit 0; ReplicaSets 1 -> 2; requests now: app=250m/128Mi proxy=150m/64Mi 
+PASS  both containers changed in ONE rollout (one new ReplicaSet)
+PASS  app requests changed
+PASS  audit chain verifies
+PASS  an edited audit line is detected ("FirstBreak": 2)
+PASS  report in Prometheus format
+kubecost_audit_recommendations{outcome="evaluated"} 1
+kubecost_audit_recommendations{outcome="allowed"} 1
+kubecost_audit_recommendations{outcome="denied"} 1
+kubecost_audit_recommendations{outcome="applied"} 1
+kubecost_audit_recommendations{outcome="verified"} 1
+kubecost_audit_recommendations{outcome="degraded"} 0
+kubecost_audit_recommendations{outcome="rolled_back"} 0
+kubecost_audit_recommendations{outcome="failed"} 0
+kubecost_audit_acceptance_ratio 1
+kubecost_audit_rollback_ratio 0
+kubecost_audit_estimated_monthly_usd{state="kept"} 0
+kubecost_audit_estimated_monthly_usd{state="pending"} 0
+kubecost_audit_estimated_monthly_usd{state="rolled_back"} 0
+
+RESULT: 10 passed, 0 failed
+## audit-verify (run 2)
+{
+  "Lines": 6,
+  "Chained": 6,
+  "Unchained": 0,
+  "FirstBreak": 0,
+  "Problem": "",
+  "LastHash": "412b596e3f1f70164705cf473474c4da4ec575693d4fd8a795a01324c68f0558"
+}
+## policy (run 2; public key only)
+allowNamespaces: [multi]
+maxChangeFraction: 0.8
+minConfidence: Low
+requireSignedApproval: true
+approverKeys:
+  a7e917f872095b82: |
+    -----BEGIN PUBLIC KEY-----
+    MCowBQYDK2VwAyEAhUvzjvaxTkBABYaVkbW59zDyoyacEz/kbMMfFluht84=
+    -----END PUBLIC KEY-----
+## kubectl get rs
+NAME             DESIRED   CURRENT   READY   AGE
+web-76fb49db9d   0         0         0       13m
+web-84dc75bdf5   2         2         2       2m33s
