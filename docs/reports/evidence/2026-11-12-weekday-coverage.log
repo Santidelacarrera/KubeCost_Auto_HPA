@@ -1,0 +1,9 @@
+# 2026-11-12 weekday coverage check on the real GKE soak (cluster started 2026-11-10T19:37Z, a Tuesday)
+$ rightsize plan --context <ctx> --prometheus-url http://localhost:9091 --namespace lab --workload shop --container app --window 168h
+abstained False confidence Medium samples 1968 window 2026-11-05T12:39:10.9153867Z -> 2026-11-12T12:39:10.9153867Z
+risk: the window has data for less than half of the hours of Monday, Tuesday, Friday, Saturday, Sunday: weekly seasonality is not fully observed
+risk: memory reductions can cause OOMKilled; apply behind a canary and watch restarts
+CPU Decrease 0.5 -> 0.25
+Memory Decrease 134217728 -> 67108864
+# Expected: data only from Tue 19:37 UTC to Thu 12:39 UTC; Tuesday (4 of 24+ h), Fri, Sat, Sun, Mon have no data.
+# Before this change, a 7-day window raised no seasonality caveat at all, whatever the data covered.

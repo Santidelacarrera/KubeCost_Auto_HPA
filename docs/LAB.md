@@ -392,3 +392,15 @@ Setup:
   * Retention longer than the lab's 24 h.
   * The collector under load or in high availability: it is a single replica that answers 2xx only after storing, so a sender's retry covers its outages, up to the sender's queue of 1024 events.
   * MinIO's emptyDir data does not outlive the namespace: a lab-only choice.
+
+## Result 24: weekday coverage on the real GKE soak history (`rightsize plan --window 168h`)
+
+Evidence: `evidence/2026-11-12-weekday-coverage.log` (redacted). The soak cluster has had data since Tuesday 2026-11-10 19:37 UTC. A 7-day plan run on Thursday 2026-11-12 at 12:39 UTC returned:
+
+* confidence **Medium**;
+* the risk "the window has data for less than half of the hours of Monday, Tuesday, Friday, Saturday, Sunday: weekly seasonality is not fully observed". These are exactly the days with no data, or only 4 hours of it.
+
+Before this check, a window of exactly 7 days raised no seasonality caveat, whatever its data covered.
+
+* **A defect found in the day-7 script**: `hack/gke-soak.sh report` passed `--window 7d` to `backtest`. Go durations have no `d` unit, so the day-7 backtest would have failed. It now passes `168h`.
+* **What this does not prove**: that the threshold, half of a weekday's hours, is the right one, or that a full week of real traffic has no weekday effect. The day-7 report on 2026-11-17 runs the same plan on a complete week.
