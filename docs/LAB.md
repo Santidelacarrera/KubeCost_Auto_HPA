@@ -297,6 +297,39 @@ Evidence: `evidence/2026-11-11-aks-cost-sources.log` (redacted). 2026-11-11, one
 * **Kubecost 2.8.7 stalled again, identically**: its first data, then nothing about 10 minutes later, HTTP 200 with an empty body, healthy pods. This is the fourth reproduction (result 11 on minikube, result 16 twice). Custom pricing did **not** stop the Azure calls: the cost-model still logged `compute.DisksClient#List ... InvalidSubscriptionId` (63 errors in its last 400 log lines) and the spot-sizing error, so this run neither confirms nor rules out that error as the cause. What is established: Kubecost 2.8.7 free tier, installed from its chart with defaults (with or without custom pricing), does not keep serving allocation data on AKS.
 * **OpenCost served fresh data for the whole 2 hours and passed the contract.** It is the open-source cost model Kubecost is built on and answers the same `/model/allocation` API, so the operator reads it with no code change.
 * **A client defect found by this run and fixed**: the client asked for `window=1h`. Kubecost and OpenCost share one window parser (opencost `core/pkg/opencost/window.go`) that rounds a duration window forward to its unit, so `1h` is the **current clock hour**, not the last 60 minutes. The data shows it: OpenCost's cost for the workload grew within each hour and dropped back at 19:04 and 20:05, and the sample at 20:00:14 had no allocation for the workload at all. With the default `minCoverage 0.5` the operator would have refused every sample in the first half of every hour. The client now always sends whole minutes (`60m` = the last 60 minutes, ending at the next whole minute); unit and contract tests updated.
-* Not shown: the fix against a live server (to be checked on the minikube lab, see the changelog), Kubecost 2.9.x/3.x or with a real Azure integration, OpenCost pricing accuracy against an Azure invoice.
+* **The fix, verified live** (2026-11-12, OpenCost with its own Prometheus on the minikube lab, workload `lab/shop`, `.lab/opencost-window/`): at 00:10:35 UTC, ten minutes into the hour, `window=1h` returned the allocation from 00:00:00 to 00:10:34 (**10.57 minutes**, which the operator's coverage check would refuse) and `window=60m` returned 23:11:00 to 00:10:00 (**59 minutes**). The client's live contract test, which now sends `60m`, PASSED at that moment (minutes 59.0, age 46 s). Chosen on purpose: before half past the hour is exactly when the old request failed.
+* Not shown: Kubecost 2.9.x/3.x or with a real Azure integration, OpenCost pricing accuracy against an Azure invoice.
 
 **Recommendation now in the docs: use OpenCost (or Prometheus-based pricing) as the live cost source; do not use Kubecost 2.8.7 free tier installed from its chart defaults.**
+
+## Result 19: the recommender against simulated shoppers, a compressed week (`hack/lab-synthetic-users.sh`, minikube): 4 passed, 0 failed
+
+Evidence: `evidence/2026-11-12-synthetic-users.log` (redacted). 2026-11-11/12, the minikube lab, Deployment `lab/shop` (2 replicas, 1 CPU / 256 MiB requests, a real HTTP latency histogram) and `lab/users`, a generator of shopper sessions over several routes with a daily and a weekly cycle and random flash sales. One simulated day = 60 minutes, 7 days = 7 hours. Only that history was given to the recommender.
+
+* **Backtest (trained on the history before the last 2 simulated days, tested on those 2, unseen)**: CPU, the default p95 + 15% gives 0.42 cores, exceeded **0%** of the test samples, peak ratio 0.96 (the unseen peak was 96% of the recommendation). Memory, the same default gives 16.0 MiB, **exceeded 2.9%** of the test samples and the unseen peak was 1.35x the recommendation; p99 + 15% gave 0% exceeded, peak ratio 0.89. Takeaway: on this load the CPU default holds, the memory default is tight; memory has limits (the change keeps them), but a request below real use means the scheduler packs pods tighter than they need.
+* **Plan, apply and observe (run 3)**: the recommender (production minimums, 200 samples) gave Medium confidence, CPU 1 -> 0.5, memory 256 -> 128 MiB (limits kept). Applied with the SLO on the store's real latency (p95 > 250 ms or 5xx > 1% breaches) and observed for 60 minutes, one full simulated day: **kept, verified** (audit: `decision`, `applied`, `verified` after 1h0m). p95 over one simulated day **86 ms before, 75 ms after**; CPU throttled periods 0.96%; 0 restarts. 4 PASS, 0 FAIL.
+* **Two runs that do not count, and why**:
+  * Run 1 abstained (Low confidence): the production minimum history is 24 h, and the compressed week is 7 h. Correct behaviour. The script now uses one simulated day as the minimum window (`MIN_WINDOW`).
+  * Run 2 applied the same change, but its apply call was broken because I edited the script while bash was still reading it (bash reads scripts incrementally), so it ran **without the SLO arguments**. Not a valid result. The store was restored to 1 CPU / 256 MiB, the annotations removed, and run 3 ran from a frozen copy of the script.
+* **Gaps in this run**: the error ratio is `nan` before and after (the 5xx query returned no series; the generator saw no 5xx, but "no errors" is not measured by this run), and no flash sale fell inside the observation hour, so the change was not tested against a burst after it was applied (bursts were in the training history and the backtest).
+* What it is not: real users or real weeks. A compressed, generated week answers "does the recommender survive bursty, cyclic, multi-route load", not "are the defaults right for production". P0 item 1 stays open.
+
+## Result 20: the ninth-pass features on a real cluster (`.lab/multi/run.sh`, minikube): 10 passed, 0 failed after one defect fixed
+
+Evidence: `evidence/2026-11-12-p1-real-cluster.log`. 2026-11-12, the minikube lab (Kubernetes 1.36, its Prometheus), namespace `multi`, Deployment `web` with two containers: `app` (500m/256Mi, busy) and `proxy` (300m/128Mi, idle sidecar), 2 replicas, 15 minutes of history. Each step used the CLI built from this branch.
+
+| Check | Run 1 | Run 2 (after the fix) |
+|---|---|---|
+| `rightsize keygen` | PASS | PASS |
+| `plan --container app,proxy` gives ONE record (app 500m->250m, 256->128 MiB; proxy 300m->150m, 128->64 MiB; Medium) | PASS | PASS |
+| policy `requireSignedApproval`: an unsigned approval is refused | PASS | PASS |
+| `approve --sign-key` writes the signature annotation; apply accepted under the same policy | PASS | PASS |
+| both containers changed in ONE rollout | FAIL, a wrong check (see below) | **PASS**: one new ReplicaSet |
+| requests changed and kept through a 2-minute observation | PASS | PASS |
+| `audit-verify` on the real audit file | **FAIL: a real defect** | **PASS** |
+| an edited line is detected | PASS (line 2) | PASS (line 2) |
+| `report --format prometheus` | PASS | PASS |
+
+* **Defect found here and fixed (commit 2f4051a)**: every real `applied` event failed `audit-verify`. Its details hold the previous resources as a typed map of structs, whose JSON keys follow the struct order; a reader decodes into `map[string]any` and re-encodes them sorted, so the hash could never match. The unit test had used plain integers in the details. The chain now hashes each event in its decoded form, and the test uses the executor's real detail types.
+* Run 1's "one spec update" check was wrong, not the product: a Deployment's `metadata.generation` also increases on annotation writes (the approval and the applied markers), so it went 2 -> 4. Rollouts are now counted as new ReplicaSets: exactly one (`kubectl get rs` in the evidence).
+* Not covered: the operator's applier with a signed `status.approval` (the CLI path ran; the operator path is unit-tested), `--audit-url` against a real collector, `propose --open-pr` against GitHub, the FOCUS adapters on a real export with node rows.

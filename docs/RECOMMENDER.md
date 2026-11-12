@@ -40,6 +40,11 @@ Samples are all (pod, step) values in the window. Percentiles use linear interpo
 Every record contains the formula with the numbers substituted, the stats (p50/p90/p95/p99/max/CV), the config used, the window, the sample count,
 risks, conditions and a deterministic ID (cluster, kind, workload, container, window end).
 
+**Several containers of one pod** (`rightsize plan --container app,proxy`): each container is recommended on its own, then combined into ONE record (the first container is the
+primary; the others are in `Additional`). The combined record is only as confident as its weakest container, abstains only if all abstain, and has its own ID. The policy judges every
+container it changes (unchanged ones are not judged), the executor checks each one against the live template and writes all of them in a single update, so the pods restart once and a
+rollback restores the whole pod. Records without `Additional` are exactly the old single-container format.
+
 ## Tuning the defaults on your own data: `rightsize backtest`
 
 The defaults are starting values. `rightsize backtest --prometheus-url ... --namespace ns --workload w --container c --window 336h --holdout 24h` replays a grid of (percentile, headroom) settings:

@@ -65,12 +65,31 @@ One JSON object per line (stderr always, plus `--audit-file`): `decision`, `dry_
 each with time, actor, recommendation ID, target and details (previous values, reasons). No secrets are written. The audit file is only as tamper-proof as its storage;
 ship it to append-only storage in production. The previous state is also kept in annotations on the Deployment.
 
+Since the ninth pass `--audit-file` is **hash-chained**: each event carries `prev` (the previous event's hash) and `hash` (SHA-256 over `prev` and the event), and a new run continues the
+chain of the existing file. `rightsize audit-verify --audit-file f` reports the first line that was edited, deleted, reordered or inserted (lines written before chaining are accepted only
+at the start). A file can still be truncated at its end or replaced whole by whoever can write it, so for an audit trail that must hold up, also ship the events off the machine:
+`--audit-url https://collector/... [--audit-token-file t]` POSTs each event as JSON to an append-only collector (a log store, or a writer to a WORM / object-lock bucket). The sender never
+blocks the command, retries each event, and reports at exit how many it could not deliver. The operator's applier does the same with `--audit-url` / `--audit-token-file`
+(chart: `operator.recommendationApplier.auditURL` and `auditTokenSecret: {name, key}`; https only), in addition to the Kubernetes Events it always writes.
+
+
+## Signed approvals (optional, `requireSignedApproval`)
+
+`rightsize keygen --out alice` writes `alice.key` (Ed25519, PKCS#8, mode 0600: it stays with the approver and never enters the cluster) and `alice.pub`, and prints the key ID.
+`rightsize approve --sign-key alice.key` (also with `--cr`) signs `kubecost-rightsize-approval/v1`, the recommendation ID, the target `namespace/kind/name`, the SHA-256 of the full record,
+the approver's username (from SelfSubjectReview) and the approval time, and stores `<keyID>:<signature>` in `autoscaling.kubecost.io/approval-signature` (or `status.approval.signature`).
+
+With `requireSignedApproval: true` and `approverKeys: {<keyID>: <public key, PEM or base64>}` in the policy, an approval counts only if its signature verifies with a listed key.
+Refused: an unsigned approval, an unknown key, a key whose ID does not match its map entry, a forged `approved-by` or `approved-at`, and an approval of another record that reuses the ID.
+For a combined (multi-container) record the signature covers the whole record. Verified: unit tests and an end-to-end test on the fake clientset (`internal/approval`, `internal/execute/chain_test.go`);
+see docs/LAB.md for the run on a real cluster.
+
 ## Known limits
 
 * The change is a normal rolling update of the workload (no canary beyond the observation window).
 * The rate limit counts workloads with a recent `last-applied-at`; several changes to one workload within the window count once.
 * Without an SLO query only Kubernetes-level signals are watched (no latency or error rate).
-* Approval is an annotation: anyone with `update` on the workload can write it, including a forged `approved-by`. `rightsize approve` takes the name from the API server, and the Kubernetes audit log of the writer is the authoritative record; restrict `update` with RBAC (`deploy/rbac/rightsize.yaml`, proven in docs/LAB.md result 4).
+* Approval is an annotation (or `status.approval`): anyone with `update` on the object can write it, including a forged `approved-by`, unless the policy sets `requireSignedApproval` (below). `rightsize approve` takes the name from the API server, and the Kubernetes audit log of the writer is the authoritative record; restrict `update` with RBAC (`deploy/rbac/rightsize.yaml`, proven in docs/LAB.md result 4).
 * The actor in the tool's own audit log is the OS user (or `--actor`); it is not authenticated. The approver identity is.
 * OnDelete update strategies are refused. For DaemonSets the replica-count check is disabled (the desired count follows the node count).
 * Not a controller: nothing is applied unless a person runs the command.

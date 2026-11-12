@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"errors"
 	"flag"
@@ -19,6 +20,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	v1alpha1 "github.com/santidelacarrera/kubecost_auto_hpa/operator/api/v1alpha1"
@@ -27,6 +29,7 @@ import (
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/config"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/controller"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/engine"
+	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/execute"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/execution"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/httpx"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/kubecost"
@@ -52,7 +55,7 @@ func main() {
 		leaderElect, spotDrain, observeOnly, applier                                               bool
 		cpuPrice, memPrice                                                                         float64
 		drainTimeout, applierMaxObserve                                                            time.Duration
-		applierPolicy                                                                              string
+		applierPolicy, auditURL, auditTokenFile                                                    string
 	)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "Address of the metrics endpoint.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "Address of the probe endpoint.")
@@ -70,6 +73,8 @@ func main() {
 	flag.BoolVar(&applier, "enable-recommendation-applier", false, "Run the controller that applies APPROVED WorkloadRecommendations under a policy ConfigMap. Off by default; honours --observe-only.")
 	flag.StringVar(&applierPolicy, "applier-policy-configmap", "", "namespace/name of the ConfigMap holding the applier policy (key policy.yaml). Required with the applier; without it nothing is applied.")
 	flag.DurationVar(&applierMaxObserve, "applier-max-observe", 15*time.Minute, "Upper bound for the post-change observation window.")
+	flag.StringVar(&auditURL, "audit-url", envOr("AUDIT_URL", ""), "Also POST every applier audit event as JSON to this append-only collector (https). Empty: Kubernetes Events only.")
+	flag.StringVar(&auditTokenFile, "audit-token-file", "", "File with a bearer token for --audit-url.")
 	flag.BoolVar(&spotDrain, "enable-spot-drain", true, "Cordon/drain Spot nodes with interruption signals.")
 	flag.DurationVar(&drainTimeout, "drain-timeout", 2*time.Minute, "Maximum time to drain a node.")
 	var promHTTP, kcHTTP, engHTTP, redisTLS httpx.Options
@@ -225,8 +230,34 @@ func main() {
 			log.Error(err, "unable to create the dynamic client")
 			os.Exit(1)
 		}
+		var extra execute.Sink
+		if auditURL != "" {
+			if !strings.HasPrefix(auditURL, "https://") {
+				log.Error(errors.New("--audit-url must be https"), "refusing to ship audit events in clear text")
+				os.Exit(1)
+			}
+			tok := ""
+			if auditTokenFile != "" {
+				b, err := os.ReadFile(auditTokenFile)
+				if err != nil {
+					log.Error(err, "cannot read --audit-token-file")
+					os.Exit(1)
+				}
+				tok = strings.TrimSpace(string(b))
+			}
+			hs := execute.NewHTTPSink(auditURL, tok, nil)
+			extra = hs
+			_ = mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
+				<-ctx.Done()
+				if err := hs.Close(); err != nil {
+					log.Error(err, "audit shipping")
+				}
+				return nil
+			}))
+		}
 		if err := (&controller.RecommendationApplier{
-			Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), KC: cs, Dyn: dyn, Recorder: mgr.GetEventRecorderFor("kubecost-recommendation-applier"),
+			AuditExtra: extra,
+			Client:     mgr.GetClient(), APIReader: mgr.GetAPIReader(), KC: cs, Dyn: dyn, Recorder: mgr.GetEventRecorderFor("kubecost-recommendation-applier"),
 			PolicyNamespace: ns, PolicyName: name, ObserveOnly: observeOnly, MaxObserve: applierMaxObserve, MaxRollout: applierMaxObserve,
 			Prom: &promsrc.Client{BaseURL: promURL, HTTP: mustClient("prometheus", promHTTP, 10*time.Second)},
 		}).SetupWithManager(mgr); err != nil {

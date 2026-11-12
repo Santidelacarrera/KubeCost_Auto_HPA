@@ -11,6 +11,9 @@
 set -u
 CTX="${CTX:-kubecost-lab}"; PROM="${PROM:-http://localhost:9090}"; PERIOD_MIN="${PERIOD_MIN:-60}"; DAYS="${DAYS:-7}"
 HOLDOUT="${HOLDOUT:-$((PERIOD_MIN * 2))m}"
+# The production minimum history is 24 h, i.e. ONE real day. Here one simulated day lasts PERIOD_MIN minutes, so the analogue of that
+# minimum is one simulated day. Without this the recommender rightly abstains on the 7 h window (first run, 2026-11-11).
+MIN_WINDOW="${MIN_WINDOW:-${PERIOD_MIN}m}"
 HERE="$(cd "$(dirname "$0")/.." && pwd)"; LAB="$HERE/.lab/synthetic-users"; mkdir -p "$LAB"
 K="kubectl --context $CTX"
 [ "$CTX" = "kubecost-lab" ] || [ "${ALLOW_CTX:-}" = "1" ] || { echo "refusing context '$CTX'"; exit 2; }
@@ -51,9 +54,10 @@ head -c 4000 "$LAB/backtest.json"; echo; head -c 400 "$LAB/backtest.err"
 
 echo "== 2. plan from the whole history (production minimums: 200 samples), apply with the SLO, observe through a peak"
 "$RS" plan --context "$CTX" --prometheus-url "$PROM" --namespace lab --workload shop --container app \
-  --window "$((PERIOD_MIN * DAYS))m" --step 30s --min-samples 200 > "$LAB/rec.json" 2> "$LAB/plan.err"
+  --window "$((PERIOD_MIN * DAYS))m" --step 30s --min-samples 200 --min-window "$MIN_WINDOW" > "$LAB/rec.json" 2> "$LAB/plan.err"
 python -c "import json,sys; r=json.load(open(sys.argv[1])); print('abstained', r['Abstained'], 'confidence', r['Confidence'], 'cpu', r['CPU'].get('Current'), '->', r['CPU'].get('Recommended'), 'mem', r['Memory'].get('Current'), '->', r['Memory'].get('Recommended'), 'reasons', r.get('Reasons') or r.get('AbstainReasons'))" "$LAB/rec.json" 2>&1 | tee "$LAB/rec-summary.txt"
-check "the recommender produced a recommendation (not abstained)" "python -c \"import json,sys; sys.exit(1 if json.load(open('$LAB/rec.json'))['Abstained'] else 0)\""
+# the path goes through argv: Git Bash translates /c/... paths in arguments, not inside the -c code string
+check "the recommender produced a recommendation (not abstained)" "python -c \"import json,sys; sys.exit(1 if json.load(open(sys.argv[1]))['Abstained'] else 0)\" '$LAB/rec.json'"
 BEFORE_P95=$(q "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{$SEL}[${PERIOD_MIN}m])))")
 BEFORE_ERR=$(q "sum(increase(http_requests_total{$SEL,code!=\"200\"}[${PERIOD_MIN}m])) / sum(increase(http_requests_total{$SEL}[${PERIOD_MIN}m]))")
 BEFORE_REQ=$($K -n lab get deploy shop -o jsonpath='{.spec.template.spec.containers[0].resources.requests.cpu}/{.spec.template.spec.containers[0].resources.requests.memory}')

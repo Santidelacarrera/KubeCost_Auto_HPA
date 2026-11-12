@@ -52,14 +52,19 @@ Both are unit-tested and ran on the lab with an estimated basis; nothing was com
 
 ## FOCUS billing exports
 
-`rightsize cost --billing-file export.csv --billing-format focus` reads a FOCUS CSV (`ResourceId`, `BilledCost`, `ChargePeriodStart`, `ChargePeriodEnd`, and optionally `BillingCurrency`, `ChargeCategory`).
-Only `Usage` rows become cost; credits, taxes, purchases and adjustments are listed as skipped in the notes. Only USD is accepted. Billed `ResourceId`s find their node by the last segment of `spec.providerID`
-(AWS instance id, GCE instance name, Azure VM name); the rest is `__unallocated__`. The parser follows the specification's column names and is tested on hand-written fixtures; **it has not seen a real AWS/GCP/Azure export**
-(see docs/CLOUD_VALIDATION.md for how to produce one and what to check).
+`rightsize cost --billing-file export.csv --billing-format focus [--focus-cost-column BilledCost|EffectiveCost]` reads a FOCUS CSV **as the provider delivers it**:
+
+* Columns: `ResourceId`, the cost column, `ChargePeriodStart`, `ChargePeriodEnd`, and if present `ResourceName`, `BillingCurrency`, `x_CurrencyConversionRate`, `ChargeCategory`.
+* Only `Usage` rows become cost; credits, taxes, purchases and adjustments are listed as skipped in the notes. Google puts credits inside `x_Credits` on the Usage row, so its `BilledCost` is before credits (stated in the notes).
+* **Currency**: USD rows are read as is. A row billed in another currency is converted with **the export's own per-row `x_CurrencyConversionRate`** (Google: billing-currency units per USD), exactly (rational arithmetic); without that column a non-USD row is refused. No exchange rate is ever invented. The notes say how many rows were converted and that the invoice is in the billing currency.
+* **Timestamps**: RFC3339 (Azure writes seven fractional digits), BigQuery's CSV form `2026-10-30 17:00:00` (optionally ` UTC`), zone-less ISO and bare dates, all UTC. `11/01/2026` is refused (month/day is ambiguous).
+* **Matching to nodes**: by the last segment of `ResourceId` (AWS instance id, GCE name, Azure VM name), then of `ResourceName` (Google's FOCUS export has a numeric instance id in `ResourceId` and the instance name in `ResourceName`), then **Azure VM scale sets**: AKS node pools are billed per scale set, so an item whose `ResourceId` is a scale set is split across that scale set's current nodes by allocatable CPU (the parts sum exactly). Nodes removed during the period are not in that split; the total is kept. A bare instance number (`/virtualMachines/0`) is never a match key. The rest is `__unallocated__`.
+
+Checked against a **real** export: Google's native FOCUS export in BigQuery, written by `bq --format=csv` (2026-11-11, an account billed in CLP; fixture `operator/internal/cost/testdata/gcp-native-focus-raw.csv`, project numbers replaced). That export held no GKE usage rows yet (the billing export had no data after 2026-10-31), so node matching on real Google rows is still unverified. Azure and AWS: the column names and Azure's documented `ResourceId` shape only, not a real export.
 
 ## What is not done
 
-* No provider API adapters: a FOCUS CSV (or the simple `resource,cost_usd,start,end` CSV) is read; Parquet must be converted to CSV first.
+* No provider API calls: a FOCUS CSV (or the simple `resource,cost_usd,start,end` CSV) is read; Parquet must be converted to CSV first.
 * No discounts, reservations, savings plans, spot price history or amortisation; credits and refunds must be handled before export (negative lines are rejected).
 * No usage-based or GPU/storage/network allocation; no per-pod or per-controller breakdown (namespace only).
 * Not validated against a real invoice. Any statement about accuracy would be invented.

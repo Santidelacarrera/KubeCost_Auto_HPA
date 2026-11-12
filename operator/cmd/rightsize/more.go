@@ -44,6 +44,7 @@ func approveCmd(args []string, out io.Writer) error {
 	var viaCR bool
 	fs.StringVar(&recFile, "recommendation", "", "JSON written by cmd/recommend or rightsize plan (required).")
 	fs.BoolVar(&viaCR, "cr", false, "approve through the WorkloadRecommendation status subresource (for the operator applier) instead of annotating the workload.")
+	fs.StringVar(&c.signKey, "sign-key", "", "sign the approval with this Ed25519 private key (rightsize keygen); needed when the policy sets requireSignedApproval.")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -88,7 +89,7 @@ func planCmd(args []string, out io.Writer) error {
 	fs.StringVar(&ns, "namespace", "", "namespace (required).")
 	fs.StringVar(&wl, "workload", "", "workload name (required).")
 	fs.StringVar(&kind, "kind", "Deployment", "Deployment, StatefulSet or DaemonSet.")
-	fs.StringVar(&container, "container", "", "container name (required).")
+	fs.StringVar(&container, "container", "", "container name (required); a comma-separated list makes ONE record for those containers of the pod (the first is the primary), applied in one rollout.")
 	fs.StringVar(&cluster, "cluster", "", "cluster name recorded in the output (default: the context).")
 	fs.StringVar(&slo, "slo-breach-query", "", "optional instant PromQL that is > 0 while the SLO is breached.")
 	fs.StringVar(&now, "now", "", "evaluation time, RFC3339 (default now).")
@@ -137,14 +138,26 @@ func planCmd(args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	in, err := (&promsrc.Client{BaseURL: promURL, HTTP: hc}).Collect(ctx,
-		promsrc.Target{Cluster: cluster, Namespace: ns, Workload: wl, Kind: kind, Container: container, SLOBreachQuery: slo}, window, step, at)
-	if err != nil {
-		return err
+	var recs []recommend.Recommendation
+	for _, cn := range strings.Split(container, ",") {
+		cn = strings.TrimSpace(cn)
+		if cn == "" {
+			return fmt.Errorf("--container has an empty name")
+		}
+		in, err := (&promsrc.Client{BaseURL: promURL, HTTP: hc}).Collect(ctx,
+			promsrc.Target{Cluster: cluster, Namespace: ns, Workload: wl, Kind: kind, Container: cn, SLOBreachQuery: slo}, window, step, at)
+		if err != nil {
+			return fmt.Errorf("container %s: %w", cn, err)
+		}
+		in.HPAOnCPU, in.VPAAuto = facts.HPAOnCPU, facts.VPAAuto
+		in.Excluded = strings.EqualFold(facts.Labels[LabelExclude], "true")
+		r, err := recommend.Recommend(in, cfg)
+		if err != nil {
+			return fmt.Errorf("container %s: %w", cn, err)
+		}
+		recs = append(recs, r)
 	}
-	in.HPAOnCPU, in.VPAAuto = facts.HPAOnCPU, facts.VPAAuto
-	in.Excluded = strings.EqualFold(facts.Labels[LabelExclude], "true")
-	rec, err := recommend.Recommend(in, cfg)
+	rec, err := recommend.Combine(recs...)
 	if err != nil {
 		return err
 	}
@@ -165,8 +178,9 @@ func planCmd(args []string, out io.Writer) error {
 // report summarises the audit trail into process outcomes (acceptance, rollback rate, estimated savings kept).
 func reportCmd(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("report", flag.ContinueOnError)
-	var file, since string
+	var file, since, format string
 	fs.StringVar(&file, "audit-file", "", "JSONL audit file written with --audit-file (required).")
+	fs.StringVar(&format, "format", "json", "json, or prometheus (text exposition format for the node_exporter textfile collector or a Pushgateway).")
 	fs.StringVar(&since, "since", "", "only events at or after this RFC3339 time.")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -190,33 +204,67 @@ func reportCmd(args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	return printJSON(out, s)
+	switch format {
+	case "json":
+		return printJSON(out, s)
+	case "prometheus":
+		return outcome.WritePrometheus(out, s)
+	default:
+		return fmt.Errorf("--format must be json or prometheus")
+	}
 }
 
-// propose writes the recommendation into a manifest on a new local git branch (no push, no cluster access).
+// propose writes the recommendation into the repository on a new local git branch: the workload manifest, a Helm values file or a
+// Kustomize patch. It contacts no cluster. --push and --open-pr (off by default) push the branch and open a pull request with gh.
 func proposeCmd(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("propose", flag.ContinueOnError)
-	var recFile, repo, file, branch string
+	var recFile, repo, file, branch, format, helmKeys, baseFile, remote, base string
+	var push, openPR bool
 	fs.StringVar(&recFile, "recommendation", "", "recommendation JSON (required).")
-	fs.StringVar(&repo, "repo", ".", "git repository holding the manifest.")
-	fs.StringVar(&file, "file", "", "manifest path relative to --repo (required).")
+	fs.StringVar(&repo, "repo", ".", "git repository holding the file.")
+	fs.StringVar(&file, "file", "", "path relative to --repo (required): the manifest, the Helm values file, or the kustomization.yaml.")
+	fs.StringVar(&format, "format", "manifest", "manifest, helm-values or kustomize.")
+	fs.StringVar(&helmKeys, "helm-key", "", "helm-values: container=dotted.key.of.its.resources, comma-separated (e.g. app=resources,proxy=sidecar.resources).")
+	fs.StringVar(&baseFile, "base-file", "", "kustomize: the base manifest the overlay patches, to refuse a stale recommendation.")
 	fs.StringVar(&branch, "branch", "", "new branch name (default rightsize/<kind>-<name>-<id>).")
+	fs.BoolVar(&push, "push", false, "push the new branch to --remote.")
+	fs.StringVar(&remote, "remote", "origin", "remote for --push.")
+	fs.BoolVar(&openPR, "open-pr", false, "with --push: open a pull request with the GitHub CLI (gh, using your own gh login).")
+	fs.StringVar(&base, "base", "", "with --open-pr: the pull request's base branch (default: the repository's default branch).")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if recFile == "" || file == "" {
 		return fmt.Errorf("--recommendation and --file are required")
 	}
+	keys := map[string]string{}
+	if helmKeys != "" {
+		for _, kv := range strings.Split(helmKeys, ",") {
+			parts := strings.SplitN(strings.TrimSpace(kv), "=", 2)
+			if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+				return fmt.Errorf("--helm-key wants container=key pairs, got %q", kv)
+			}
+			keys[parts[0]] = parts[1]
+		}
+	}
 	rec, err := readRecommendation(recFile)
 	if err != nil {
 		return err
 	}
-	res, err := gitops.Propose(gitops.Options{RepoDir: repo, File: file, Branch: branch, Rec: rec})
+	res, err := gitops.Propose(gitops.Options{RepoDir: repo, File: file, Format: gitops.Format(format), HelmKeys: keys, BaseFile: baseFile,
+		Branch: branch, Rec: rec, Push: push, Remote: remote, OpenPR: openPR, Base: base})
 	if err != nil {
 		return err
 	}
-	return printJSON(out, map[string]any{"branch": res.Branch, "commit": res.Commit, "pushed": false,
-		"next": "review the branch and open a pull request yourself; nothing was pushed and no cluster was contacted", "diff": res.Diff})
+	next := "review the branch and open a pull request yourself; nothing was pushed and no cluster was contacted"
+	switch {
+	case res.PRURL != "":
+		next = "review the pull request; no cluster was contacted"
+	case res.Pushed:
+		next = "the branch was pushed; open a pull request from it; no cluster was contacted"
+	}
+	return printJSON(out, map[string]any{"branch": res.Branch, "commit": res.Commit, "files": res.Files, "pushed": res.Pushed,
+		"pullRequest": res.PRURL, "notes": res.Notes, "next": next, "diff": res.Diff})
 }
 
 // ---- cost extras: budgets and deviation against an earlier report
@@ -302,7 +350,7 @@ func backtestCmd(args []string, out io.Writer) error {
 	fs.StringVar(&ns, "namespace", "", "namespace (required).")
 	fs.StringVar(&wl, "workload", "", "workload name (required).")
 	fs.StringVar(&kind, "kind", "Deployment", "Deployment, StatefulSet or DaemonSet.")
-	fs.StringVar(&container, "container", "", "container name (required).")
+	fs.StringVar(&container, "container", "", "container name (required); a comma-separated list makes ONE record for those containers of the pod (the first is the primary), applied in one rollout.")
 	fs.StringVar(&now, "now", "", "evaluation time, RFC3339 (default now).")
 	fs.DurationVar(&window, "window", 14*24*time.Hour, "total history to use.")
 	fs.DurationVar(&holdout, "holdout", 24*time.Hour, "the most recent part kept unseen as the test period.")

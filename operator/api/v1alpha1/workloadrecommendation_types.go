@@ -64,6 +64,11 @@ type RecommendationApproval struct {
 	// By is the username the API server reported for the approver (SelfSubjectReview), not a typed name.
 	By string      `json:"by"`
 	At metav1.Time `json:"at"`
+	// Signature is "<keyID>:<base64 Ed25519 signature>" over this approval and the record's digest (rightsize approve --cr
+	// --sign-key). Required only when the policy sets requireSignedApproval.
+	// +optional
+	// +kubebuilder:validation:MaxLength=200
+	Signature string `json:"signature,omitempty"`
 }
 
 // WorkloadRecommendationStatus is owned by the operator and the approvers.

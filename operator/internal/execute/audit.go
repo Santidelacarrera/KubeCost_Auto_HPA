@@ -15,6 +15,9 @@ type Event struct {
 	RecommendationID string         `json:"recommendationId"`
 	Target           string         `json:"target"`
 	Details          map[string]any `json:"details,omitempty"`
+	// Prev and Hash link the event into a tamper-evident chain (Chain); empty for the plain JSONL sink.
+	Prev string `json:"prev,omitempty"`
+	Hash string `json:"hash,omitempty"`
 }
 
 // Sink receives audit events. Implementations must not block the caller for long.

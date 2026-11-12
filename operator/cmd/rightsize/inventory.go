@@ -157,11 +157,12 @@ func costCmd(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("cost", flag.ContinueOnError)
 	var c common
 	c.bind(fs)
-	var billing, label, startS, endS, shared, budgetList, baseline, format string
+	var billing, label, startS, endS, shared, budgetList, baseline, format, focusCost string
 	var devPct float64
 	var hourly, cpuWeight float64
 	fs.StringVar(&billing, "billing-file", "", "billing CSV: resource,cost_usd,start,end, or a FOCUS export with --billing-format focus (real data, or labelled simulated).")
 	fs.StringVar(&format, "billing-format", "simple", "simple (resource,cost_usd,start,end) or focus (FinOps FOCUS CSV).")
+	fs.StringVar(&focusCost, "focus-cost-column", "BilledCost", "with --billing-format focus: BilledCost (invoiced) or EffectiveCost (amortised, after discounts).")
 	fs.StringVar(&label, "billing-label", "", "label shown in the report, e.g. SIMULATED-lab or aws-cur-2026-10.")
 	fs.Float64Var(&hourly, "node-hourly-usd", 0, "ESTIMATED basis: hourly price of every node when there is no billing file.")
 	fs.StringVar(&startS, "start", "", "window start, RFC3339 (default: 24h before --end).")
@@ -237,7 +238,7 @@ func costCmd(args []string, out io.Writer) error {
 				return err
 			}
 			defer f.Close()
-			items, sum, err := cost.ParseFOCUS(f, start, end)
+			items, sum, err := cost.ParseFOCUSWith(f, start, end, cost.FocusOptions{CostColumn: focusCost})
 			if err != nil {
 				return err
 			}

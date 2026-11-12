@@ -49,6 +49,8 @@ type RecommendationApplier struct {
 	KC       kubernetes.Interface
 	Dyn      dynamic.Interface
 	Recorder record.EventRecorder
+	// AuditExtra, if set, also receives every audit event (e.g. execute.HTTPSink shipping to append-only storage).
+	AuditExtra execute.Sink
 	// APIReader reads straight from the API server, never from the informer cache. A reconcile that was queued while the previous one was
 	// still running can see a cached object that is one status update behind; deciding on it would re-evaluate a change that already ended
 	// (found on a real cluster: a finished RolledBack was overwritten by Denied). If nil, the cached client is used (unit tests).
@@ -105,8 +107,10 @@ func (r *RecommendationApplier) Reconcile(ctx context.Context, req ctrl.Request)
 		lg.Info("no usable policy: nothing will be applied", "error", err.Error())
 		return r.finish(ctx, &cr, v1alpha1.RecPhaseDenied, "no usable policy: "+err.Error(), []string{err.Error()}, time.Minute)
 	}
-	ex := &execute.Executor{KC: r.KC, Dyn: r.Dyn, Audit: &crSink{r: r.Recorder, obj: &cr}, Actor: "operator/recommendation-applier", Now: r.Now, Sleep: r.Sleep,
-		ApprovalOverride: func(_, _, _ string) (string, string, bool) { return ap.RecommendationID, ap.By, true }}
+	ex := &execute.Executor{KC: r.KC, Dyn: r.Dyn, Audit: r.audit(&cr), Actor: "operator/recommendation-applier", Now: r.Now, Sleep: r.Sleep,
+		ApprovalOverride: func(_, _, _ string) (execute.Approval, bool) {
+			return execute.Approval{ID: ap.RecommendationID, By: ap.By, At: ap.At.UTC().Format(time.RFC3339), Signature: ap.Signature}, true
+		}}
 
 	th := execute.Thresholds{ObserveFor: capDur(5*time.Minute, r.MaxObserve), RolloutTimeout: capDur(5*time.Minute, r.MaxRollout)}
 	if cr.Spec.SLOQueryName != "" {
@@ -162,7 +166,8 @@ func (r *RecommendationApplier) afterWatch(ctx context.Context, cr *v1alpha1.Wor
 		started = cr.Status.AppliedAt.Time
 	}
 	v, err := ex.WatchAndRollback(ctx, rec, th)
-	saving := rec.CPU.PotentialMonthlyUSD + rec.Memory.PotentialMonthlyUSD
+	cpuUSD, memUSD := rec.PotentialMonthlyUSD()
+	saving := cpuUSD + memUSD
 	if ctx.Err() == nil {
 		mRecApplySeconds.Observe(r.now().Sub(started).Seconds())
 		switch {
@@ -311,11 +316,22 @@ func (r *RecommendationApplier) finish(ctx context.Context, cr *v1alpha1.Workloa
 
 // SetupWithManager registers the controller. Two workers: an observation can last minutes.
 func (r *RecommendationApplier) SetupWithManager(mgr ctrl.Manager) error {
+	if err := RegisterOutcomeCollector(mgr.GetClient()); err != nil {
+		return err
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.WorkloadRecommendation{}).
 		Named("recommendation-applier").
 		WithOptions(controller.Options{MaxConcurrentReconciles: 2}).
 		Complete(r)
+}
+
+func (r *RecommendationApplier) audit(cr *v1alpha1.WorkloadRecommendation) execute.Sink {
+	s := &crSink{r: r.Recorder, obj: cr}
+	if r.AuditExtra == nil {
+		return s
+	}
+	return execute.Multi{s, r.AuditExtra}
 }
 
 // crSink turns the executor's audit events into Kubernetes Events on the recommendation object.

@@ -1,6 +1,8 @@
 package outcome
 
 import (
+	"github.com/prometheus/common/expfmt"
+	"github.com/prometheus/common/model"
 	"strings"
 	"testing"
 	"time"
@@ -64,5 +66,34 @@ func TestAllowedLaterOverridesAnEarlierDenial(t *testing.T) {
 	s, _ := Summarize(strings.NewReader(in), time.Time{})
 	if s.Allowed != 1 || s.Evaluated != 1 {
 		t.Fatalf("%+v", s)
+	}
+}
+
+// The text output must be valid exposition format (parsed by Prometheus's own parser) and carry the same numbers as the summary.
+func TestWritePrometheusIsValidExpositionWithTheSummaryNumbers(t *testing.T) {
+	s := Summary{Evaluated: 4, Allowed: 3, Denied: 1, Applied: 2, Verified: 1, RolledBack: 1, AcceptanceRate: 0.5, RollbackRate: 0.5,
+		KeptEstimatedMonthlyUSD: 12.5, RolledBackEstimatedMonthlyUSD: 3}
+	var b strings.Builder
+	if err := WritePrometheus(&b, s); err != nil {
+		t.Fatal(err)
+	}
+	p := expfmt.NewTextParser(model.LegacyValidation)
+	fams, err := p.TextToMetricFamilies(strings.NewReader(b.String()))
+	if err != nil {
+		t.Fatalf("%v\n%s", err, b.String())
+	}
+	if got := fams["kubecost_audit_acceptance_ratio"].GetMetric()[0].GetGauge().GetValue(); got != 0.5 {
+		t.Fatalf("acceptance %v", got)
+	}
+	if n := len(fams["kubecost_audit_recommendations"].GetMetric()); n != 8 {
+		t.Fatalf("%d outcomes", n)
+	}
+	if !strings.Contains(b.String(), `kubecost_audit_estimated_monthly_usd{state="kept"} 12.5`) {
+		t.Fatal(b.String())
+	}
+	var empty strings.Builder
+	_ = WritePrometheus(&empty, Summary{})
+	if strings.Contains(empty.String(), "acceptance_ratio") || strings.Contains(empty.String(), "rollback_ratio") {
+		t.Fatal("ratios must be absent when nothing was evaluated or applied, not 0")
 	}
 }

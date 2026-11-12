@@ -157,3 +157,36 @@ func Summarize(r io.Reader, since time.Time) (Summary, error) {
 	s.Notes = append(s.Notes, "savings figures are ESTIMATES of requests reduced x unit prices; they are not observed or billed savings (see docs/COST.md)")
 	return s, nil
 }
+
+// WritePrometheus writes the summary in the Prometheus text exposition format, for the node_exporter textfile collector or a
+// Pushgateway, so that a team running only the CLI (observe-only, the default) gets the same dashboards as the operator's
+// /metrics. The figures are those of Summarize; the USD gauges are ESTIMATES (see the HELP lines).
+func WritePrometheus(w io.Writer, s Summary) error {
+	var b strings.Builder
+	b.WriteString("# HELP kubecost_audit_recommendations Distinct recommendation IDs per outcome in the audit trail.\n")
+	b.WriteString("# TYPE kubecost_audit_recommendations gauge\n")
+	for _, kv := range []struct {
+		k string
+		v int
+	}{{"evaluated", s.Evaluated}, {"allowed", s.Allowed}, {"denied", s.Denied}, {"applied", s.Applied}, {"verified", s.Verified},
+		{"degraded", s.Degraded}, {"rolled_back", s.RolledBack}, {"failed", s.Failed}} {
+		fmt.Fprintf(&b, "kubecost_audit_recommendations{outcome=%q} %d\n", kv.k, kv.v)
+	}
+	if s.Evaluated > 0 {
+		b.WriteString("# HELP kubecost_audit_acceptance_ratio Applied / evaluated recommendations in the audit trail.\n")
+		b.WriteString("# TYPE kubecost_audit_acceptance_ratio gauge\n")
+		fmt.Fprintf(&b, "kubecost_audit_acceptance_ratio %g\n", s.AcceptanceRate)
+	}
+	if s.Applied > 0 {
+		b.WriteString("# HELP kubecost_audit_rollback_ratio Rolled back / applied recommendations in the audit trail.\n")
+		b.WriteString("# TYPE kubecost_audit_rollback_ratio gauge\n")
+		fmt.Fprintf(&b, "kubecost_audit_rollback_ratio %g\n", s.RollbackRate)
+	}
+	b.WriteString("# HELP kubecost_audit_estimated_monthly_usd ESTIMATED monthly saving of applied changes by state (kept, pending, rolled_back). Not a bill and not an observed saving.\n")
+	b.WriteString("# TYPE kubecost_audit_estimated_monthly_usd gauge\n")
+	fmt.Fprintf(&b, "kubecost_audit_estimated_monthly_usd{state=\"kept\"} %g\n", s.KeptEstimatedMonthlyUSD)
+	fmt.Fprintf(&b, "kubecost_audit_estimated_monthly_usd{state=\"pending\"} %g\n", s.PendingEstimatedMonthlyUSD)
+	fmt.Fprintf(&b, "kubecost_audit_estimated_monthly_usd{state=\"rolled_back\"} %g\n", s.RolledBackEstimatedMonthlyUSD)
+	_, err := io.WriteString(w, b.String())
+	return err
+}

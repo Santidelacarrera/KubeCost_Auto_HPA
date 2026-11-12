@@ -8,6 +8,7 @@ package execute
 
 import (
 	"context"
+	"crypto/ed25519"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -29,6 +30,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/util/retry"
 
+	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/approval"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/recommend"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/safety"
 )
@@ -38,10 +40,12 @@ const (
 	AnnApproved   = "autoscaling.kubecost.io/approved-recommendation"
 	AnnApprovedBy = "autoscaling.kubecost.io/approved-by"
 	AnnApprovedAt = "autoscaling.kubecost.io/approved-at"
-	AnnApplied    = "autoscaling.kubecost.io/applied-recommendation"
-	AnnPrevious   = "autoscaling.kubecost.io/previous-resources"
-	AnnRolledBack = "autoscaling.kubecost.io/rolled-back-recommendation"
-	AnnAppliedAt  = "autoscaling.kubecost.io/last-applied-at"
+	// AnnApprovalSignature is "<keyID>:<base64 Ed25519 signature>" over the approval (internal/approval); absent when unsigned.
+	AnnApprovalSignature = "autoscaling.kubecost.io/approval-signature"
+	AnnApplied           = "autoscaling.kubecost.io/applied-recommendation"
+	AnnPrevious          = "autoscaling.kubecost.io/previous-resources"
+	AnnRolledBack        = "autoscaling.kubecost.io/rolled-back-recommendation"
+	AnnAppliedAt         = "autoscaling.kubecost.io/last-applied-at"
 )
 
 var errNoSavedState = errors.New("no saved state")
@@ -57,9 +61,11 @@ type Executor struct {
 	// ApprovalOverride, if set, replaces the approval annotations on the workload as the source of the approval: it returns the approved
 	// recommendation ID and the approver identity, or ok=false for "not approved". The applier controller uses it so approval comes from
 	// a WorkloadRecommendation status (its own RBAC permission) and annotations on the workload are ignored.
-	ApprovalOverride func(kind, ns, name string) (id, by string, ok bool)
-	Now              func() time.Time
-	Sleep            func(time.Duration)
+	ApprovalOverride func(kind, ns, name string) (Approval, bool)
+	// SignKey, if set, makes Approve sign the approval (internal/approval) and store the signature next to it.
+	SignKey ed25519.PrivateKey
+	Now     func() time.Time
+	Sleep   func(time.Duration)
 }
 
 func (e *Executor) now() time.Time {
@@ -232,12 +238,11 @@ func (e *Executor) Inspect(ctx context.Context, kind, ns, name string) (safety.F
 	}
 	ann, lbl := w.obj.GetAnnotations(), w.obj.GetLabels()
 	f.Labels = lbl
-	f.Approved = ann[AnnApproved]
-	f.ApprovedBy = ann[AnnApprovedBy]
+	f.Approved, f.ApprovedBy, f.ApprovedAt, f.ApprovalSignature = ann[AnnApproved], ann[AnnApprovedBy], ann[AnnApprovedAt], ann[AnnApprovalSignature]
 	if e.ApprovalOverride != nil {
-		f.Approved, f.ApprovedBy = "", ""
-		if id, by, ok := e.ApprovalOverride(kind, ns, name); ok {
-			f.Approved, f.ApprovedBy = id, by
+		f.Approved, f.ApprovedBy, f.ApprovedAt, f.ApprovalSignature = "", "", "", ""
+		if a, ok := e.ApprovalOverride(kind, ns, name); ok {
+			f.Approved, f.ApprovedBy, f.ApprovedAt, f.ApprovalSignature = a.ID, a.By, a.At, a.Signature
 		}
 	}
 	f.AlreadyApplied = ann[AnnApplied]
@@ -351,6 +356,9 @@ func (e *Executor) recentApplies(ctx context.Context, ns string) ([]time.Time, e
 }
 
 // Result describes what Apply did.
+// Approval is an approval read from somewhere other than the workload's annotations (the WorkloadRecommendation status).
+type Approval struct{ ID, By, At, Signature string }
+
 type Result struct {
 	Decision safety.Decision
 	Facts    safety.Facts
@@ -392,13 +400,19 @@ func (e *Executor) Apply(ctx context.Context, rec recommend.Recommendation, pol 
 		if w.onDelete {
 			deny("the update strategy is OnDelete: a template change would not replace the pods, so the change would never roll out")
 		}
-		// a recommendation made for other values than the live ones is stale
-		if c := findContainer(w.tmpl, rec.Container); c == nil {
-			deny(fmt.Sprintf("container %q not found", rec.Container))
-		} else if why := stale(*c, rec); why != "" {
-			deny(why)
-		} else if why := limitLowered(*c, rec); why != "" {
-			deny(why)
+		// a recommendation made for other values than the live ones is stale; every container of a combined record is checked
+		for _, v := range rec.Views() {
+			pre := ""
+			if v.Container != rec.Container {
+				pre = "container " + v.Container + ": "
+			}
+			if c := findContainer(w.tmpl, v.Container); c == nil {
+				deny(fmt.Sprintf("container %q not found", v.Container))
+			} else if why := stale(*c, v); why != "" {
+				deny(pre + why)
+			} else if why := limitLowered(*c, v); why != "" {
+				deny(pre + why)
+			}
 		}
 	}
 	e.record("decision", rec, map[string]any{"allowed": res.Decision.Allowed, "reasons": res.Decision.Reasons, "execute": execute})
@@ -429,15 +443,22 @@ func (e *Executor) Apply(ctx context.Context, rec recommend.Recommendation, pol 
 		for _, c := range cur.tmpl.Spec.Containers {
 			prev.Containers[c.Name] = capture(c)
 		}
-		c := findContainer(cur.tmpl, rec.Container)
-		if c == nil {
-			return res, fmt.Errorf("container %q disappeared", rec.Container)
-		}
-		if why := stale(*c, rec); why != "" {
-			return res, fmt.Errorf("%s (nothing was changed)", why)
-		}
-		if err := applyRec(c, rec); err != nil {
-			return res, err
+		// all containers of the record are changed in this ONE update: one rollout, and one Previous to roll back to
+		for _, v := range rec.Views() {
+			c := findContainer(cur.tmpl, v.Container)
+			if c == nil {
+				return res, fmt.Errorf("container %q disappeared (nothing was changed)", v.Container)
+			}
+			if why := stale(*c, v); why != "" {
+				pre := ""
+				if v.Container != rec.Container {
+					pre = "container " + v.Container + ": "
+				}
+				return res, fmt.Errorf("%s%s (nothing was changed)", pre, why)
+			}
+			if err := applyRec(c, v); err != nil {
+				return res, err
+			}
 		}
 		raw, _ := json.Marshal(prev)
 		ann := cur.obj.GetAnnotations()
@@ -460,8 +481,17 @@ func (e *Executor) Apply(ctx context.Context, rec recommend.Recommendation, pol 
 		return res, fmt.Errorf("update %s (nothing was changed): %w", strings.ToLower(rec.Kind), err)
 	}
 	res.Applied, res.Previous = true, &prev
-	e.record("applied", rec, map[string]any{"previous": prev.Containers, "cpu": rec.CPU.Recommended, "memory": rec.Memory.Recommended,
-		"cpuPotentialMonthlyUSD": rec.CPU.PotentialMonthlyUSD, "memoryPotentialMonthlyUSD": rec.Memory.PotentialMonthlyUSD, "approvedBy": facts.ApprovedBy})
+	cpuUSD, memUSD := rec.PotentialMonthlyUSD()
+	details := map[string]any{"previous": prev.Containers, "cpu": rec.CPU.Recommended, "memory": rec.Memory.Recommended,
+		"cpuPotentialMonthlyUSD": cpuUSD, "memoryPotentialMonthlyUSD": memUSD, "approvedBy": facts.ApprovedBy}
+	if len(rec.Additional) > 0 {
+		var names []string
+		for _, v := range rec.Views() {
+			names = append(names, v.Container)
+		}
+		details["containers"] = names
+	}
+	e.record("applied", rec, details)
 	return res, nil
 }
 
@@ -881,25 +911,31 @@ func (e *Executor) Identity(ctx context.Context) (string, error) {
 // Approve records the approval of exactly this recommendation, stamped with the identity the API server reports.
 // It refuses abstentions and recommendations that change nothing, and a recommendation that does not match the live object.
 func (e *Executor) Approve(ctx context.Context, rec recommend.Recommendation) (string, error) {
-	if rec.Abstained || !(rec.CPU.Action == recommend.Increase || rec.CPU.Action == recommend.Decrease ||
-		rec.Memory.Action == recommend.Increase || rec.Memory.Action == recommend.Decrease) {
+	changes := false
+	for _, v := range rec.Views() {
+		changes = changes || v.Changes()
+	}
+	if rec.Abstained || !changes {
 		return "", errors.New("this recommendation changes nothing (or abstained): there is nothing to approve")
 	}
 	who, err := e.Identity(ctx)
 	if err != nil {
 		return "", err
 	}
+	at := e.now().UTC().Format(time.RFC3339)
+	sig := ""
+	if e.SignKey != nil {
+		if sig, err = approval.Sign(e.SignKey, rec, who, at); err != nil {
+			return "", err
+		}
+	}
 	err = retry.RetryOnConflict(conflictBackoff, func() error {
 		w, err := e.get(ctx, rec.Kind, rec.Namespace, rec.Workload)
 		if err != nil {
 			return err
 		}
-		c := findContainer(w.tmpl, rec.Container)
-		if c == nil {
-			return fmt.Errorf("container %q not found", rec.Container)
-		}
-		if why := stale(*c, rec); why != "" {
-			return errors.New(why)
+		if err := freshIn(w.tmpl, rec); err != nil {
+			return err
 		}
 		ann := w.obj.GetAnnotations()
 		if ann == nil {
@@ -907,14 +943,22 @@ func (e *Executor) Approve(ctx context.Context, rec recommend.Recommendation) (s
 		}
 		ann[AnnApproved] = rec.ID
 		ann[AnnApprovedBy] = who
-		ann[AnnApprovedAt] = e.now().UTC().Format(time.RFC3339)
+		ann[AnnApprovedAt] = at
+		delete(ann, AnnApprovalSignature)
+		if sig != "" {
+			ann[AnnApprovalSignature] = sig
+		}
 		w.obj.SetAnnotations(ann)
 		return w.save(ctx)
 	})
 	if err != nil {
 		return "", err
 	}
-	e.record("approved", rec, map[string]any{"approvedBy": who})
+	det := map[string]any{"approvedBy": who, "signed": sig != ""}
+	if sig != "" {
+		det["keyID"], _, _ = strings.Cut(sig, ":")
+	}
+	e.record("approved", rec, det)
 	return who, nil
 }
 
@@ -925,12 +969,22 @@ func (e *Executor) Fresh(ctx context.Context, rec recommend.Recommendation) erro
 	if err != nil {
 		return err
 	}
-	c := findContainer(w.tmpl, rec.Container)
-	if c == nil {
-		return fmt.Errorf("container %q not found", rec.Container)
-	}
-	if why := stale(*c, rec); why != "" {
-		return errors.New(why)
+	return freshIn(w.tmpl, rec)
+}
+
+// freshIn checks every container of the record against the live pod template.
+func freshIn(t *corev1.PodTemplateSpec, rec recommend.Recommendation) error {
+	for _, v := range rec.Views() {
+		c := findContainer(t, v.Container)
+		if c == nil {
+			return fmt.Errorf("container %q not found", v.Container)
+		}
+		if why := stale(*c, v); why != "" {
+			if v.Container != rec.Container {
+				why = "container " + v.Container + ": " + why
+			}
+			return errors.New(why)
+		}
 	}
 	return nil
 }
