@@ -22,7 +22,9 @@ func chained(t *testing.T, n int) []string {
 	var b bytes.Buffer
 	c := NewChain(&b, "")
 	for i := 0; i < n; i++ {
-		c.Record(Event{Time: t0, Type: "decision", RecommendationID: "r", Details: map[string]any{"i": i}})
+		// typed values as the executor writes them (a struct map, a []string, large integers)
+		c.Record(Event{Time: t0, Type: "applied", RecommendationID: "r", Details: map[string]any{"i": i, "names": []string{"app", "proxy"},
+			"previous": map[string]ContainerResources{"app": {CPURequest: "500m", MemRequest: "256Mi"}}, "bytes": int64(268435456)}})
 	}
 	return strings.Split(strings.TrimSpace(b.String()), "\n")
 }
@@ -35,7 +37,7 @@ func TestAuditChainDetectsEditsDeletionsAndInsertions(t *testing.T) {
 		t.Fatalf("%v %+v", err, rep)
 	}
 	edited := append([]string{}, lines...)
-	edited[1] = strings.Replace(edited[1], `"decision"`, `"applied"`, 1)
+	edited[1] = strings.Replace(edited[1], `"applied"`, `"decision"`, 1)
 	deleted := append(append([]string{}, lines[:2]...), lines[3:]...)
 	swapped := []string{lines[0], lines[2], lines[1], lines[3]}
 	inserted := append([]string{lines[0], lines[1], `{"time":"2026-11-09T12:00:00Z","type":"applied","actor":"x","recommendationId":"r","target":"t"}`}, lines[2:]...)

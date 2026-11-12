@@ -35,6 +35,18 @@ func (c *Chain) Record(e Event) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	e.Prev, e.Hash = c.prev, ""
+	// Hash the event in the form a reader will decode it into. Details can hold structs and typed maps (the applied event's
+	// previous resources): their JSON keys are in declaration order, but after decoding into map[string]any they re-encode
+	// sorted, so hashing the original value would never verify. Found on a real cluster (docs/LAB.md result 20).
+	b0, err := json.Marshal(e)
+	if err != nil {
+		return
+	}
+	var canon Event
+	if err := json.Unmarshal(b0, &canon); err != nil {
+		return
+	}
+	e = canon
 	h, err := eventHash(e)
 	if err != nil {
 		return
