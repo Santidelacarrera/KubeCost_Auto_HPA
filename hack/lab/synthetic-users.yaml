@@ -145,7 +145,7 @@ spec:
         readinessProbe: {httpGet: {path: /healthz, port: 8080}, periodSeconds: 5}
         volumeMounts: [{name: code, mountPath: /code}]
         resources:
-          requests: {cpu: "1", memory: 256Mi}
+          requests: {cpu: "500m", memory: 128Mi}
           limits: {cpu: "1", memory: 512Mi}
       volumes: [{name: code, configMap: {name: store-code}}]
 ---
