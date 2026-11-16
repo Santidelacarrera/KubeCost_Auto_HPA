@@ -58,3 +58,24 @@ One split is one sample of the future: repeat it with several holdouts, includin
 * No seasonality model: a 7-day window is the only protection against weekly peaks; a shorter window can miss them.
 * Multi-container pods are analysed one container per run. OOM detection relies on `last_terminated_reason`, which only shows the most recent termination.
 * The pod-name convention can match unrelated pods with similar names in the same namespace.
+
+## Insights: growth, spikes, OOM risk (added 2026-11-15, experimental)
+
+Besides the percentile, a record now carries `Insights`: what else the data shows, with the numbers behind it. Only the growth
+forecast changes a target, and only upwards. The field is omitted when there is nothing to report, so older records read unchanged.
+
+| Signal | When | Effect |
+|---|---|---|
+| `cpu-growing` | The p95 of each full day rises by at least 10% of its median per week (Theil-Sen slope over at least 4 full days) | The CPU target is sized for the forecast 14 days ahead instead of the current percentile. The forecast is capped at twice the highest observed day. The formula in the record says a forecast was used |
+| `cpu-spikes`, `memory-spikes` | A few samples (at most 5%) stand more than 6 scaled MADs above the median | Reported with count, share, threshold and maximum. The target is not changed: the percentile does not cover them, and the record says so |
+| `oom-risk` | The working set peaked at 90% or more of the memory limit | Reported as a risk: raise the limit first |
+| `oomkilled`, `restarts`, `cpu-throttled` | As measured in the window | They already veto decreases; now they are also countable signals |
+| `no-memory-limit` | The container has no memory limit | Reported |
+
+Why days and not a line through every sample: a daily cycle fits whole into each 24-hour slice, so it does not look like a
+trend. A day with less than half the samples of the best-covered day is left out, so a scrape outage is not read as a fall
+followed by growth. A falling trend is kept as evidence and never lowers a target.
+
+Limits: it is a straight line. With less than two weeks of data it cannot tell growth from a weekly cycle, which is why it is
+reported as a risk and can only raise a target. It has been tested on synthetic series only (`insights_test.go`), never on real
+history. It needs timestamps for the CPU samples, which the Prometheus reader supplies.

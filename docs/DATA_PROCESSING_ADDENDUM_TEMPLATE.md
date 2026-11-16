@@ -1,4 +1,8 @@
 # Enterprise Data Processing Addendum (DPA) Template
+
+<!-- status-notice -->
+> **Template, not reviewed by a lawyer, and not an offer (notice added 2026-11-15).** No commercial contract is offered today
+> ([COMMERCIAL.md](COMMERCIAL.md)).
 ### Anexo de Tratamiento y Protección de Datos Personales (RGPD / CCPA)
 
 Este **Acuerdo de Tratamiento de Datos** (*Data Processing Addendum* o "DPA") complementa el Contrato Marco de Licencia y Servicios (*Master Services Agreement* o "MSA") celebrado entre:

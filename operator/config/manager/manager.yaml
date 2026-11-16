@@ -16,7 +16,10 @@ spec:
       containers:
       - name: manager
         image: ghcr.io/santidelacarrera/kubecost-auto-hpa-operator:latest
-        args: ["--leader-elect"]
+        # Safe default, same as the Helm chart: every decision is computed and reported, nothing is written to the cluster
+        # (and Spot draining is off). Remove --observe-only in your own overlay only after reviewing the decisions
+        # (docs/CONFIGURATION.md). The test overlays under overlays/ replace these args and therefore DO write.
+        args: ["--leader-elect", "--observe-only"]
         env:
         - {name: PROMETHEUS_URL, value: "http://prometheus-server.monitoring:80"}
         - {name: KUBECOST_URL, value: "http://kubecost-cost-analyzer.kubecost:9090"}

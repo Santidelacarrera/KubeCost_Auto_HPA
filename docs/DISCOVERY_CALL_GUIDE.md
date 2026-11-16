@@ -1,5 +1,12 @@
 # Guía de Llamada de Descubrimiento y Calificación Comercial (Discovery Call Guide)
 
+<!-- status-notice -->
+> **Sales draft, not evidence (notice added 2026-11-15).** This document was written as sales material before the product was
+> measured. Its percentages, savings, ROI, payback times, support levels and comparisons with other products are models,
+> targets or assumptions: none was measured on a customer cluster or confirmed against an invoice, and no benchmark against
+> any competitor has been run. AWS is out of scope and is not a supported integration. What is verified is in
+> [STATUS.md](STATUS.md); the commercial model is in [COMMERCIAL.md](COMMERCIAL.md). Do not send this to a prospect as it is.
+
 Esta guía estructura una reunión inicial de ventas de 25 minutos con decisores corporativos (VPs de Plataforma, Directores de FinOps y Arquitectos Cloud) utilizando el marco **MEDDPICC**.
 
 ---

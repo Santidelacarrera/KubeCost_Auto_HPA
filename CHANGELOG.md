@@ -4,6 +4,38 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 
 ## [Unreleased]
 
+### Added (thirteenth pass, 2026-11-16)
+- **Licence files** (`internal/license`): Ed25519-signed, verified offline. `rightsize license issue|verify`. Operator flags `--license-file`, `--license-public-key-file`, `--enforce-license` (off by default). Under enforcement the tier sets the mode: starter observe-only, professional applies with a human approval whatever the policy says, enterprise may automate. A missing, invalid or expired licence, or a cluster over the node limit, means observe-only. Enforcement can only restrict. Metric `kubecost_license_info` (docs/LICENSE_KEYS.md).
+- **`rightsize fleet --contexts a,b,c`**: a read-only report over several clusters with totals; an unreachable cluster is reported, not fatal.
+- **`rightsize render`**: one Markdown report from the outputs of `plan`, `nodes`, `fleet` and `reconcile`. It copies figures and their savings level, adds none, escapes text that comes from the cluster, and names any input it could not read.
+- **`rightsize nodes --plan`**: an ordered manual drain plan for the candidate nodes (preconditions, commands, verification, undo). Nothing executes it (ADR-0004).
+- `hack/bench-local.sh` (one real run of the benchmark harness on the lab cluster), `hack/gcp-focus-day.sh` (one day of Google billing as a FOCUS-shaped CSV), `hack/aks-nodes-fleet.sh`.
+
+### Fixed (thirteenth pass: found on real GKE)
+- `rightsize nodes`: a static pod owned by its Node (kube-proxy on GKE) blocked every node as "required node affinity". Static and mirror pods are now treated like DaemonSet pods.
+- `rightsize nodes` (found on real AKS): a disk in a region without availability zones carries its zone key with an empty value and was reported as immovable. An empty zone, or a volume with no placement restriction, now means it attaches anywhere; a `hostPath` or `local` volume stays pinned.
+- `rightsize nodes`: the zone of a GKE persistent disk was not read (its CSI driver writes `topology.gke.io/zone`), so every pod with a disk was reported as immovable. Any `<domain>/zone` key is now read.
+
+### Added (twelfth pass: audit against the code, 2026-11-15)
+- **Savings levels** (`cost.Classify`): estimated, projected, observed, reconciled, with what is missing for the next level. **`rightsize reconcile --before a.csv --after b.csv [--scope text]`** compares two FOCUS billing exports per day in their billing currency; tax, credits, commitment purchases, out-of-scope and unattributable rows are kept apart; different currencies, overlapping periods and periods differing by more than 10% are refused. Simulated files can never be "reconciled" (docs/FINOPS.md).
+- **Recommender insights** (experimental): daily-p95 growth trend (Theil-Sen) with a 14-day forecast that can only raise the CPU target, spike detection on CPU and memory, an OOM-risk signal when the working set reaches 90% of the limit, and countable signals in every record (docs/RECOMMENDER.md).
+- **Node analysis honours scheduling constraints**: cordons, taints and tolerations, nodeSelector, zonal volumes, required hostname anti-affinity, a PodDisruptionBudget that allows no disruption now, and the last node of a zone. It also lists unschedulable pending pods and nodes under pressure. Still read-only (docs/NODES.md).
+- `benchmarks/`: a reproducible benchmark harness (five scenarios, committed load traces, manifests, a Prometheus collector, a comparison table). No competitor result exists (docs/BENCHMARKING.md).
+- Console: a "Platform status" panel fed by `web/status.json` (verified facts only) and a banner marking everything else as demo data.
+- Documentation: `docs/README.md` (index), STATUS, INSTALL, CONFIGURATION, GKE, AKS, NODES, FINOPS, API, CRD, UPGRADE, ROLLBACK, SUPPORT, KNOWN_LIMITATIONS, BENCHMARKING; architecture diagrams; the CLI roles and a permission matrix by feature in RBAC.md.
+- CI: the benchmark harness tests, a compile check of the scripts, a lint of the chart with the production values, and a check that the chart and the Kustomize base still default to observe-only with the applier off.
+
+### Changed (twelfth pass)
+- **The Kustomize base now starts the operator with `--observe-only`**, like the Helm chart. Before, `kubectl apply -k operator/config/default` installed an operator that could write. The test overlays replace the args and still write. If you relied on the base writing, remove the flag in your own overlay.
+- `KubeCostAutoscaler`: `spec.predictive`, `spec.oomProtection` and `spec.nodeBinPacking` were accepted and silently ignored. They are still ignored, and the status now says so: condition `UnsupportedFields=True` and one Warning event. The CRD descriptions say "NOT IMPLEMENTED".
+- Engine: `GET` answers of the endpoints that compute from built-in example inputs or static tables (`/v1/cast/*`, `/v1/gpu/optimize`, `/v1/greenops/report`, `/v1/gameday/simulate`, `/v1/cluster/topology`, `/v1/pricing/lookup`, `/v1/ui/cast-dashboard`, `/v1/billing/invoice`) carry `X-KubeCost-Data-Source: sample` and a `data_source` field. The invoice preview says `simulation: true`, `charge_created: false`.
+- `rightsize nodes`: a pod with a persistent volume whose zone is known is no longer always immovable; it may move inside its zone. Needs `list persistentvolumes`, added to the read role in `deploy/rbac/rightsize.yaml`.
+- README, landing page and console: removed "ScaleOps parity", "35% lower cloud spend", "guarantees p99" and similar claims that no measurement supports; AWS examples replaced by GKE and AKS ones. `docs/COMMERCIAL.md` rewritten as a design (Starter / Professional / Enterprise, pricing models, entitlement architecture) instead of an offer.
+- Sixteen sales and legal drafts in `docs/` now open with a notice that their figures are not results.
+
+### Deprecated (twelfth pass)
+- Chart values `features.*`: no template ever read them. Still accepted; to be removed in the next minor version.
+
 ### Added (eleventh pass: weekday coverage)
 - A window of 7 days or more no longer counts as "weekly seasonality observed" when its data misses most of a day of the week: `recommend.MissingWeekdays` checks, per day of the week (UTC), that at least half of the window's hours have a CPU sample. Otherwise it adds a risk naming the days and High confidence drops to Medium. The Prometheus source now keeps each CPU sample's timestamp (`Input.CPUTimes`). Without timestamps (other sources), only the existing window-length caveat applies. Run on the real GKE soak history: docs/LAB.md result 24.
 

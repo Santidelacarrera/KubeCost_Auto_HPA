@@ -1,0 +1,32 @@
+{
+  "overprovisioned-steady": {
+    "description": "A flat load on a workload that asks for far more than it uses. The easy case: every tool should find the waste and none should disturb the service.",
+    "minutes": 120,
+    "workload": {"replicas": 3, "cpu_request": "500m", "mem_request": "512Mi", "cpu_limit": "1", "mem_limit": "1Gi"},
+    "load": {"kind": "steady", "base_rps": 20, "noise": 0.05}
+  },
+  "diurnal": {
+    "description": "A day/night cycle compressed into 60 minutes, repeated. Sizing for the trough breaks the peak; sizing for the peak wastes the trough.",
+    "minutes": 180,
+    "workload": {"replicas": 3, "cpu_request": "300m", "mem_request": "256Mi", "cpu_limit": "1", "mem_limit": "512Mi"},
+    "load": {"kind": "diurnal", "base_rps": 20, "amplitude": 0.6, "period_min": 60, "noise": 0.05}
+  },
+  "step-increase": {
+    "description": "Load triples at minute 40 and stays. Measures reaction time and whether a tool that shrank the workload earlier hurts it now.",
+    "minutes": 120,
+    "workload": {"replicas": 2, "cpu_request": "300m", "mem_request": "256Mi", "cpu_limit": "1", "mem_limit": "512Mi"},
+    "load": {"kind": "step", "base_rps": 12, "factor": 3, "at_min": 40, "noise": 0.05}
+  },
+  "spikes": {
+    "description": "A flat base with four 3-minute bursts at five times the load. Measures stability: a good tool neither ignores them nor oscillates.",
+    "minutes": 120,
+    "workload": {"replicas": 2, "cpu_request": "300m", "mem_request": "256Mi", "cpu_limit": "1", "mem_limit": "512Mi"},
+    "load": {"kind": "spikes", "base_rps": 8, "factor": 5, "count": 4, "length_min": 3, "noise": 0.05}
+  },
+  "steady-growth": {
+    "description": "Load grows 1% of the base per minute, doubling over the run. Measures whether a tool sizes for where the load is going.",
+    "minutes": 120,
+    "workload": {"replicas": 2, "cpu_request": "400m", "mem_request": "256Mi", "cpu_limit": "1", "mem_limit": "512Mi"},
+    "load": {"kind": "growth", "base_rps": 10, "per_min": 0.01, "noise": 0.05}
+  }
+}

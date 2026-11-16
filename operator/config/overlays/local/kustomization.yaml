@@ -1,4 +1,5 @@
 # Local test cluster (kind/minikube): single replicas, locally built images.
+# It replaces the operator args, which removes --observe-only: on this overlay the operator WRITES. Disposable clusters only.
 resources:
 - ../../default
 - ../../samples

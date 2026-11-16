@@ -58,6 +58,9 @@ type RecommendationApplier struct {
 
 	PolicyNamespace, PolicyName string
 	ObserveOnly                 bool
+	// ForceApproval makes every change need a human approval even when the policy says requireApproval: false. Set by licence
+	// enforcement for tiers without the automated mode. It can only add the requirement, never remove it.
+	ForceApproval bool
 	// Prom, if set, evaluates the named SLO queries during observation.
 	Prom *promsrc.Client
 	// MaxObserve and MaxRollout cap what a recommendation may ask for.
@@ -240,6 +243,10 @@ func (r *RecommendationApplier) policy(ctx context.Context, namespace string) (s
 	}
 	if err := pol.Validate(); err != nil {
 		return pol, nil, err
+	}
+	if r.ForceApproval {
+		yes := true
+		pol.RequireApproval = &yes
 	}
 	slo := map[string]string{}
 	for k, v := range cm.Data {

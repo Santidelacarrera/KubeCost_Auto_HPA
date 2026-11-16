@@ -436,3 +436,97 @@ Everything ran on one Windows laptop. For each scenario, the bucket's copy was r
 * **The collector's throughput:** about 100 events/s, one collector serialising writes, local MinIO. That is not a figure for a cloud bucket.
 * **High availability:** it still runs as one replica.
 * **Tail loss:** a loss at the very end of a stream leaves a valid prefix. The bucket alone cannot show it; the sender's count, the metric, or a comparison with the local chained file does.
+
+## Result 26: the twelfth- and thirteenth-pass read-only features on REAL clusters (GKE soak cluster, 2026-11-16): three defects found and fixed
+
+Everything here only reads. Cluster: the GKE soak cluster of result 13 (1.36.4, five days of real Prometheus history), the local
+lab cluster, and a temporary AKS cluster (result 29).
+
+| What | Result | Evidence |
+|---|---|---|
+| Recommender insights on 120 h of real history (`rightsize plan --window 120h`) | The daily p95 of CPU was 0.0216, 0.0184, 0.0190, 0.0024, 0.0025 cores: the last two days are the weekend of the traffic schedule. The trend came out negative and was **not** read as growth; the percentile, not a forecast, drove the target. This is the "a straight line cannot tell a weekly cycle from a trend" caveat seen on real data, in the safe direction | `evidence/2026-11-16-gke-insights-120h.json` |
+| `rightsize nodes` with scheduling constraints, first run | **Two defects.** (1) kube-proxy on GKE is a static pod owned by its Node, not a DaemonSet: it blocked every node as "required node affinity". (2) The persistent disk's zone was not read, because GKE's CSI driver writes `topology.gke.io/zone`: the Prometheus pod was reported as immovable. Both fixed with a regression test; the re-run names real blockers (a pod with required node affinity, a `hostPath` volume) | `evidence/2026-11-16-gke-nodes-constraints.json` (after the fix) |
+| `rightsize nodes --plan` on AKS, region without availability zones | **A third defect**: Azure's disk driver writes its zone key with an EMPTY value there, and the pod with the disk was reported as immovable. Fixed with a test (an empty zone, or no placement restriction at all, means the volume attaches anywhere) | result 29 |
+| `rightsize fleet` over three contexts | The GKE cluster and the lab cluster were read; a context whose cluster no longer exists was reported as unreachable without failing the report; totals cover the reachable ones | `evidence/2026-11-16-fleet-real.json` |
+| `rightsize reconcile` on two REAL consecutive billing days of the soak cluster (an A/A control: nothing changed between them) | Google's detailed export, in CLP: 5538.96 and 5538.99 per day at list price, 0 invoiced on both (the account is on credits). Comparable; saving 0.00; **no saving was invented** | `evidence/2026-11-16-gcp-reconcile-aa-control.json`, `hack/gcp-focus-day.sh` |
+| `rightsize render` on those four outputs | One readable report, figures and levels copied | `evidence/2026-11-16-rendered-report.md` |
+
+Not shown by this: a real growing workload for the forecast; a real before/after pair for the reconciliation (the change of
+result 27 is too recent to be in the billing export).
+
+## Result 27: the GKE soak: the planned change applied on day 5.3, kept, and a node released (2026-11-16)
+
+The soak cluster had run since 2026-11-10 without its `approve` step, so it had no "after". The step was run as the script
+defines it: plan with the production defaults on the real history, approval stamped with the API server's identity, apply with
+an SLO on the real p95 latency, 30 minutes of observation.
+
+| Item | Value |
+|---|---|
+| Recommendation | CPU 500m to 250m, memory 128Mi to 64Mi per pod (4 pods); confidence Medium (the window misses most of Monday and Tuesday) |
+| Observation | **Verified, not rolled back.** During it the cluster autoscaler drained a node, which moved Prometheus and dropped the port-forward the SLO check used; the executor reported `observe_error`, tolerated it (2 minutes), and continued once the forward was restored |
+| Nodes | **2 before (mean 2.000 over 126.9 h), 1 after (mean 1.000 over the first 3.8 h)**, from `count(kube_node_info)` |
+| Cost at LIST price (0.06701142 USD per node-hour) | 0.1340 to 0.0670 USD/h: **0.0670 USD/h less (50%)** |
+| Health after the change (287 minutes) | 0 restarts, 0 CPU throttling, worst 5-minute p95 latency 4.75 ms |
+| Worst 5-minute p95 latency in the five days before | 4.75 ms |
+
+This is an **observed** saving at list price on a trivial test application with scheduled, generated traffic. It is not an
+invoice (the account is on credits, so the invoice is 0 before and after) and says nothing about a real service. The "after"
+window is hours, against five days before; the soak report will extend it. Evidence: `evidence/2026-11-16-gke-soak-apply.log`.
+
+## Result 28: the benchmark harness run for real (`hack/bench-local.sh`, minikube 1.33.4, 2026-11-16)
+
+The first real run of `benchmarks/`. Scenario `step-increase` (120 minutes; load triples at minute 40), the same manifests in
+two namespaces **at the same time on the same node**: one left alone, one rightsized by this product through the CLI at minute
+25. It is a run of the harness against its own baseline, not a comparison with any other product.
+
+Scenario: `step-increase`
+
+| Metric | none  (run 1, MEASURED) | kubecost-auto-hpa 73fd385 (run 1, MEASURED) |
+|---|---|---|
+| CPU requested and unused (%) | 87.1 | 78.9 |
+| Memory requested and unused (%) | 98.1 | 96.9 |
+| CPU wasted (core-hours) | 1.06 | 0.58 |
+| Memory wasted (GiB-hours) | 1.00 | 0.60 |
+| Node-hours | 2.03 | 2.03 |
+| Node cost at list price (USD) | not measured | not measured |
+| Reaction: first replica change after the event (s) | not measured | not measured |
+| Reaction: first request change after the event (s) | not measured | 43 |
+| Interventions on replicas | 0 | 0 |
+| Interventions on requests | 0 | 2 |
+| Availability of desired replicas (%) | 99.898 | 99.590 |
+| Container restarts | 0 | 0 |
+| OOM kills | not measured | not measured |
+| Worst p95 latency (s) | 0.0048 | 0.0048 |
+| Worst p99 latency (s) | 0.0050 | 0.0050 |
+| Worst 5xx ratio | not measured | not measured |
+| Tool's own CPU (cores, average) | not measured | not measured |
+| Tool's own memory (MiB, peak) | not measured | not measured |
+
+Reading it:
+
+* Requests were halved (CPU 300m to 150m, memory 256Mi to 128Mi per pod). Wasted CPU fell from 1.06 to 0.58 core-hours.
+* Latency did not change when the load tripled 15 minutes after the reduction (worst p95 4.8 ms in both).
+* Availability of desired replicas was 99.59% against 99.90%: the rollout of the change. Both include the start-up of the run.
+* Node-hours are equal: one laptop node, nothing to release. **No cost difference exists in this run.**
+* "Not measured" rows: no error-ratio series (the application has no 5xx counter in this shape), no OOM series, no tool
+  namespace given, no node price given.
+
+Limits: one run, not three; one node; a trivial application; a learning period of 22 minutes with relaxed minimums (the
+product's defaults ask for 24 hours) and `minConfidence: Low`; the Go test suite ran on the same machine during part of it.
+Result files: `benchmarks/results/local-step-increase-*.json`.
+
+## Result 29: node analysis and fleet report on a REAL AKS cluster (`hack/aks-nodes-fleet.sh`, 2026-11-16): 6 passed, 0 failed after one defect fixed
+
+A temporary AKS cluster (1.36.5, free tier, 2 x Standard_D2as_v4, eastus, no availability zones), created and deleted by the
+script. Read-only against the cluster, apart from one test pod with a managed disk.
+
+| Run | Result |
+|---|---|
+| Attempt in eastus2 with `--zones 1 2` | Not a product result: the free subscription has no availability zones there. Nothing was created |
+| Attempt with a script error | Not a product result: a comment swallowed a variable in the script. Nothing was created |
+| **Run 1** | **5 passed, 1 failed.** AKS writes the disk's zone key with an EMPTY value in a region without zones (`topology.disk.csi.azure.com/zone = [""]`), and the pod with the disk was reported as immovable. Defect in the product, fixed with a test. Evidence: `evidence/2026-11-16-aks-nodes-fleet-run1.log` |
+| **Run 2**, same script, fixed code | **6 passed, 0 failed.** The pod with the disk is movable; system DaemonSet pods do not block a node; each node names a real blocker (metrics-server has required node affinity, which is not evaluated); the plan is empty with its reason; `fleet` reports the AKS cluster (provider azure, 2 nodes) next to the GKE soak cluster, and reports the lab cluster, which was stopped by then, as unreachable. Evidence: `evidence/2026-11-16-aks-nodes-fleet-run2.log` |
+
+Not covered: a cluster with availability zones (the subscription has none), so the "pod stays inside its disk's zone" rule has
+only unit tests on Azure; a real drain to compare the plan with.
+

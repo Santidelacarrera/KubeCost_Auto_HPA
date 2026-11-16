@@ -68,3 +68,14 @@ Checked against a **real** export: Google's native FOCUS export in BigQuery, wri
 * No discounts, reservations, savings plans, spot price history or amortisation; credits and refunds must be handled before export (negative lines are rejected).
 * No usage-based or GPU/storage/network allocation; no per-pod or per-controller breakdown (namespace only).
 * Not validated against a real invoice. Any statement about accuracy would be invented.
+
+## Savings levels and bill reconciliation (added 2026-11-15)
+
+Every saving is reported with one of four levels: estimated, projected, observed, reconciled. `cost.Classify` returns the
+highest level the evidence supports and what is missing for the next. `rightsize reconcile --before a.csv --after b.csv`
+compares two FOCUS exports in their billing currency, per day, and keeps tax, credits, commitment purchases, out-of-scope and
+unattributable rows apart. It refuses to compare different currencies, overlapping periods and periods whose lengths differ by
+more than 10%. The rules, item by item, are in [FINOPS.md](FINOPS.md).
+
+Unit-tested, and the totals run on the real Google export in `internal/cost/testdata`. No pair of real before/after exports has
+been reconciled yet.
