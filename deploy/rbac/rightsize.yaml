@@ -25,6 +25,11 @@ rules:
 - apiGroups: [""]
   resources: ["pods", "nodes"]
   verbs: ["list"]
+# `nodes` only: the zone of each bound volume, so a pod with a zonal disk is checked inside its zone instead of being
+# treated as immovable. Optional: without it every pod with a claim is reported as pinned (the conservative answer).
+- apiGroups: [""]
+  resources: ["persistentvolumes"]
+  verbs: ["list"]
 - apiGroups: ["policy"]
   resources: ["poddisruptionbudgets"]
   verbs: ["list"]

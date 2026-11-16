@@ -346,6 +346,29 @@ _MIME_TYPES = {
 }
 
 
+# GET endpoints whose answer comes from built-in example inputs, static reference tables or figures supplied in the query
+# string: never from a connected cluster and never from a provider bill.
+_SAMPLE_DATA_PATHS = frozenset(
+    {
+        "/v1/ui/cast-dashboard",
+        "/v1/pricing/lookup",
+        "/v1/billing/invoice",
+        "/v1/gpu/optimize",
+        "/v1/greenops/report",
+        "/v1/gameday/simulate",
+        "/v1/cluster/topology",
+    }
+)
+SAMPLE_DATA_NOTICE = (
+    "sample: computed from built-in example inputs, static reference tables or the figures in the request; "
+    "not read from a connected cluster and not a provider bill"
+)
+
+
+def _is_sample_data_path(path_only: str) -> bool:
+    return path_only in _SAMPLE_DATA_PATHS or path_only.startswith("/v1/cast/")
+
+
 class Handler(BaseHTTPRequestHandler):
     def _extract_raw_credential(self) -> Optional[str]:
         """Extract Bearer token or X-API-Key header if provided."""
@@ -503,6 +526,12 @@ class Handler(BaseHTTPRequestHandler):
             headers["X-RateLimit-Remaining"] = str(rl_decision.remaining)
         if extra_headers:
             headers.update(extra_headers)
+        # Endpoints that answer from built-in example inputs or static tables say so, in a header and in the body, so a
+        # console or a report can never present them as measurements of a connected cluster or as a provider bill.
+        path_only = getattr(self, "path", "").split("?", 1)[0]
+        if code == 200 and self.command == "GET" and _is_sample_data_path(path_only) and isinstance(payload, dict):
+            headers["X-KubeCost-Data-Source"] = "sample"
+            payload = {**payload, "data_source": SAMPLE_DATA_NOTICE}
         self._send(code, json.dumps(payload), "application/json", extra_headers=headers)
 
     def _write_rate_limited(self, rl_decision: RateLimitDecision) -> None:

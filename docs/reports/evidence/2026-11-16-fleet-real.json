@@ -1,0 +1,68 @@
+{
+  "GeneratedAt": "2026-11-16T03:36:39.3052759Z",
+  "Clusters": [
+    {
+      "Context": "gke_project-543a26ad-5f2e-4083-840_us-central1-a_kubecost-soak",
+      "Reachable": true,
+      "Kubernetes": "v1.36.4-gke.2377000",
+      "Provider": "gce",
+      "Nodes": 2,
+      "Zones": [
+        "us-central1-a"
+      ],
+      "CPURequestedCores": 2.194,
+      "CPUAllocatableCores": 3.86,
+      "MemRequestedGiB": 2.719199299812317,
+      "MemAllocatableGiB": 11.768775939941406,
+      "CPURequestedPct": 56.839378238341965,
+      "MemRequestedPct": 23.10520069112519,
+      "PendingUnschedulable": 0,
+      "NodesUnderPressure": 0
+    },
+    {
+      "Context": "kubecost-lab",
+      "Reachable": true,
+      "Kubernetes": "v1.33.4",
+      "Provider": "unknown",
+      "Nodes": 1,
+      "CPURequestedCores": 3.3500000000000005,
+      "CPUAllocatableCores": 12,
+      "MemRequestedGiB": 1.97265625,
+      "MemAllocatableGiB": 5.7857818603515625,
+      "CPURequestedPct": 27.91666666666667,
+      "MemRequestedPct": 34.09489499626823,
+      "PendingUnschedulable": 0,
+      "NodesUnderPressure": 0
+    },
+    {
+      "Context": "kubecost-validate",
+      "Reachable": false,
+      "Error": "Get \"https://<redacted-aks-api-host>/api/v1/nodes\": dial tcp: lookup <redacted-aks-api-host>: no such host",
+      "Nodes": 0,
+      "CPURequestedCores": 0,
+      "CPUAllocatableCores": 0,
+      "MemRequestedGiB": 0,
+      "MemAllocatableGiB": 0,
+      "CPURequestedPct": 0,
+      "MemRequestedPct": 0,
+      "PendingUnschedulable": 0,
+      "NodesUnderPressure": 0
+    }
+  ],
+  "Totals": {
+    "Clusters": 3,
+    "Reachable": 2,
+    "Nodes": 3,
+    "CPURequestedCores": 5.5440000000000005,
+    "CPUAllocatableCores": 15.86,
+    "MemRequestedGiB": 4.691855549812317,
+    "MemAllocatableGiB": 17.55455780029297,
+    "RemovableCandidates": 0,
+    "PendingRecommendations": 0
+  },
+  "Notes": [
+    "read-only snapshot of each cluster through your own kubeconfig contexts: nothing is installed, stored or sent anywhere, and no cluster talks to another",
+    "percentages are REQUESTS over allocatable capacity, not usage; removable nodes are candidates, not savings",
+    "1 cluster(s) could not be read: the totals cover only the reachable ones"
+  ]
+}

@@ -14,6 +14,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/dynamic"
@@ -36,6 +37,7 @@ import (
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/execution"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/httpx"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/kubecost"
+	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/license"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/metrics"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/ownership"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/recommend/promsrc"
@@ -59,6 +61,8 @@ func main() {
 		cpuPrice, memPrice                                                                         float64
 		drainTimeout, applierMaxObserve                                                            time.Duration
 		applierPolicy, auditURL, auditTokenFile, auditCAFile                                       string
+		licenseFile, licensePubKey                                                                 string
+		enforceLicense                                                                             bool
 	)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "Address of the metrics endpoint.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "Address of the probe endpoint.")
@@ -79,6 +83,9 @@ func main() {
 	flag.StringVar(&auditURL, "audit-url", envOr("AUDIT_URL", ""), "Also POST every applier audit event as JSON to this append-only collector (https). Empty: Kubernetes Events only.")
 	flag.StringVar(&auditTokenFile, "audit-token-file", "", "File with a bearer token for --audit-url.")
 	flag.StringVar(&auditCAFile, "audit-ca-file", "", "PEM CA bundle trusted for --audit-url in addition to the system roots (a collector with a private CA).")
+	flag.StringVar(&licenseFile, "license-file", "", "Signed licence file (docs/COMMERCIAL.md). Verified offline; nothing is sent anywhere.")
+	flag.StringVar(&licensePubKey, "license-public-key-file", "", "Public key (PEM) that the licence must be signed with.")
+	flag.BoolVar(&enforceLicense, "enforce-license", false, "Apply the licence tier to the operating mode: starter = observe-only, professional = apply with human approval, enterprise = automation allowed. Off by default: the licence is then only reported. A missing, invalid or expired licence under enforcement means observe-only.")
 	flag.BoolVar(&spotDrain, "enable-spot-drain", true, "Cordon/drain Spot nodes with interruption signals.")
 	flag.DurationVar(&drainTimeout, "drain-timeout", 2*time.Minute, "Maximum time to drain a node.")
 	var promHTTP, kcHTTP, engHTTP, redisTLS httpx.Options
@@ -112,6 +119,26 @@ func main() {
 	registerBuildInfo()
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 	log := ctrl.Log.WithName("setup")
+	lic := resolveLicense(licenseFile, licensePubKey, enforceLicense, license.Requested{ObserveOnly: observeOnly, Applier: applier}, func() int {
+		// a direct, one-off count: the manager's cache does not exist yet. Unknown (0) is not checked against the limit.
+		c, err := kubernetes.NewForConfig(ctrl.GetConfigOrDie())
+		if err != nil {
+			return 0
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		nl, err := c.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+		if err != nil {
+			return 0
+		}
+		return len(nl.Items)
+	}, time.Now())
+	registerLicenseInfo(lic)
+	observeOnly, applier = lic.Effective.ObserveOnly, lic.Effective.Applier
+	log.Info("licence", "tier", lic.Tier, "enforced", lic.Enforced, "problem", lic.Problem)
+	for _, why := range lic.Effective.Reasons {
+		log.Info("licence enforcement: " + why)
+	}
 	if observeOnly {
 		log.Info("observe-only mode: decisions are reported, nothing is written to the cluster; Spot draining is disabled")
 		spotDrain = false
@@ -277,7 +304,8 @@ func main() {
 			AuditExtra: extra,
 			Client:     mgr.GetClient(), APIReader: mgr.GetAPIReader(), KC: cs, Dyn: dyn, Recorder: mgr.GetEventRecorderFor("kubecost-recommendation-applier"),
 			PolicyNamespace: ns, PolicyName: name, ObserveOnly: observeOnly, MaxObserve: applierMaxObserve, MaxRollout: applierMaxObserve,
-			Prom: &promsrc.Client{BaseURL: promURL, HTTP: mustClient("prometheus", promHTTP, 10*time.Second)},
+			ForceApproval: lic.Effective.ForceApproval,
+			Prom:          &promsrc.Client{BaseURL: promURL, HTTP: mustClient("prometheus", promHTTP, 10*time.Second)},
 		}).SetupWithManager(mgr); err != nil {
 			log.Error(err, "unable to create the recommendation applier")
 			os.Exit(1)

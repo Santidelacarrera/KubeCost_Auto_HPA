@@ -1,0 +1,55 @@
+{
+  "Level": "estimated",
+  "MissingForNext": [
+    "the change has not been applied: this is requests x unit price"
+  ],
+  "Reconciliation": {
+    "Currency": "CLP",
+    "Before": {
+      "Label": ".lab/billing/soak-2026-11-11.csv",
+      "Currency": "CLP",
+      "Start": "2026-11-11T00:00:00Z",
+      "End": "2026-11-12T00:00:00Z",
+      "Rows": 3379,
+      "ListUsage": 5538962615,
+      "BilledUsage": -115,
+      "EffectiveUsage": -115,
+      "HasList": true,
+      "HasEffective": true,
+      "Other": {},
+      "NoResource": 0,
+      "OutOfScope": 0,
+      "Simulated": false
+    },
+    "After": {
+      "Label": ".lab/billing/soak-2026-11-12.csv",
+      "Currency": "CLP",
+      "Start": "2026-11-12T00:00:00Z",
+      "End": "2026-11-13T00:00:00Z",
+      "Rows": 3482,
+      "ListUsage": 5538988988,
+      "BilledUsage": -104,
+      "EffectiveUsage": -104,
+      "HasList": true,
+      "HasEffective": true,
+      "Other": {},
+      "NoResource": 0,
+      "OutOfScope": 0,
+      "Simulated": false
+    },
+    "Comparable": true,
+    "NotComparable": null,
+    "Invoiced": true,
+    "Basis": "BilledCost",
+    "SavingPerDay": 0,
+    "ListSavingPerDay": -26373,
+    "BilledFell": false,
+    "TaxPerDayBefore": 0,
+    "TaxPerDayAfter": 0,
+    "Notes": [
+      "no scope filter excluded anything: the comparison is of everything in the exports, so unrelated resources move the result",
+      "a lower bill is attributed to the optimisation only if demand was equivalent in both periods; compare request volume before reading this as a saving"
+    ]
+  },
+  "HowToReadLevels": "estimated: requests x unit price, nothing applied | projected: applied and kept, no cost measured | observed: cost measured in two equivalent windows, not an invoice | reconciled: two comparable provider bills show the invoiced amount fell"
+}

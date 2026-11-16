@@ -33,3 +33,23 @@ Per-team/tenant policies (today: one policy ConfigMap per operator and the same-
 Real Argo CD and Flux, a two-node cluster compared with a real drain, real HTTP traffic and latency before/after, the opt-in applier (CRD + controller) on a real cluster: docs/LAB.md results 6-9.
 
 Observe-only default, read-only recommender, policy engine, controlled apply with recorded state, automatic rollback (restart and SLO triggers), audit, Helm install/upgrade-off/rollback/uninstall: docs/LAB.md.
+
+## Prioritised backlog after the twelfth pass (2026-11-15)
+
+Status of every feature: docs/STATUS.md. In order:
+
+| # | Item | Why | Blocked on |
+|---|---|---|---|
+| 1 | Read the 7-day GKE soak report (due 2026-11-17) and act on it | First multi-day evidence | Time |
+| 2 | Backtest the recommender on weeks of real traffic; tune or keep the defaults; validate the growth forecast and spike detection on that history | The defaults and the new insights are untested on real data | A cluster with real traffic |
+| 3 | Reconcile one saving with an invoice (`rightsize reconcile` on two real exports, an account not on credits) | No level-4 saving exists | Billing exports |
+| 4 | First real Azure FOCUS export through the adapter | The Azure side only saw fixtures | The owner's Cost Management export |
+| 5 | Helm chart and applier on GKE; a multi-day run on AKS | Gaps in provider coverage | Approval of the cloud spend |
+| 6 | Run the benchmark harness on a cluster (baseline, then this product), then against one competitor | The harness has never run; no comparison exists | A cluster; a vendor account |
+| 7 | Automated mode under real load; several operator replicas through an API outage | Needed for a Release Candidate | 2 |
+| 8 | ~~Remove the unused code~~ done in v0.2.0 (`internal/castsuite`, `internal/gpu`, `internal/psi`, `features.*`, the three ignored `KubeCostAutoscaler` fields). Left: the engine's sample endpoints and the demo console that calls them | Dead code and dead schema mislead | 12 |
+| 9 | Licence check (signed file, verified offline) | First step of the commercial architecture | 2, 3 |
+| 10 | Node consolidation as its own controller, with policy, approval and rollback | The largest missing capability | An ADR; 7 |
+| 11 | Multi-cluster read-only view | Enterprise tier | 9 |
+| 12 | Replace the demo console with one that reads the cluster | The console is sample data | 11 |
+| 13 | Third-party security review | No external audit exists | Budget |

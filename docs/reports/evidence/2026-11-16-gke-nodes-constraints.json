@@ -1,0 +1,37 @@
+{
+  "Nodes": [
+    {
+      "Name": "gke-kubecost-soak-default-pool-0275ac00-lb9p",
+      "CPURequested": 1.4220000000000002,
+      "MemRequested": 1117353216,
+      "CPUPct": 0.7367875647668395,
+      "MemPct": 0.17684347201207345,
+      "Pods": 14,
+      "Removable": false,
+      "Why": "pod gmp-system/gmp-operator-76d6bdb8b6-bkcwj is pinned (required node affinity (not evaluated))",
+      "MovedTo": null
+    },
+    {
+      "Name": "gke-kubecost-soak-default-pool-0275ac00-t4wh",
+      "CPURequested": 0.7720000000000002,
+      "MemRequested": 1802364800,
+      "CPUPct": 0.40000000000000013,
+      "MemPct": 0.2852606120944718,
+      "Pods": 21,
+      "Removable": false,
+      "Why": "pod kube-system/event-exporter-gke-5d7f7d58d9-xvcrq is pinned (hostPath volume)",
+      "MovedTo": null
+    }
+  ],
+  "Removable": null,
+  "FreedCPU": 0,
+  "FreedMem": 0,
+  "CandidateHourlyUSD": 0,
+  "StrandedCPU": 1.6659999999999995,
+  "StrandedMem": 9716908928,
+  "Caveats": [
+    "based on CPU/memory requests; cordons, taints/tolerations, nodeSelector, zonal volumes, required per-node anti-affinity, PodDisruptionBudgets with no disruption allowed and the last node of a zone are honoured WHEN the caller supplies them; preferred affinities, topology spread constraints and inter-pod affinity are not evaluated",
+    "a removable node is a CANDIDATE: no saving exists until the node is actually released by an autoscaler/provider and the bill falls"
+  ],
+  "Signals": {}
+}

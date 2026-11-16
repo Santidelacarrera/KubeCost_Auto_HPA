@@ -143,3 +143,36 @@ creates with cluster rights. Nothing else needs cluster scope in restricted mode
 **Why it is not enabled now.** Without the flag and the two-namespace tests above, a restricted install would fail in
 a way that is easy to miss: informers denied for a namespace are logged as errors, but the controller would look
 healthy for the namespaces it can see. The ClusterRole stays until those tests pass.
+
+## The `rightsize` CLI roles (`deploy/rbac/rightsize.yaml`)
+
+The CLI runs as the person who launches it. No service account is created. Two roles, so reading and changing are separate
+permissions; proven sufficient by impersonation (`hack/lab-rbac.sh`, 14/14).
+
+| Role | Scope | Resource | Verbs | Purpose |
+|---|---|---|---|---|
+| `kubecost-rightsize-read` | cluster (bind with a ClusterRoleBinding) | `deployments`, `statefulsets`, `daemonsets` | get, list | read the workload and its current requests |
+| | | `horizontalpodautoscalers` | list | refuse a CPU change under an HPA that scales on CPU |
+| | | `verticalpodautoscalers` | list | refuse when a VPA owns the requests (only if the CRD exists) |
+| | | `pods`, `nodes` | list | node analysis and cost allocation |
+| | | `persistentvolumes` | list | zone of each bound volume, for the node analysis. Added 2026-11-15. Optional: without it every pod with a claim is reported as immovable |
+| | | `poddisruptionbudgets` | list | flag or block a node whose pods a budget protects |
+| apply role | **one namespace** (bind with a RoleBinding per namespace) | the workload kinds | get, update, patch | apply and roll back; nothing outside the namespaces you bind |
+
+Neither role can read Secrets, create pods or touch nodes. The file carries the exact rules; this table explains them.
+
+## Permission matrix by feature
+
+Which permission each feature needs, so a feature you do not use is a permission you can withhold.
+
+| Feature | Reads | Writes | Withhold by |
+|---|---|---|---|
+| Observe-only (default) | workloads, pods, nodes, HPAs, PDBs, metrics, own CRDs | status of own CRDs, Events, the leader-election Lease | this is the minimum |
+| `KubeCostAutoscaler` writing replicas | as above | `deployments/scale`, its own fallback HPA | `operator.enableCostAutoscaler=false`, or keep `observeOnly` |
+| `KubeCostHPA` in-place resize | as above | `pods/resize` | not creating `KubeCostHPA` objects; `observeOnly` |
+| Spot drain | nodes, pods | `nodes` (cordon), `pods/eviction` | `operator.enableSpotDrain=false` |
+| Recommendation applier | `workloadrecommendations`, the policy ConfigMap | `update` on workloads, **only in `recommendationApplier.namespaces`** | `recommendationApplier.enabled=false` (default) |
+| Approving a recommendation | none | `update workloadrecommendations/status` | not granting it: it is a separate permission from creating one |
+
+The generated ClusterRole and the Helm role are compared with the documented allow-list in CI (`internal/rbaccheck`): a new
+permission fails the build until it is documented here. The chart grants no wildcard and no access to Secrets.
