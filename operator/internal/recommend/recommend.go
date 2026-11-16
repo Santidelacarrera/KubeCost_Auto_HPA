@@ -218,6 +218,9 @@ type Recommendation struct {
 	// Additional holds the other containers of the SAME pod template (sidecars), changed in the same rollout and rolled back
 	// together. Empty for a single-container record, so records written before this field existed read unchanged. See Combine.
 	Additional []ContainerResult `json:",omitempty"`
+	// Insights holds what was noticed besides the percentile (growth, spikes, memory-limit proximity) with its evidence. Nil when
+	// there is nothing, so older records read unchanged.
+	Insights *Insights `json:",omitempty"`
 }
 
 // ContainerResult is the recommendation for one more container of the record's pod template.
@@ -356,6 +359,11 @@ func Recommend(in Input, cfg Config) (Recommendation, error) {
 		rec.Confidence = ConfLow
 	}
 
+	// ---- insights: growth, spikes, proximity to the memory limit (evidence; only the growth forecast changes a target) ----
+	ins, forecast, insRisks := insights(in, cfg, memS)
+	rec.Insights = ins
+	rec.Risks = append(rec.Risks, insRisks...)
+
 	// ---- shared vetoes that only block decreases ----
 	var noDown []string
 	if in.SLOKnown && in.SLOBreached {
@@ -367,6 +375,11 @@ func Recommend(in Input, cfg Config) (Recommendation, error) {
 
 	// ---- CPU ----
 	cpuBase := Percentile(in.CPUSamples, cfg.CPUPercentile)
+	cpuBasis := fmt.Sprintf("p%.0f", cfg.CPUPercentile*100)
+	if forecast > cpuBase {
+		cpuBasis = fmt.Sprintf("forecast %d days ahead (the p%.0f today is %.4f)", int(TrendHorizon.Hours()/24), cfg.CPUPercentile*100, cpuBase)
+		cpuBase = forecast
+	}
 	cpuTarget := clamp(roundUp(cpuBase*(1+cfg.CPUHeadroom), 0.010), cfg.MinCPU, cfg.MaxCPU)
 	cpuDown := append([]string{}, noDown...)
 	if in.ThrottleKnown && in.ThrottledRatio >= cfg.ThrottleVeto {
@@ -375,8 +388,8 @@ func Recommend(in Input, cfg Config) (Recommendation, error) {
 	if !in.ThrottleKnown {
 		cpuDown = append(cpuDown, "CPU throttling was not measured")
 	}
-	rec.CPU = decide(rec.CPU, cpuTarget, cpuDown, cfg, fmt.Sprintf("p%.0f x (1+%.2f) = %.4f x %.2f = %.4f cores (rounded up to 10m), clamped to [%.3f,%.3f]",
-		cfg.CPUPercentile*100, cfg.CPUHeadroom, cpuBase, 1+cfg.CPUHeadroom, cpuTarget, cfg.MinCPU, cfg.MaxCPU), in.Current.CPULimit)
+	rec.CPU = decide(rec.CPU, cpuTarget, cpuDown, cfg, fmt.Sprintf("%s x (1+%.2f) = %.4f x %.2f = %.4f cores (rounded up to 10m), clamped to [%.3f,%.3f]",
+		cpuBasis, cfg.CPUHeadroom, cpuBase, 1+cfg.CPUHeadroom, cpuTarget, cfg.MinCPU, cfg.MaxCPU), in.Current.CPULimit)
 	if rec.CPU.Action == Decrease && cfg.CPUPricePerCoreHour > 0 {
 		rec.CPU.PotentialMonthlyUSD = (rec.CPU.Current - rec.CPU.Recommended) * cfg.CPUPricePerCoreHour * 730
 	}

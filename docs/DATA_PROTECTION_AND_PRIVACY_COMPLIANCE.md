@@ -1,5 +1,9 @@
 # Auditoría y Certificación de Protección de Datos y Privacidad (Data Protection & Privacy Compliance)
 
+<!-- status-notice -->
+> **Self-assessment, not a legal opinion or a certification (notice added 2026-11-15).** Nobody independent reviewed this.
+> Have your own counsel assess the product against the rules that apply to you.
+
 Este documento certifica el cumplimiento normativo de **KubeCost Auto-HPA** frente a las principales leyes internacionales y regionales de protección de datos personales y seguridad de la información:
 
 - **RGPD / GDPR** (Reglamento General de Protección de Datos — Reglamento UE 2016/679)

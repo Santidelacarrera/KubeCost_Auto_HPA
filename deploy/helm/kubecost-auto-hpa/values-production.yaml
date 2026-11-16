@@ -79,19 +79,6 @@ tls:
     secretName: kubecost-engine-server-tls
     clientSecretName: kubecost-operator-client-tls
 
-features:
-  predictiveScaling:
-    enabled: true
-    warmupLeadTimeSeconds: 120
-  oomProtection:
-    enabled: true
-    criticalThresholdPercent: 88
-    warningThresholdPercent: 78
-    maxLimitMiB: 16384
-  nodeBinPacking:
-    enabled: true
-    consolidationThresholdPercent: 35
-
 telemetry:
   enabled: true
   redisUrl: "redis://kubecost-auto-hpa-redis:6379/0"

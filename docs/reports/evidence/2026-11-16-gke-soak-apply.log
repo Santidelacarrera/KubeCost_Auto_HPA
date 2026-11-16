@@ -1,0 +1,25 @@
+abstained False confidence Medium samples 6136
+CPU Decrease 0.5 -> 0.25
+Memory Decrease 134217728 -> 67108864
+risk: the window has data for less than half of the hours of Monday, Tuesday: weekly seasonality is not fully observed
+risk: memory reductions can cause OOMKilled; apply behind a canary and watch restarts
+{"time":"2026-11-16T03:28:15.1779685Z","type":"approved","actor":"<workstation-user>","recommendationId":"ea3bffb07232e628","target":"lab/Deployment/shop","details":{"approvedBy":"<owner-account>","signed":false}}
+{
+  "approved": "ea3bffb07232e628",
+  "approvedBy": "<owner-account>",
+  "target": "lab/Deployment/shop"
+}
+{"time":"2026-11-16T03:28:16.7240227Z","type":"decision","actor":"<workstation-user>","recommendationId":"ea3bffb07232e628","target":"lab/Deployment/shop","details":{"allowed":true,"execute":true,"reasons":null}}
+{"time":"2026-11-16T03:28:17.0947366Z","type":"applied","actor":"<workstation-user>","recommendationId":"ea3bffb07232e628","target":"lab/Deployment/shop","details":{"approvedBy":"<owner-account>","cpu":0.25,"cpuPotentialMonthlyUSD":3.9806151749999996,"memory":67108864,"memoryPotentialMonthlyUSD":0.13338605625,"previous":{"app":{"cpuRequest":"500m","cpuLimit":"1","memRequest":"128Mi","memLimit":"256Mi"}}}}
+{"time":"2026-11-16T03:38:59.1122662Z","type":"observe_error","actor":"<workstation-user>","recommendationId":"ea3bffb07232e628","target":"lab/Deployment/shop","details":{"error":"slo check: prometheus unreachable: Get \"http://localhost:9091/api/v1/query?query=histogram_quantile%280.95%2C+sum+by+%28le%29+%28rate%28http_request_duration_seconds_bucket%7Bnamespace%3D%22lab%22%2Cpod%3D~%22shop-.%2A%22%7D%5B1m%5D%29%29%29+%3E+bool+0.25\u0026time=1794800338\": EOF","tolerating":"2m0s"}}
+{"time":"2026-11-16T04:10:00.7473973Z","type":"verified","actor":"<workstation-user>","recommendationId":"ea3bffb07232e628","target":"lab/Deployment/shop","details":{"observedFor":"30m0s"}}
+{
+  "allowed": true,
+  "applied": true,
+  "degradedReasons": null,
+  "healthy": true,
+  "mode": "execute",
+  "reasons": null,
+  "rolledBack": false
+}
+exit=0

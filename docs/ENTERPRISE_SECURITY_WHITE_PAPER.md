@@ -1,5 +1,12 @@
 # Enterprise Security & Compliance White Paper
 
+<!-- status-notice -->
+> **Draft, not an attestation (notice added 2026-11-15).** There has been no third-party audit or penetration test, and there
+> is no SOC 2, ISO 27001 or similar report. The technical controls are described, with their tests, in [RBAC.md](RBAC.md),
+> [THREAT_MODEL.md](THREAT_MODEL.md), [SAFETY.md](SAFETY.md) and [SUPPLY_CHAIN.md](SUPPLY_CHAIN.md); where this paper says more
+> than those documents, those documents are right. "No telemetry" holds for the default installation; the optional
+> `telemetry.*` and `--audit-url` settings send data to endpoints you configure.
+
 This white paper provides architecture details, trust boundaries, data privacy guarantees, and RBAC justification for enterprise CISOs, InfoSec teams, and compliance auditors evaluating **KubeCost Auto-HPA**.
 
 ---

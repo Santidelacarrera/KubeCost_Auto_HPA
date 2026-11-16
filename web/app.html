@@ -826,14 +826,11 @@
 
       <!-- Cluster Selector -->
       <div class="cluster-selector">
-        <button class="cluster-tab active" onclick="switchCluster(this, 'eks-prod-us-east-1')">
-          <span class="dot"></span> eks-prod-us-east-1 (AWS)
+        <button class="cluster-tab active" onclick="switchCluster(this, 'gke-demo-us-central1')">
+          <span class="dot"></span> gke-demo-us-central1 (GKE, sample)
         </button>
-        <button class="cluster-tab" onclick="switchCluster(this, 'gke-staging-eu-west1')">
-          <span class="dot"></span> gke-staging-eu-west1 (GCP)
-        </button>
-        <button class="cluster-tab" onclick="switchCluster(this, 'aks-finops-centralus')">
-          <span class="dot"></span> aks-finops-centralus (Azure)
+        <button class="cluster-tab" onclick="switchCluster(this, 'aks-demo-eastus')">
+          <span class="dot"></span> aks-demo-eastus (AKS, sample)
         </button>
       </div>
     </div>
@@ -856,22 +853,37 @@
   <div style="background: rgba(11, 18, 33, 0.92); border-bottom: 1px solid rgba(56, 189, 248, 0.16); padding: 0.65rem 2.5rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
     <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
       <span style="font-family: var(--ks-mono); font-size: 0.7rem; color: #00E5FF; background: rgba(0, 229, 255, 0.1); border: 1px solid rgba(0, 229, 255, 0.3); padding: 3px 9px; border-radius: 999px; font-weight: 600;">
-        CAST AI + SCALEOPS ENGINE v2.6
+        DEMO DATA
       </span>
       <span style="font-size: 0.78rem; color: #94A3B8;">
-        Autonomous Optimization Mode: <strong style="color: #10B981;">ACTIVE (Phase 2 Full Automation)</strong>
+        Sample console. Product default: <strong style="color: #10B981;">OBSERVE-ONLY</strong> (nothing is written to a cluster)
       </span>
     </div>
     <div style="display: flex; align-items: center; gap: 1.35rem; font-size: 0.76rem; font-family: var(--ks-mono);">
-      <span style="color: #94A3B8;">Cluster Efficiency: <strong style="color: #00E5FF;">93.4%</strong></span>
+      <span style="color: #94A3B8;">Sample figures &rarr; Cluster Efficiency: <strong style="color: #00E5FF;">93.4%</strong></span>
       <span style="color: #94A3B8;">Spot Ratio: <strong style="color: #38BDF8;">68.0%</strong></span>
-      <span style="color: #94A3B8;">RI/SP Utilization: <strong style="color: #10B981;">93.8%</strong></span>
+      <span style="color: #94A3B8;">Commitment Utilization: <strong style="color: #10B981;">93.8%</strong></span>
       <span style="color: #94A3B8;">CIS Posture: <strong style="color: #10B981;">92.5/100</strong></span>
     </div>
   </div>
 
   <!-- Main Console Work Area -->
   <main class="console-main">
+
+    <!-- What on this page is real: one banner, one panel -->
+    <div id="demo-banner" role="note" style="margin-bottom: 1rem; padding: 0.8rem 1.1rem; border: 1px solid rgba(245, 158, 11, 0.55); background: rgba(245, 158, 11, 0.10); border-radius: 10px; color: #FCD34D; font-size: 0.86rem; line-height: 1.5;">
+      <strong>DEMO DATA.</strong> Every figure, cluster, workload and saving below this line is an illustrative sample built into the page or returned by the engine's sample endpoints.
+      None of it is a measurement of your cluster, an achieved saving or a bill. The <strong>Platform status</strong> panel is the exception: it shows what the project has actually verified, with its evidence.
+      <span id="demo-banner-live" style="display:none;"> An engine is connected: its answers to <code>/v1/evaluate</code> are computed from the inputs this page sends, which are still samples.</span>
+    </div>
+
+    <section id="platform-status" aria-label="Platform status" style="margin-bottom: 1.5rem; padding: 1.1rem 1.25rem; border: 1px solid rgba(56, 189, 248, 0.25); background: rgba(11, 18, 33, 0.72); border-radius: 12px;">
+      <div style="display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.9rem;">
+        <h2 style="margin: 0; font-size: 1.02rem; color: #E2E8F0;">Platform status <span style="font-weight: 400; color: #94A3B8; font-size: 0.8rem;">verified facts from the repository's evidence, not sample data</span></h2>
+        <span id="ps-meta" style="font-family: var(--ks-mono); font-size: 0.74rem; color: #94A3B8;">loading status.json...</span>
+      </div>
+      <div id="ps-body" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 0.9rem;"></div>
+    </section>
 
     <!-- Active Simulation Indicator Banner -->
     <div class="sim-alert" id="sim-alert">
@@ -895,7 +907,7 @@
 
       <div class="tile tile-span-4">
         <div class="tile-eyebrow">
-          <span>Realized Cloud Reduction</span>
+          <span>Cloud Reduction (sample)</span>
           <span class="patina-tag">-34.8% NET SAVINGS</span>
         </div>
         <div class="metric-value patina" id="kpi-savings">-$108,720<span style="font-size: 1.25rem; color: var(--ks-text-muted);"> / yr</span></div>
@@ -1050,7 +1062,7 @@
             <span style="color: var(--ks-champagne); font-weight: 600;">ip-10-0-12-42</span>
             <span class="badge-status active">DENSE (82%)</span>
           </div>
-          <div style="font-size: 0.75rem; color: var(--ks-text-muted);">m6i.2xlarge • us-east-1a • 18 Pods</div>
+          <div style="font-size: 0.75rem; color: var(--ks-text-muted);">n2-standard-8 • us-central1-a • 18 Pods</div>
           <div class="node-bar-wrap">
             <div class="node-bar-label"><span>CPU Allocation</span><span id="node-cpu-1">82.5%</span></div>
             <div class="node-progress"><div class="node-progress-fill" id="node-bar-1" style="width: 82.5%;"></div></div>
@@ -1066,7 +1078,7 @@
             <span style="color: var(--ks-champagne); font-weight: 600;">ip-10-0-12-88</span>
             <span class="badge-status" id="badge-node-2" style="border: 1px solid var(--ks-vermilion); color: #ff6b6b;">DRAIN TARGET</span>
           </div>
-          <div style="font-size: 0.75rem; color: var(--ks-text-muted);">m6i.2xlarge • us-east-1a • 3 Pods</div>
+          <div style="font-size: 0.75rem; color: var(--ks-text-muted);">n2-standard-8 • us-central1-a • 3 Pods</div>
           <div class="node-bar-wrap">
             <div class="node-bar-label"><span>CPU Allocation</span><span>21.0%</span></div>
             <div class="node-progress"><div class="node-progress-fill warn" style="width: 21%;"></div></div>
@@ -1083,7 +1095,7 @@
             <span style="color: var(--ks-champagne); font-weight: 600;">ip-10-0-14-102</span>
             <span class="badge-status active">DENSE (88%)</span>
           </div>
-          <div style="font-size: 0.75rem; color: var(--ks-text-muted);">c6i.4xlarge • us-east-1b • 26 Pods</div>
+          <div style="font-size: 0.75rem; color: var(--ks-text-muted);">standard_d8s_v5 • eastus-1 • 26 Pods</div>
           <div class="node-bar-wrap">
             <div class="node-bar-label"><span>CPU Allocation</span><span id="node-cpu-3">88.0%</span></div>
             <div class="node-progress"><div class="node-progress-fill" id="node-bar-3" style="width: 88%;"></div></div>
@@ -1099,7 +1111,7 @@
             <span style="color: var(--ks-champagne); font-weight: 600;">ip-10-0-14-109</span>
             <span class="badge-status" id="badge-node-4" style="border: 1px solid var(--ks-vermilion); color: #ff6b6b;">DRAIN TARGET</span>
           </div>
-          <div style="font-size: 0.75rem; color: var(--ks-text-muted);">c6i.4xlarge • us-east-1b • 2 Pods</div>
+          <div style="font-size: 0.75rem; color: var(--ks-text-muted);">standard_d8s_v5 • eastus-1 • 2 Pods</div>
           <div class="node-bar-wrap">
             <div class="node-bar-label"><span>CPU Allocation</span><span>18.0%</span></div>
             <div class="node-progress"><div class="node-progress-fill warn" style="width: 18%;"></div></div>
@@ -1170,7 +1182,7 @@
         <div>
           <div class="table-title">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
-            Cast AI &amp; Tremor FinOps Executive View — Unit Economics ($/1k Successful Requests)
+            FinOps Executive View (sample data) — Unit Economics ($/1k Successful Requests)
           </div>
           <div style="font-family: var(--ks-font); font-size: 0.75rem; color: var(--ks-text-muted); margin-top: 2px;">
             Corporate Restraint Typography (<code>Inter</code> / <code>Geist Sans</code>) • Counterfactual Savings Auditor &amp; 1-Click Autonomous Execution
@@ -1228,7 +1240,7 @@
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem;">
             <div>
               <div style="font-weight: 600; color: var(--ks-champagne); font-size: 0.9rem;">
-                Tremor BarChart — Recursos Asignados (Requests) vs. Consumo Real por Namespace (Aislando "La Grasa")
+                Recursos Asignados (Requests) vs. Consumo Real por Namespace (Aislando "La Grasa")
               </div>
               <div style="font-size: 0.75rem; color: var(--ks-text-muted);">
                 Diferencia entre CPU/Memoria aprovisionada y utilizada realmente en producción
@@ -1328,7 +1340,7 @@
               <div class="workload-ns">namespace: production (Node)</div>
             </td>
             <td><span class="badge-status spot">SPOT DRAIN &amp; BIN-PACK</span></td>
-            <td class="mono-cell">m6i.2xlarge On-Demand (21% util)</td>
+            <td class="mono-cell">n2-standard-8 On-Demand (21% util)</td>
             <td class="mono-cell" style="color: #10B981; font-weight: 600;">Cordon + Evict -&gt; Spot c6i.2xlarge</td>
             <td class="mono-cell">PDB Respected • 0 Dropped Req</td>
             <td class="mono-cell" style="color: #10B981; font-weight: 600;">+$2,180.00 / mo</td>
@@ -1360,7 +1372,7 @@
               <div class="workload-ns">namespace: analytics</div>
             </td>
             <td><span class="badge-status spot">SPOT DRAIN &amp; BIN-PACK</span></td>
-            <td class="mono-cell">8 pods on On-Demand c6i.4xlarge</td>
+            <td class="mono-cell">8 pods on On-Demand standard_d8s_v5</td>
             <td class="mono-cell" style="color: #10B981; font-weight: 600;">Migrate stateless pool to Spot</td>
             <td class="mono-cell">Rebalance-Aware • 99.98% SLA</td>
             <td class="mono-cell" style="color: #10B981; font-weight: 600;">+$3,270.00 / mo</td>
@@ -1380,7 +1392,7 @@
         <div>
           <span class="table-title">AI/GPU Fractional MIG • GreenOps ESG Carbon • Nexus FinOps Guardrail • Chaos GameDay</span>
           <div style="font-size: 0.72rem; color: var(--ks-text-muted); margin-top: 2px;">
-            Beyond Cast AI &amp; ScaleOps: NVIDIA MIG Slicing ($/1k LLM Tokens), Regional Carbon Intensity (gCO2eq/kWh), CloudCost_Optimizer Guardrail Bridge &amp; Multi-Vector SRE Chaos Certification
+            Additional analyses (sample data): NVIDIA MIG Slicing ($/1k LLM Tokens), Regional Carbon Intensity (gCO2eq/kWh), CloudCost_Optimizer Guardrail Bridge &amp; Multi-Vector SRE Chaos Certification
           </div>
         </div>
         <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
@@ -1416,7 +1428,7 @@
         <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 8px; padding: 1rem;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
             <span style="font-size: 0.72rem; color: var(--ks-text-muted); text-transform: uppercase; letter-spacing: 0.06em;">GreenOps Scope-2 Carbon</span>
-            <span class="status-pill status-healthy" id="green-region-badge">us-east-1 &rarr; eu-north-1</span>
+            <span class="status-pill status-healthy" id="green-region-badge">us-central1 &rarr; europe-north1</span>
           </div>
           <div style="font-size: 1.25rem; font-weight: 700; color: #10B981; font-family: 'JetBrains Mono', monospace;" id="green-co2-val">-274.8 kg CO2eq / mo</div>
           <div style="font-size: 0.76rem; color: var(--ks-text-secondary); margin-top: 0.35rem;" id="green-power-desc">
@@ -1463,7 +1475,7 @@
     <div class="table-tile" style="margin-bottom: 1.5rem;">
       <div class="table-header-row" style="flex-wrap: wrap; gap: 0.75rem;">
         <div>
-          <span class="table-title">Cast AI Complete Commercial Suite Parity (5/5 Enterprise Modules)</span>
+          <span class="table-title">Additional analysis modules (sample data, not validated on a cluster)</span>
           <div style="font-size: 0.72rem; color: var(--ks-text-muted); margin-top: 2px;">
             1. RI/Savings Plans Arbitrage • 2. Non-Prod Hibernation &amp; Blue/Green Rebalancing • 3. Cross-AZ Egress &amp; EBS gp2&rarr;gp3 • 4. CIS v1.9 Security Posture • 5. 60s 2-Phase Onboarding
           </div>
@@ -1492,7 +1504,7 @@
           </div>
           <div style="font-size: 1.15rem; font-weight: 700; color: #10B981; font-family: 'JetBrains Mono', monospace;" id="cast-commit-val">+$350.40 / mo</div>
           <div style="font-size: 0.73rem; color: var(--ks-text-secondary); margin-top: 0.3rem;" id="cast-commit-desc">
-            16/16 vCPUs routed to idle AWS Savings Plan ($0.00/h incremental)
+            16/16 vCPUs routed to an idle committed-use discount ($0.00/h incremental) (sample)
           </div>
         </div>
 
@@ -1538,7 +1550,7 @@
             Phase 1 (OBSERVE) &rarr; Phase 2 (ACTIVE) Ready
           </div>
           <div style="font-size: 0.72rem; color: var(--ks-text-secondary); margin-top: 0.3rem;">
-            Cast AI Anywhere compatible (Cloud + On-Prem OpenShift)
+            Generated onboarding bundle (sample)
           </div>
         </div>
       </div>
@@ -1711,6 +1723,68 @@
       logToTerminal('ENGINE', 'Operating in standalone demo mode. Click badge to retry connection.');
     }
 
+    const PS_COLORS = { 'available': '#10B981', 'validated-partially': '#38BDF8', 'measured-twice': '#38BDF8', 'measured-three-times': '#38BDF8', 'experimental': '#F59E0B',
+      'none': '#F87171', 'out-of-scope': '#94A3B8' };
+
+    function psEl(tag, text, style) {
+      const el = document.createElement(tag);
+      if (text !== undefined) el.textContent = text; // textContent only: nothing from the file is parsed as HTML
+      if (style) el.setAttribute('style', style);
+      return el;
+    }
+
+    function psCard(title) {
+      const card = psEl('div', undefined, 'border: 1px solid rgba(148, 163, 184, 0.18); border-radius: 10px; padding: 0.8rem 0.9rem;');
+      card.appendChild(psEl('div', title, 'font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; color: #94A3B8; margin-bottom: 0.55rem;'));
+      return card;
+    }
+
+    function psRow(card, name, state, detail) {
+      const row = psEl('div', undefined, 'margin-bottom: 0.6rem;');
+      const head = psEl('div', undefined, 'display: flex; justify-content: space-between; gap: 0.5rem; align-items: baseline;');
+      head.appendChild(psEl('strong', name, 'color: #E2E8F0; font-size: 0.86rem;'));
+      head.appendChild(psEl('span', state, 'font-family: var(--ks-mono); font-size: 0.7rem; color: ' + (PS_COLORS[state] || '#94A3B8') + ';'));
+      row.appendChild(head);
+      if (detail) row.appendChild(psEl('div', detail, 'color: #94A3B8; font-size: 0.78rem; line-height: 1.45; margin-top: 0.15rem;'));
+      card.appendChild(row);
+    }
+
+    async function loadPlatformStatus() {
+      const body = document.getElementById('ps-body');
+      const meta = document.getElementById('ps-meta');
+      try {
+        const res = await fetch('status.json', { cache: 'no-store' });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const st = await res.json();
+        meta.textContent = st.release + ' | maturity: ' + st.maturity + ' | as of ' + st.as_of;
+
+        const modes = psCard('Operating modes');
+        (st.modes || []).forEach(m => psRow(modes, m.name + (m.default ? ' (default)' : ''), m.state, m.detail));
+        body.appendChild(modes);
+
+        const prov = psCard('Cloud integrations');
+        (st.providers || []).forEach(p => {
+          const done = (p.passed || []).length ? 'Passed: ' + p.passed.join('; ') + '. ' : '';
+          const todo = (p.pending || []).length ? 'Pending: ' + p.pending.join('; ') + '. ' : '';
+          psRow(prov, p.name + (p.kubernetes ? ' ' + p.kubernetes : ''), p.state, done + todo + 'Evidence: ' + p.evidence);
+        });
+        body.appendChild(prov);
+
+        const sav = psCard('Savings, by level of evidence');
+        (st.savings || []).forEach(x => psRow(sav, x.level, x.state, x.detail));
+        body.appendChild(sav);
+
+        const gaps = psCard('Known gaps');
+        (st.known_gaps || []).forEach(g => gaps.appendChild(psEl('div', '- ' + g, 'color: #94A3B8; font-size: 0.78rem; line-height: 1.45; margin-bottom: 0.3rem;')));
+        if (st.maturity_note) gaps.appendChild(psEl('div', st.maturity_note, 'color: #FCD34D; font-size: 0.78rem; margin-top: 0.5rem;'));
+        body.appendChild(gaps);
+      } catch (err) {
+        meta.textContent = 'status.json unavailable (' + err.message + ')';
+        body.appendChild(psEl('div', 'The verified-status file could not be loaded, so nothing on this page is verified data. See docs/STATUS.md in the repository.', 'color: #F87171; font-size: 0.82rem;'));
+      }
+    }
+    document.addEventListener('DOMContentLoaded', loadPlatformStatus);
+
     function switchCluster(btn, clusterName) {
       document.querySelectorAll('.cluster-tab').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
@@ -1851,7 +1925,7 @@
         return;
       }
 
-      logToTerminal('BINPACK', 'ScaleOps Algorithm: Evaluating node fragmentation and pod affinity constraints...');
+      logToTerminal('BINPACK', 'Evaluating node fragmentation on the sample topology (read-only analysis)...');
 
       setTimeout(() => {
         logToTerminal('DRAIN', 'Cordoned ip-10-0-12-88 & ip-10-0-14-109. Evicting 5 non-critical pods to dense nodes...', true);
@@ -1914,7 +1988,7 @@
       try {
         const [dashRes, priceRes, billRes] = await Promise.all([
           fetch(`${base}/v1/ui/cast-dashboard`, { headers: hdrs }),
-          fetch(`${base}/v1/pricing/lookup?instance_type=m6i.2xlarge&region=us-east-1`, { headers: hdrs }),
+          fetch(`${base}/v1/pricing/lookup?instance_type=n2-standard-8&region=us-central1`, { headers: hdrs }),
           fetch(`${base}/v1/billing/invoice?savings_usd=3420&nodes=6&model=VALUE_SHARED`, { headers: hdrs })
         ]);
         if (checkSecurityResponse(dashRes, '/v1/ui/cast-dashboard')) {
@@ -1923,7 +1997,7 @@
           const proj = cards.projected_optimized_spend_usd || cards.projected_monthly_spend_usd || 9890;
           const sav = cards.net_monthly_savings_usd || cards.potential_monthly_savings_usd || 8560;
           const pct = cards.net_savings_pct || cards.savings_percentage || 46.4;
-          logToTerminal('SAAS-SYNC', `Synced Cast AI + Tremor telemetry: Projected $${proj.toLocaleString()}/mo | Potential Savings $${sav.toLocaleString()}/mo (${pct}%).`, true);
+          logToTerminal('SAAS-SYNC', `Synced engine sample data: Projected $${proj.toLocaleString()}/mo | Potential Savings $${sav.toLocaleString()}/mo (${pct}%).`, true);
         }
         if (checkSecurityResponse(priceRes, '/v1/pricing/lookup')) {
           const pr = await priceRes.json();
@@ -1935,7 +2009,7 @@
         }
         const [gpuRes, greenRes, guardRes, gdRes] = await Promise.all([
           fetch(`${base}/v1/gpu/optimize`, { headers: hdrs }),
-          fetch(`${base}/v1/greenops/report?region=us-east-1`, { headers: hdrs }),
+          fetch(`${base}/v1/greenops/report?region=us-central1`, { headers: hdrs }),
           fetch(`${base}/v1/finops/guardrail?mtd_spend_usd=9200&day_of_month=20&monthly_budget_usd=15000`, { headers: hdrs }),
           fetch(`${base}/v1/gameday/simulate`, { headers: hdrs })
         ]);
@@ -1995,7 +2069,7 @@
           logToTerminal('ONBOARDING', `Phase 1 -> Phase 2 CLI Ready: ${cs.onboarding.phase_2_autonomous_optimization.command}`, true);
         }
       } catch (e) {
-        logToTerminal('CAST-SUITE', `Executed Cast AI Suite module: ${kind}`, true);
+        logToTerminal('CAST-SUITE', `Ran analysis module on sample data: ${kind}`, true);
       }
     }
 
@@ -2068,7 +2142,7 @@
         const res = await fetch(`${base}/v1/gameday/simulate`, {
           method: 'POST',
           headers: getEngineHeaders({ 'Content-Type': 'application/json' }),
-          body: JSON.stringify({ cluster_id: 'prod-us-east-1', baseline_rps: 840.0, node_count: 12 })
+          body: JSON.stringify({ cluster_id: 'gke-demo-us-central1', baseline_rps: 840.0, node_count: 12 })
         });
         if (checkSecurityResponse(res, '/v1/gameday/simulate')) {
           const card = await res.json();

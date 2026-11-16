@@ -528,11 +528,11 @@
 
     <h1 class="hero-title">
       Autonomous FinOps Scaling for Kubernetes.<br>
-      <span class="gold-highlight">35% Lower Cloud Spend. Zero Latency Spikes.</span>
+      <span class="gold-highlight">Recommend, approve, apply, observe, roll back.</span>
     </h1>
 
     <p class="hero-lead">
-      The first Kubernetes autoscaler built around unit economics (<code>$/request</code>). Eliminates overprovisioned cluster spend, resizes pods in-place without restart delays, and strictly guarantees p99 latency SLOs.
+      A Kubernetes operator and CLI for cost-aware rightsizing and replica scaling. It starts in observe-only mode, explains every recommendation with the data behind it, applies changes only under a policy and a human approval, and rolls back automatically when restarts, OOM kills or your latency SLO say so. Beta: verified on GKE and AKS test clusters, not yet on weeks of production traffic.
     </p>
 
     <div class="hero-actions">
@@ -543,20 +543,20 @@
     <!-- Metrics Calibration Strip -->
     <div class="metric-strip">
       <div class="metric-card">
-        <div class="metric-num patina">34.8%</div>
-        <div class="metric-label">Average Compute Reduction</div>
+        <div class="metric-num patina">Observe-only</div>
+        <div class="metric-label">Default mode: nothing is written to the cluster</div>
       </div>
       <div class="metric-card">
-        <div class="metric-num">&lt; 10d</div>
-        <div class="metric-label">Investment Payback Period</div>
+        <div class="metric-num">GKE + AKS</div>
+        <div class="metric-label">Apply and rollback verified on real 1.36 clusters</div>
       </div>
       <div class="metric-card">
-        <div class="metric-num patina">0.00%</div>
-        <div class="metric-label">500-User Surge Error Rate</div>
+        <div class="metric-num patina">2 measured</div>
+        <div class="metric-label">Node savings at list price on test clusters (0.067 and 0.096 USD/h)</div>
       </div>
       <div class="metric-card">
-        <div class="metric-num">100%</div>
-        <div class="metric-label">Air-Gapped & Zero Telemetry</div>
+        <div class="metric-num">0 reconciled</div>
+        <div class="metric-label">Savings confirmed against an invoice so far</div>
       </div>
     </div>
   </header>
@@ -565,8 +565,8 @@
   <section class="page-section" id="calculator">
     <div class="section-head">
       <div class="section-eyebrow">FINOPS BUSINESS CASE CALCULATOR</div>
-      <h2 class="section-title">Quantified Fleet Savings Assessment</h2>
-      <p class="section-sub">Calculate exact projected dollar savings based on your cluster worker node fleet size and hourly compute rate.</p>
+      <h2 class="section-title">Savings Model (your assumptions, not a measurement)</h2>
+      <p class="section-sub">A what-if model: it multiplies the fleet size, the hourly rate and the idle share you enter. The output is an ESTIMATE of what could be reclaimed, not a result this product has achieved or guarantees.</p>
     </div>
 
     <div class="calculator-plinth">
@@ -607,12 +607,12 @@
         </div>
         <div class="output-hero">
           <div style="font-family: var(--ks-mono); font-size: 0.6875rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ks-text-muted);">
-            Net Annualized Cloud Savings
+            Modelled Annual Saving (estimate)
           </div>
           <div class="amount" id="out-savings">$89,527</div>
         </div>
         <div class="patina-pill" id="out-payback">
-          100% Amortized in 9.2 Days • 3.8x ROI
+          Model output, not a measured result
         </div>
       </div>
     </div>
@@ -671,7 +671,7 @@
         <div class="bento-marker">[06 // PREDICTIVE HPA]</div>
         <h3>Pre-Warmed Scaling Ahead of Demand</h3>
         <p>
-          Forecasts diurnal rush-hour traffic cycles. Automatically scales up and warms caches 120 seconds before traffic spikes hit, completely eliminating cold-start latency.
+          Forecasts diurnal rush-hour traffic cycles. Pre-warms replicas ahead of a forecast peak (KubeCostHPA <code>spec.predictive</code>). Experimental: unit-tested, not validated on production traffic.
         </p>
       </div>
 
@@ -690,7 +690,7 @@
     <div class="section-head">
       <div class="section-eyebrow">COMMERCIAL EDITIONS</div>
       <h2 class="section-title">Transparent Enterprise Licensing</h2>
-      <p class="section-sub">Flexible models engineered to deliver a verified 5x to 10x net return on investment.</p>
+      <p class="section-sub">Indicative editions and prices. No billing or licence enforcement is implemented in the product yet, and no return on investment has been verified against an invoice.</p>
     </div>
 
     <div class="pricing-grid">
@@ -784,7 +784,7 @@
       outSpend.textContent = `$${Math.round(annualSpend).toLocaleString()}`;
       outRate.textContent = `${(efficiencyGain * 100).toFixed(1)}%`;
       outSavings.textContent = `$${Math.round(savings).toLocaleString()}`;
-      outPayback.textContent = `100% Amortized in ${paybackDays} Days • ${(savings / licenseCost).toFixed(1)}x ROI`;
+      outPayback.textContent = `Model: payback in ${paybackDays} days at these assumptions (estimate, not a measured result)`;
     }
 
     slNodes.addEventListener('input', updateFinOpsCalculator);

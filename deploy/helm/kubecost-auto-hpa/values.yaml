@@ -52,7 +52,9 @@ engine:
 prometheus:
   url: http://prometheus-server.monitoring:80
 kubecost:
-  url: http://kubecost-cost-analyzer.kubecost:9090   # empty disables budget guardrails
+  # Any server with the OpenCost/Kubecost allocation API. OpenCost is the verified source (docs/FINOPS.md), e.g.
+  # http://opencost.opencost:9003. Empty disables budget guardrails.
+  url: http://kubecost-cost-analyzer.kubecost:9090
 
 # Redis: bundled cache, or point at your own.
 redis:
@@ -77,20 +79,6 @@ tls:
   engine:
     secretName: ""         # server cert/key for the engine; enables https
     clientSecretName: ""   # operator client cert/key + ca.crt; enables mTLS when the server secret has ca.crt
-
-# ScaleOps Parity Capabilities (Predictive Scaling, OOM Shield, Node Bin-Packing)
-features:
-  predictiveScaling:
-    enabled: true
-    warmupLeadTimeSeconds: 120
-  oomProtection:
-    enabled: true
-    criticalThresholdPercent: 88
-    warningThresholdPercent: 78
-    maxLimitMiB: 16384
-  nodeBinPacking:
-    enabled: true
-    consolidationThresholdPercent: 35
 
 telemetry:
   enabled: false

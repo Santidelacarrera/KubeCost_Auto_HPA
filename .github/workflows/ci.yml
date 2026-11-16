@@ -13,6 +13,10 @@ jobs:
       - uses: actions/setup-python@v7
         with: {python-version: "3.12"}
       - run: pip install pytest && PYTHONPATH=engine python -m pytest engine -q
+      - name: Benchmark harness (traces, manifests and arithmetic are pinned)
+        run: python -m pytest benchmarks -q
+      - name: Scripts compile
+        run: python -m py_compile scripts/*.py benchmarks/bench.py
   operator:
     runs-on: ubuntu-latest
     steps:
@@ -116,5 +120,14 @@ jobs:
           if helm template r deploy/helm/kubecost-auto-hpa --set kubecost.ulr=x >/dev/null 2>&1; then
             echo "schema accepted an unknown value"; exit 1
           fi
+      - name: Safe defaults (observe-only on, applier off) in the chart and in the Kustomize base
+        run: |
+          helm template r deploy/helm/kubecost-auto-hpa > /tmp/chart.yaml
+          grep -q -- "--observe-only=true" /tmp/chart.yaml || { echo "the chart no longer defaults to observe-only"; exit 1; }
+          if grep -q -- "--enable-recommendation-applier" /tmp/chart.yaml; then echo "the applier is on by default"; exit 1; fi
+          kustomize build operator/config/default > /tmp/base.yaml
+          grep -q -- "--observe-only" /tmp/base.yaml || { echo "the Kustomize base no longer starts in observe-only"; exit 1; }
+      - name: Chart lints with the production values
+        run: helm lint deploy/helm/kubecost-auto-hpa -f deploy/helm/kubecost-auto-hpa/values-production.yaml
       - run: kustomize build operator/config/overlays/local >/dev/null
       - run: kustomize build operator/config/overlays/e2e-kca >/dev/null

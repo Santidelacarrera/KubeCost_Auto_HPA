@@ -1,0 +1,50 @@
+{
+  "schema": "kubecost-auto-hpa/benchmark-result/v1",
+  "kind": "MEASURED",
+  "tool": "kubecost-auto-hpa",
+  "tool_version": "73fd385",
+  "scenario": "step-increase",
+  "environment": {
+    "cluster": "kubecost-lab (minikube, one node, laptop)",
+    "kubernetes": "v1.33.4",
+    "provider": "local",
+    "node_type": "docker driver, 4 CPU, 5 GB",
+    "node_hourly_usd_list_price": 0.0
+  },
+  "window": {
+    "start": 1794799829.0,
+    "end": 1794807150.0,
+    "hours": 2.033611111111111
+  },
+  "run": "1",
+  "notes": "Both namespaces ran at the same time on the same node. Tool column: rightsize plan/approve/apply through the CLI at minute 25 with relaxed minimums (window 22m, 40 samples), policy minConfidence Low; product defaults ask for 24 h. plan: abstained False confidence Medium\r   CPU Decrease 0.3 -> 0.15\r   Memory Decrease 268435456 -> 134217728\r  apply exit 0: {   \"allowed\": true,   \"applied\": true,   \"degradedReasons\": null,   \"healthy\": true,   \"mode\": \"execute\",   \"reasons\": null,   \"rolledBack\": false } ",
+  "metrics": {
+    "cpu_requested_core_hours": 0.7399999999999952,
+    "cpu_used_core_hours": 0.1559297327318764,
+    "cpu_wasted_core_hours": 0.5840702672681188,
+    "cpu_wasted_pct": 78.92841449569225,
+    "mem_requested_gib_hours": 0.6166666666666655,
+    "mem_used_gib_hours": 0.01880839665730794,
+    "mem_wasted_gib_hours": 0.5978582700093575,
+    "mem_wasted_pct": 96.94998973124736,
+    "replica_changes": 0,
+    "request_changes": 2,
+    "max_replicas": 2.0,
+    "availability_pct": 99.59016393442623,
+    "restarts": 0.0,
+    "oom_kills": null,
+    "latency_p95_s": 0.004756500493460107,
+    "latency_p99_s": 0.004956774198447902,
+    "error_ratio_max": null,
+    "node_hours": 2.0333333333333288,
+    "node_cost_usd_at_list_price": null,
+    "tool_cpu_cores_avg": null,
+    "tool_memory_mib_max": null,
+    "seconds_to_first_replica_change": null,
+    "seconds_to_first_request_change": 43.0
+  },
+  "missing_series": [
+    "error_ratio",
+    "oom_kills"
+  ]
+}
