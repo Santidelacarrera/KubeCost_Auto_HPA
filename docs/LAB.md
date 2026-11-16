@@ -515,3 +515,18 @@ Limits: one run, not three; one node; a trivial application; a learning period o
 product's defaults ask for 24 hours) and `minConfidence: Low`; the Go test suite ran on the same machine during part of it.
 Result files: `benchmarks/results/local-step-increase-*.json`.
 
+## Result 29: node analysis and fleet report on a REAL AKS cluster (`hack/aks-nodes-fleet.sh`, 2026-11-16): 6 passed, 0 failed after one defect fixed
+
+A temporary AKS cluster (1.36.5, free tier, 2 x Standard_D2as_v4, eastus, no availability zones), created and deleted by the
+script. Read-only against the cluster, apart from one test pod with a managed disk.
+
+| Run | Result |
+|---|---|
+| Attempt in eastus2 with `--zones 1 2` | Not a product result: the free subscription has no availability zones there. Nothing was created |
+| Attempt with a script error | Not a product result: a comment swallowed a variable in the script. Nothing was created |
+| **Run 1** | **5 passed, 1 failed.** AKS writes the disk's zone key with an EMPTY value in a region without zones (`topology.disk.csi.azure.com/zone = [""]`), and the pod with the disk was reported as immovable. Defect in the product, fixed with a test. Evidence: `evidence/2026-11-16-aks-nodes-fleet-run1.log` |
+| **Run 2**, same script, fixed code | **6 passed, 0 failed.** The pod with the disk is movable; system DaemonSet pods do not block a node; each node names a real blocker (metrics-server has required node affinity, which is not evaluated); the plan is empty with its reason; `fleet` reports the AKS cluster (provider azure, 2 nodes) next to the GKE soak cluster, and reports the lab cluster, which was stopped by then, as unreachable. Evidence: `evidence/2026-11-16-aks-nodes-fleet-run2.log` |
+
+Not covered: a cluster with availability zones (the subscription has none), so the "pod stays inside its disk's zone" rule has
+only unit tests on Azure; a real drain to compare the plan with.
+

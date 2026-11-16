@@ -60,7 +60,7 @@ validation** (needs a run on real infrastructure or data before anyone relies on
 | Capability | Class | Availability | Evidence / what is missing |
 |---|---|---|---|
 | Read-only node candidate analysis (`rightsize nodes`) on requests | Verified | Available | Compared with a real drain on two nodes (LAB result 7) |
-| Same, honouring cordons, taints/tolerations, nodeSelector, zonal volumes, anti-affinity, PDB with no disruption allowed, last node of a zone | Verified on real GKE and AKS after two defects found there were fixed (docs/LAB.md result 26) | Experimental | Not compared with a real drain under these constraints |
+| Same, honouring cordons, taints/tolerations, nodeSelector, zonal volumes, anti-affinity, PDB with no disruption allowed, last node of a zone | Verified on real GKE and AKS after three defects found there were fixed (docs/LAB.md results 26, 29) | Experimental | Not compared with a real drain under these constraints |
 | Pending-pod and node-pressure signals in the node report | Implemented, unit-tested | Experimental | New in this pass |
 | Manual consolidation plan (`rightsize nodes --plan`): ordered steps, commands, verification, undo | Implemented, unit-tested | Experimental | Added 2026-11-16. A proposal: nothing executes it (ADR-0004) |
 | Draining, cordoning or deleting nodes for consolidation | **Not implemented** | Not available | By decision (ADR-0004): nothing removes a node. GKE and AKS autoscalers do (docs/NODES.md) |

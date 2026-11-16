@@ -10,6 +10,7 @@
 | Opt-in applier controller, all 8 scenarios in one run | 27/27 | 1 x Standard_D4as_v4 ([LAB.md](LAB.md) result 15) |
 | Helm install, upgrade, rollback, uninstall | 4/4 | same |
 | Node released by the AKS cluster autoscaler after the change | One of two nodes: 0.096 USD/h less **at list price**. Needed the autoscaler profile `skip-nodes-with-system-pods=false` | [LAB.md](LAB.md) result 17 |
+| Read-only features of 2026-11-15/16: constrained node analysis with a real managed disk, manual plan, fleet report | 6/6 after one defect fixed (a disk in a region without zones was reported as immovable) | AKS 1.36.5, 2026-11-16 ([LAB.md](LAB.md) result 29) |
 | OpenCost as the cost source for two hours | Fresh data throughout; live contract passed | [LAB.md](LAB.md) result 18 |
 | Kubecost 2.8.7 free tier as the cost source | Stopped serving allocation data about 10 minutes after its first data, in every run. The client failed closed. Use OpenCost | [LAB.md](LAB.md) results 16, 18 |
 

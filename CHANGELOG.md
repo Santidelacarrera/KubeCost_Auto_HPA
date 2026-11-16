@@ -13,6 +13,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 
 ### Fixed (thirteenth pass: found on real GKE)
 - `rightsize nodes`: a static pod owned by its Node (kube-proxy on GKE) blocked every node as "required node affinity". Static and mirror pods are now treated like DaemonSet pods.
+- `rightsize nodes` (found on real AKS): a disk in a region without availability zones carries its zone key with an empty value and was reported as immovable. An empty zone, or a volume with no placement restriction, now means it attaches anywhere; a `hostPath` or `local` volume stays pinned.
 - `rightsize nodes`: the zone of a GKE persistent disk was not read (its CSI driver writes `topology.gke.io/zone`), so every pod with a disk was reported as immovable. Any `<domain>/zone` key is now read.
 
 ### Added (twelfth pass: audit against the code, 2026-11-15)
