@@ -45,9 +45,11 @@ verificado): <https://santidelacarrera.github.io/KubeCost_Auto_HPA/app.html>
 | Análisis de nodos (taints, zonas, PDB, afinidad) | Comparado con un drain real (solo requests); restricciones con pruebas unitarias | Disponible / experimental. **Nunca drena ni elimina nodos** |
 | Costos por namespace y workload, presupuestos, desviaciones | Verificado contra OpenCost | Disponible |
 | Conciliación con facturación (FOCUS de Google y Azure) | Google: un día real. Azure: solo fixtures | Pendiente de validación |
-| Ahorro **observado** | Dos mediciones a precio de lista: 0,067 USD/h (GKE) y 0,096 USD/h (AKS), cargas de prueba | — |
+| Ahorro **observado** | Tres mediciones a precio de lista, en cargas de prueba: 0,067 USD/h (GKE), 0,096 USD/h (AKS) y el soak de GKE, de 2 nodos a 1 tras cinco días de historial (0,067 USD/h) | — |
 | Ahorro **conciliado con factura** | **Ninguno todavía** | — |
-| Consolidación automática de nodos, multi-clúster, cobro y licencias, AWS | No implementado / fuera de alcance | No disponible |
+| Informe multi-clúster de solo lectura (`rightsize fleet`), informe legible (`rightsize render`), plan manual de consolidación (`rightsize nodes --plan`) | Corridos sobre clústeres reales | Disponible / experimental |
+| Licencias firmadas verificadas offline (`--enforce-license`, apagado por defecto) | Pruebas unitarias | Experimental |
+| Consolidación automática de nodos, plano de control multi-clúster, cobro, AWS | No implementado / fuera de alcance | No disponible |
 
 No se afirma paridad ni superioridad frente a ningún otro producto: no se ha ejecutado ninguna comparación
 ([`docs/BENCHMARKING.md`](docs/BENCHMARKING.md)).

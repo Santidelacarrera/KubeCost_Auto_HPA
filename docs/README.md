@@ -48,7 +48,8 @@ Start with [STATUS.md](STATUS.md): it says, per feature, what is verified, exper
 | [SUPPORT.md](SUPPORT.md) | Supported versions, incident handling, recovery |
 | [RELEASING.md](RELEASING.md), [../CHANGELOG.md](../CHANGELOG.md) | Release procedure and history |
 | [ROADMAP.md](ROADMAP.md) | Prioritised backlog |
-| [COMMERCIAL.md](COMMERCIAL.md), [LICENSING.md](LICENSING.md) | Editions, pricing models, entitlement architecture, licence review |
+| [COMMERCIAL.md](COMMERCIAL.md), [LICENSE_KEYS.md](LICENSE_KEYS.md), [LICENSING.md](LICENSING.md) | Editions, pricing models, signed licence files, open-source licence review |
+| [MVP.md](MVP.md) | What an MVP is for this product, what is done, what is left |
 
 ## Sales drafts (not evidence)
 

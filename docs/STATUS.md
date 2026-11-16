@@ -28,7 +28,7 @@ validation** (needs a run on real infrastructure or data before anyone relies on
 | Rightsizing recommender: percentiles + headroom over a configurable history window, abstains on bad data | Verified | Available; defaults **pending validation** | Real Prometheus series in the lab, GKE and AKS. Defaults (p95+15%, p99+20%) are untuned: no weeks of real traffic |
 | Vetoes: OOM kills, restarts, CPU throttling, breached SLO, HPA on CPU, VPA Auto, opt-out label | Verified | Available | Lab results 1-5 |
 | Seasonality caveats: short window, weekday coverage, non-stationary quarters | Verified (weekday check on real soak data) | Available | LAB result 24. Not a seasonal model |
-| **Growth trend and forecast** (daily p95, Theil-Sen slope, 14-day forecast folded into the CPU target) | Implemented, unit-tested | Experimental | New in this pass. Never run on real history |
+| **Growth trend and forecast** (daily p95, Theil-Sen slope, 14-day forecast folded into the CPU target) | Unit-tested; run once on 5 days of real GKE history (a weekend fall was correctly not read as growth: docs/LAB.md result 26) | Experimental | No real growing workload seen yet |
 | **Spike (anomaly) detection** on CPU and memory samples | Implemented, unit-tested | Experimental | New in this pass. Reported as evidence; does not change a target |
 | **OOM-risk signal** (working set within 10% of the limit) | Implemented, unit-tested | Experimental | New in this pass |
 | Explanation and evidence in every record (formula, stats, reasons, risks, conditions, insights) | Verified | Available | Records in docs/reports/evidence |
@@ -60,9 +60,10 @@ validation** (needs a run on real infrastructure or data before anyone relies on
 | Capability | Class | Availability | Evidence / what is missing |
 |---|---|---|---|
 | Read-only node candidate analysis (`rightsize nodes`) on requests | Verified | Available | Compared with a real drain on two nodes (LAB result 7) |
-| Same, honouring cordons, taints/tolerations, nodeSelector, zonal volumes, anti-affinity, PDB with no disruption allowed, last node of a zone | Implemented, unit-tested | Experimental | New in this pass. Fake-cluster test only |
+| Same, honouring cordons, taints/tolerations, nodeSelector, zonal volumes, anti-affinity, PDB with no disruption allowed, last node of a zone | Verified on real GKE and AKS after two defects found there were fixed (docs/LAB.md result 26) | Experimental | Not compared with a real drain under these constraints |
 | Pending-pod and node-pressure signals in the node report | Implemented, unit-tested | Experimental | New in this pass |
-| Draining, cordoning or deleting nodes for consolidation | **Not implemented** | Not available | By design: nothing removes a node. GKE and AKS autoscalers do (docs/NODES.md) |
+| Manual consolidation plan (`rightsize nodes --plan`): ordered steps, commands, verification, undo | Implemented, unit-tested | Experimental | Added 2026-11-16. A proposal: nothing executes it (ADR-0004) |
+| Draining, cordoning or deleting nodes for consolidation | **Not implemented** | Not available | By decision (ADR-0004): nothing removes a node. GKE and AKS autoscalers do (docs/NODES.md) |
 | Spot interruption drain (cordon + evict on a provider signal) | Implemented, unit-tested (envtest) | Experimental | GKE and AKS taints are recognised; never triggered by a real interruption |
 | Preferred affinities, topology spread constraints, inter-pod affinity in the analysis | **Not implemented** | Not available | Stated in the report's caveats |
 
@@ -75,9 +76,9 @@ validation** (needs a run on real infrastructure or data before anyone relies on
 | Budgets and cost-deviation alerts (`rightsize cost`) | Implemented, unit-tested | Experimental | Estimated basis unless billing data is supplied |
 | FOCUS billing adapter: Google export | Verified on one real day | Available | LAB result 22 (account on credits: `ListCost`) |
 | FOCUS billing adapter: Azure export | Implemented, unit-tested | Pending validation | Built from the documented shape; no real Azure export yet |
-| **Bill reconciliation before/after** (`rightsize reconcile`): currency, period, tax, credits, purchases, unattributable rows | Implemented, unit-tested (totals also run on the real Google export) | Pending validation | New in this pass. No pair of real before/after exports exists yet |
+| **Bill reconciliation before/after** (`rightsize reconcile`): currency, period, tax, credits, purchases, unattributable rows | Unit-tested; an A/A control on two real consecutive Google billing days found no saving, as it must (docs/LAB.md result 26) | Pending validation | No real before/after pair with an invoice that fell |
 | **Savings levels**: estimated, projected, observed, reconciled | Implemented, unit-tested | Available | New in this pass (docs/FINOPS.md) |
-| Observed saving | Verified twice, small scale | n/a | GKE 0.067 USD/h, AKS 0.096 USD/h, list price, test workloads |
+| Observed saving | Verified three times, small scale | n/a | GKE 0.067 USD/h (20-minute windows), AKS 0.096 USD/h, and the GKE soak: 2 nodes to 1 after five days of history, 0.067 USD/h (docs/LAB.md result 27). List price, test workloads |
 | Saving reconciled with an invoice | **Not achieved** | n/a | Nothing has been confirmed against an invoice |
 | Spend forecast | **Not implemented** | Not available | Only the per-workload CPU demand forecast exists |
 | Kubecost as a cost source | Partial | Not recommended | Kubecost 2.8.7 free tier stalled in four runs; use OpenCost |
@@ -92,10 +93,14 @@ validation** (needs a run on real infrastructure or data before anyone relies on
 | GKE | Verified partially | Pending validation for production | docs/GKE.md |
 | AKS | Verified partially | Pending validation for production | docs/AKS.md |
 | AWS / EKS | **Out of scope** | Not available | No AWS integration is offered. See "AWS" below |
-| Multi-cluster management | **Not implemented** | Not available | One operator per cluster. The console's cluster tabs are samples |
+| Multi-cluster **read-only report** (`rightsize fleet --contexts a,b`): nodes, requested capacity, node candidates, recommendation phases per cluster, and totals | Verified on real clusters (GKE + lab + AKS, docs/LAB.md result 26) | Available | Added 2026-11-16. A snapshot through your kubeconfig; no central service |
+| Multi-cluster management (central control plane, policies pushed to clusters) | **Not implemented** | Not available | One operator per cluster. The console's cluster tabs are samples |
+| Readable report (`rightsize render`: Markdown from the outputs of `plan`, `nodes`, `fleet`, `reconcile`) | Verified on the real outputs of the GKE cluster (docs/LAB.md result 26) | Available | Added 2026-11-16. Copies figures and their savings level; adds none |
+| Benchmark harness (`benchmarks/`) | Run once for real on the lab cluster against its own baseline (docs/LAB.md result 28) | Available | No competitor has been run |
 | Web console | Partial | Demo | Shows verified status from `web/status.json`; everything else on it is labelled sample data |
 | Python engine endpoints `/v1/cast/*`, `/v1/gpu/*`, `/v1/greenops/*`, `/v1/gameday/*`, `/v1/cluster/topology`, `/v1/pricing/lookup`, `/v1/billing/invoice` | Partial: they compute from built-in example inputs | Demo | Since this pass every answer carries `data_source: sample` |
-| Billing, payments, licence enforcement | **Not implemented** | Not available | `scripts/setup_stripe_billing.py` only has a dry-run that was ever run; the invoice endpoint is a pricing preview (docs/COMMERCIAL.md) |
+| Licence files: Ed25519-signed, verified offline; opt-in enforcement maps the tier to the operating mode and fails safe to observe-only | Implemented, unit-tested | Experimental | Added 2026-11-16 (docs/LICENSE_KEYS.md). Never run in a cluster; no licence issued to anyone |
+| Billing and payments | **Not implemented** | Not available | `scripts/setup_stripe_billing.py` only has a dry-run that was ever run; the invoice endpoint is a pricing preview (docs/COMMERCIAL.md) |
 | Go packages `internal/castsuite`, `internal/gpu`, `internal/psi` | Implemented, unit-tested, **not wired** | Not available | No binary imports them |
 
 ## AWS
@@ -112,7 +117,7 @@ behaviour for anyone who already runs the operator there and buys nothing. They 
 A Release Candidate needs all of these, and none exists yet:
 
 1. The recommender's defaults checked on weeks of real traffic (`rightsize backtest` is the tool; it needs your history).
-2. A multi-day run on GKE and on AKS. The 7-day GKE soak report is due 2026-11-17.
+2. A multi-day run on GKE and on AKS. The GKE soak has five days before its change and, so far, hours after it.
 3. One saving reconciled with a provider invoice.
 4. The automated mode (no human approval) exercised under real load.
 5. An operator with several replicas riding out an API-server outage.

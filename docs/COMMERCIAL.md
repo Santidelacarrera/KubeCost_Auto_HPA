@@ -54,9 +54,11 @@ No figure is given on purpose. The earlier documents quoted 18 and 32 USD per no
 refunded" clause. Those numbers were not derived from any cost or customer data, and a guarantee cannot be offered on savings
 that have never been reconciled with an invoice.
 
-## Entitlement and billing architecture (not implemented)
+## Entitlement and billing architecture
 
-The design that the code is prepared for. None of it is built.
+**Built on 2026-11-16: the licence file and its opt-in enforcement in the operator** (principles 1 to 3 below;
+[LICENSE_KEYS.md](LICENSE_KEYS.md)). Unit-tested, never run in a cluster, and no licence has been issued to anyone. **Not built:**
+usage reports, the billing system, payments.
 
 ```
             (vendor side, not built)                         (customer cluster, exists)

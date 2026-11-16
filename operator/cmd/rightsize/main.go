@@ -39,7 +39,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: rightsize plan|publish|approve|apply|rollback|propose|report|backtest|nodes|cost|reconcile|keygen|audit-verify [flags]")
+		fmt.Fprintln(os.Stderr, "usage: rightsize plan|publish|approve|apply|rollback|propose|report|backtest|nodes|cost|reconcile|fleet|render|license|keygen|audit-verify [flags]")
 		os.Exit(2)
 	}
 	var err error
@@ -66,6 +66,12 @@ func main() {
 		err = costCmd(os.Args[2:], os.Stdout)
 	case "reconcile":
 		err = reconcileCmd(os.Args[2:], os.Stdout)
+	case "render":
+		err = renderCmd(os.Args[2:], os.Stdout)
+	case "fleet":
+		err = fleetCmd(os.Args[2:], os.Stdout)
+	case "license":
+		err = licenseCmd(os.Args[2:], os.Stdout)
 	case "keygen":
 		err = keygenCmd(os.Args[2:], os.Stdout)
 	case "audit-verify":

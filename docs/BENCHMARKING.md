@@ -11,10 +11,11 @@ and the same measurements.
 | KubeCost Auto-HPA against ScaleOps | **Not run.** Needs a ScaleOps licence or trial |
 | KubeCost Auto-HPA against Kubecost | **Not run** as a benchmark. Kubecost was only run as a cost source ([LAB.md](LAB.md) results 11, 16, 18); Kubecost recommends, it does not apply |
 | `KubeCostAutoscaler` against a native HPA | **Simulated** only ([BENCHMARKS.md](BENCHMARKS.md)): on those traces the safe configuration saves nothing against an HPA with the same windows |
-| KubeCost Auto-HPA alone, before and after | **Measured**, small scale: [LAB.md](LAB.md) results 9, 12, 14, 17, 19 |
+| KubeCost Auto-HPA alone, before and after | **Measured**, small scale: [LAB.md](LAB.md) results 9, 12, 14, 17, 19, 27 |
+| This harness, KubeCost Auto-HPA against an untouched copy of the same workload | **Measured once** on the local lab cluster ([LAB.md](LAB.md) result 28, `benchmarks/results/`): one run, one laptop node, trivial application |
 
-The harness below is new (2026-11-15). Its traces, manifests and arithmetic are tested, and the manifests parse as YAML. **It
-has not yet been run on a cluster**: expect to fix something on the first real run, and record that fix.
+The harness below was run for real once, on the local lab cluster (`hack/bench-local.sh`). It has not been run on a managed
+cluster, and never with another product.
 
 There is no measured result against any competitor, so **nothing in this repository supports a claim of being better, equal or
 worse than any of them.** [COMPETITIVE.md](COMPETITIVE.md) compares documented features from public pages, with sources; it is

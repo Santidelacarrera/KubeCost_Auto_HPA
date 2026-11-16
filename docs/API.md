@@ -17,10 +17,13 @@ Read-only unless `--execute` is given together with an explicit `--context`. `ri
 | `propose` | recommendation, a Git checkout | a commit on a new branch; `--push --open-pr` | GitOps change instead of a direct apply |
 | `report` | audit file | nothing | Acceptance, rollback ratio, kept reductions, projected saving |
 | `backtest` | Prometheus | nothing | Replay percentile/headroom settings on your history |
-| `nodes` | cluster | nothing | Node candidate analysis ([NODES.md](NODES.md)) |
+| `nodes` | cluster | nothing | Node candidate analysis; `--plan` adds a manual drain plan ([NODES.md](NODES.md)) |
 | `cost` | cluster, optional billing file | nothing | Allocation, budgets, deviations |
 | `reconcile` | two FOCUS billing exports | nothing | Before/after bill comparison and the saving's level ([FINOPS.md](FINOPS.md)) |
-| `keygen` | — | a key pair file | Ed25519 key for signed approvals |
+| `render` | the JSON outputs of `plan`, `nodes`, `fleet`, `reconcile` | nothing (Markdown on stdout) | One readable report; every saving keeps its level |
+| `fleet` | several clusters (`--contexts a,b,c`) | nothing | One read-only report over several clusters, with totals |
+| `license issue`, `license verify` | a key, a licence file | `issue`: one licence file | Sign a licence (vendor side) and verify one offline ([LICENSE_KEYS.md](LICENSE_KEYS.md)) |
+| `keygen` | — | a key pair file | Ed25519 key for signed approvals and for licences |
 | `audit-verify` | audit file | nothing | Verify the audit hash chain |
 
 Output is JSON on stdout, errors on stderr, non-zero exit on failure. `recommend` is the older single-purpose binary behind

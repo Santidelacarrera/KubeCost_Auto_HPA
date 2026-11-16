@@ -68,7 +68,7 @@ func take(ctx context.Context, kc kubernetes.Interface, prices map[string]float6
 			if pv.Spec.ClaimRef == nil {
 				continue
 			}
-			if z := pvZone(pv); z != "" {
+			if z, known := pvZone(pv); known {
 				claimZone[pv.Spec.ClaimRef.Namespace+"/"+pv.Spec.ClaimRef.Name] = z
 			}
 		}
@@ -101,10 +101,15 @@ func take(ctx context.Context, kc kubernetes.Interface, prices map[string]float6
 		for _, o := range p.OwnerReferences {
 			if o.Controller != nil && *o.Controller {
 				controlled = true
-				if o.Kind == "DaemonSet" {
+				// A static (mirror) pod is owned by its Node: like a DaemonSet pod it exists because the node does and goes
+				// with it. Seen on a real GKE cluster, where kube-proxy is a static pod, not a DaemonSet.
+				if o.Kind == "DaemonSet" || o.Kind == "Node" {
 					cp.DaemonSet = true
 				}
 			}
+		}
+		if _, mirror := p.Annotations[corev1.MirrorPodAnnotationKey]; mirror {
+			cp.DaemonSet, controlled = true, true
 		}
 		cp.PinnedReason = pinned(p, claimZone)
 		if !controlled {
@@ -113,7 +118,9 @@ func take(ctx context.Context, kc kubernetes.Interface, prices map[string]float6
 		cp.Pinned = cp.PinnedReason != ""
 		for _, v := range p.Spec.Volumes {
 			if v.PersistentVolumeClaim != nil {
-				cp.VolumeZone = claimZone[p.Namespace+"/"+v.PersistentVolumeClaim.ClaimName]
+				if z := claimZone[p.Namespace+"/"+v.PersistentVolumeClaim.ClaimName]; z != anyZone {
+					cp.VolumeZone = z
+				}
 			}
 		}
 		if a := p.Spec.Affinity; a != nil && a.PodAntiAffinity != nil {
@@ -147,18 +154,44 @@ func take(ctx context.Context, kc kubernetes.Interface, prices map[string]float6
 	return s, nil
 }
 
-// pvZone returns the single zone a persistent volume is restricted to, from its node affinity or the well-known label.
-func pvZone(pv corev1.PersistentVolume) string {
-	if na := pv.Spec.NodeAffinity; na != nil && na.Required != nil {
-		for _, term := range na.Required.NodeSelectorTerms {
-			for _, e := range term.MatchExpressions {
-				if (e.Key == corev1.LabelTopologyZone || e.Key == corev1.LabelFailureDomainBetaZone) && e.Operator == corev1.NodeSelectorOpIn && len(e.Values) == 1 {
-					return e.Values[0]
-				}
+// anyZone marks a volume that is known to attach in any zone (network storage, or a disk in a region without zones).
+const anyZone = "*"
+
+// pvZone says where a persistent volume may be attached. known is false when that cannot be told (the pod is then treated as
+// immovable). Otherwise zone is the single zone it is restricted to, or anyZone.
+//
+// Seen on real clusters: GKE's disk driver writes topology.gke.io/zone; Azure's writes topology.disk.csi.azure.com/zone, with
+// an EMPTY value in a region without availability zones (docs/LAB.md result 26), which means "no zone restriction".
+func pvZone(pv corev1.PersistentVolume) (zone string, known bool) {
+	if pv.Spec.HostPath != nil || pv.Spec.Local != nil {
+		return "", false // tied to one node
+	}
+	na := pv.Spec.NodeAffinity
+	if na == nil || na.Required == nil || len(na.Required.NodeSelectorTerms) == 0 {
+		if z := pv.Labels[corev1.LabelTopologyZone]; z != "" {
+			return z, true
+		}
+		return anyZone, true // no placement restriction at all: network storage
+	}
+	sawZoneKey := false
+	for _, term := range na.Required.NodeSelectorTerms {
+		for _, e := range term.MatchExpressions {
+			if e.Key != corev1.LabelTopologyZone && e.Key != corev1.LabelFailureDomainBetaZone && !strings.HasSuffix(e.Key, "/zone") {
+				return "", false // restricted by something else (a hostname, a custom label): not evaluated
+			}
+			if e.Operator != corev1.NodeSelectorOpIn || len(e.Values) != 1 {
+				return "", false // several zones or another operator: not evaluated
+			}
+			sawZoneKey = true
+			if e.Values[0] != "" {
+				return e.Values[0], true
 			}
 		}
 	}
-	return pv.Labels[corev1.LabelTopologyZone]
+	if sawZoneKey {
+		return anyZone, true // the zone key is present and empty: a region without zones
+	}
+	return "", false
 }
 
 // pinned says why a pod cannot be moved to another node ("" when it can): a hostname selector, node-local storage, required node
@@ -216,6 +249,8 @@ func nodesCmd(args []string, out io.Writer) error {
 	fs.Float64Var(&target, "target-utilisation", 0.85, "receiving nodes may be requested up to this fraction.")
 	fs.Float64Var(&price, "node-hourly-usd", 0, "optional price applied to every node for the candidate estimate.")
 	fs.StringVar(&prices, "node-prices", "", "optional per-node prices: name=usdPerHour,name2=...")
+	var plan bool
+	fs.BoolVar(&plan, "plan", false, "also print an ordered, manual drain plan for the candidate nodes (a proposal: nothing is executed).")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -245,6 +280,12 @@ func nodesCmd(args []string, out io.Writer) error {
 	}
 	if n := len(snap.signals.NodesUnderPressure); n > 0 {
 		rep.Caveats = append(rep.Caveats, fmt.Sprintf("%d node condition(s) report pressure: requests understate real use there", n))
+	}
+	if plan {
+		return printJSON(out, struct {
+			Analysis capacity.Report
+			Plan     capacity.ConsolidationPlan
+		}{rep, capacity.Plan(rep, snap.nodes, snap.pods)})
 	}
 	return printJSON(out, rep)
 }

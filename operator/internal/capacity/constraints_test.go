@@ -191,3 +191,54 @@ func TestPinnedReasonIsReported(t *testing.T) {
 		t.Fatalf("%q", why(t, r, "n1"))
 	}
 }
+
+func TestPlanIsOrderedManualAndReversible(t *testing.T) {
+	nodes := []Node{n("n1"), n("n2"), n("n3")}
+	pods := []Pod{p("a", "n1", 1, 2), p("b", "n2", 1, 2), p("c", "n3", 1, 2)}
+	pods[0].ProtectedByPDB = true
+	rep, _ := Analyze(nodes, pods, 0)
+	plan := Plan(rep, nodes, pods)
+	if len(plan.Blocked) != 0 || len(plan.Steps) != len(rep.Removable) || len(plan.Steps) == 0 {
+		t.Fatalf("%+v", plan)
+	}
+	for i, st := range plan.Steps {
+		if st.Node != rep.Removable[i] {
+			t.Fatalf("the plan must keep the order of the analysis: %v vs %v", st.Node, rep.Removable)
+		}
+		if len(st.Commands) != 2 || !strings.HasPrefix(st.Commands[0], "kubectl cordon ") || !strings.Contains(st.Commands[1], "--delete-emptydir-data=false") {
+			t.Fatalf("commands: %v", st.Commands)
+		}
+		if len(st.Undo) == 0 || len(st.Verify) == 0 || len(st.Moves) == 0 || st.CandidateHourlyUSD != 0.2 {
+			t.Fatalf("%+v", st)
+		}
+	}
+	if !strings.Contains(strings.Join(plan.Notes, " "), "nothing in this product executes it") {
+		t.Fatal("the plan must say it is not executed")
+	}
+	// the PDB of pod a is carried into the step of its node, wherever that node is in the plan
+	for _, st := range plan.Steps {
+		if st.Node == "n1" && (st.PDBProtected != 1 || !strings.Contains(strings.Join(st.Preconditions, " "), "PodDisruptionBudget")) {
+			t.Fatalf("%+v", st)
+		}
+	}
+}
+
+func TestPlanRefusesOnAClusterShortOfCapacity(t *testing.T) {
+	nodes := []Node{n("n1"), n("n2"), n("n3")}
+	pods := []Pod{p("a", "n1", 1, 2), p("b", "n2", 1, 2), p("c", "n3", 1, 2)}
+	rep, _ := Analyze(nodes, pods, 0)
+	rep.Signals.PendingUnschedulable = []string{"shop/x"}
+	if plan := Plan(rep, nodes, pods); len(plan.Steps) != 0 || !strings.Contains(strings.Join(plan.Blocked, " "), "pending") {
+		t.Fatalf("%+v", plan)
+	}
+	rep.Signals = ClusterSignals{NodesUnderPressure: []string{"n2: MemoryPressure"}}
+	if plan := Plan(rep, nodes, pods); len(plan.Steps) != 0 || !strings.Contains(strings.Join(plan.Blocked, " "), "pressure") {
+		t.Fatalf("%+v", plan)
+	}
+	// nothing removable: an empty plan with the reason
+	one := []Node{n("only")}
+	rep, _ = Analyze(one, nil, 0)
+	if plan := Plan(rep, one, nil); len(plan.Steps) != 0 || len(plan.Blocked) == 0 {
+		t.Fatalf("%+v", plan)
+	}
+}

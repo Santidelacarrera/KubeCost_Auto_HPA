@@ -4,6 +4,17 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 
 ## [Unreleased]
 
+### Added (thirteenth pass, 2026-11-16)
+- **Licence files** (`internal/license`): Ed25519-signed, verified offline. `rightsize license issue|verify`. Operator flags `--license-file`, `--license-public-key-file`, `--enforce-license` (off by default). Under enforcement the tier sets the mode: starter observe-only, professional applies with a human approval whatever the policy says, enterprise may automate. A missing, invalid or expired licence, or a cluster over the node limit, means observe-only. Enforcement can only restrict. Metric `kubecost_license_info` (docs/LICENSE_KEYS.md).
+- **`rightsize fleet --contexts a,b,c`**: a read-only report over several clusters with totals; an unreachable cluster is reported, not fatal.
+- **`rightsize render`**: one Markdown report from the outputs of `plan`, `nodes`, `fleet` and `reconcile`. It copies figures and their savings level, adds none, escapes text that comes from the cluster, and names any input it could not read.
+- **`rightsize nodes --plan`**: an ordered manual drain plan for the candidate nodes (preconditions, commands, verification, undo). Nothing executes it (ADR-0004).
+- `hack/bench-local.sh` (one real run of the benchmark harness on the lab cluster), `hack/gcp-focus-day.sh` (one day of Google billing as a FOCUS-shaped CSV), `hack/aks-nodes-fleet.sh`.
+
+### Fixed (thirteenth pass: found on real GKE)
+- `rightsize nodes`: a static pod owned by its Node (kube-proxy on GKE) blocked every node as "required node affinity". Static and mirror pods are now treated like DaemonSet pods.
+- `rightsize nodes`: the zone of a GKE persistent disk was not read (its CSI driver writes `topology.gke.io/zone`), so every pod with a disk was reported as immovable. Any `<domain>/zone` key is now read.
+
 ### Added (twelfth pass: audit against the code, 2026-11-15)
 - **Savings levels** (`cost.Classify`): estimated, projected, observed, reconciled, with what is missing for the next level. **`rightsize reconcile --before a.csv --after b.csv [--scope text]`** compares two FOCUS billing exports per day in their billing currency; tax, credits, commitment purchases, out-of-scope and unattributable rows are kept apart; different currencies, overlapping periods and periods differing by more than 10% are refused. Simulated files can never be "reconciled" (docs/FINOPS.md).
 - **Recommender insights** (experimental): daily-p95 growth trend (Theil-Sen) with a 14-day forecast that can only raise the CPU target, spike detection on CPU and memory, an OOM-risk signal when the working set reaches 90% of the limit, and countable signals in every record (docs/RECOMMENDER.md).

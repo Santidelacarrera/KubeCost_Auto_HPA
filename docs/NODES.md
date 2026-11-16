@@ -47,8 +47,31 @@ The result is a **candidate**, priced with a number you supply. It is not a savi
 ([FINOPS.md](FINOPS.md)).
 
 Verification: the requests-only analysis was compared with a real drain on a two-node cluster, in both the "fits" and "does
-not fit" cases ([LAB.md](LAB.md) result 7). The scheduling constraints added on 2026-11-15 are covered by unit tests and a
-fake-cluster test only.
+not fit" cases ([LAB.md](LAB.md) result 7). The scheduling constraints added on 2026-11-15 were then run on real GKE and AKS
+clusters, which found two defects on the first run, both fixed with a test: static pods owned by their Node (kube-proxy on
+GKE) blocked every node, and the zone of a GKE persistent disk was not read because its CSI driver uses its own key
+([LAB.md](LAB.md) result 26). The constrained analysis has not been compared with a real drain.
+
+## The manual plan
+
+```bash
+rightsize nodes --context <ctx> --plan
+```
+
+adds, for each candidate node in order, the preconditions, the two `kubectl` commands (cordon, drain), what to verify before
+the next node and how to undo. It is a proposal for a person: nothing in the product executes it. It is empty, with the
+reason, while pods are pending as unschedulable or a node reports pressure. Re-run it between nodes: every drain changes
+where pods are. Why the product stops here: [adr/0004-node-consolidation-is-a-plan-not-an-action.md](adr/0004-node-consolidation-is-a-plan-not-an-action.md).
+
+## Several clusters
+
+```bash
+rightsize fleet --contexts gke-prod,aks-prod
+```
+
+prints one read-only report over the clusters you name: Kubernetes version, provider, nodes, zones, requested capacity,
+node candidates, pending pods, recommendation phases, and totals over the reachable ones. An unreachable cluster is
+reported, not fatal. It reads through your own kubeconfig contexts; nothing is installed and no cluster talks to another.
 
 ## Who removes a node
 

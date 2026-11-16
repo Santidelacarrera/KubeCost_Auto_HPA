@@ -17,7 +17,8 @@ A saving is always printed with its level. A lower level is never reworded into 
 Where the project stands today:
 
 * Levels 1 and 2: produced routinely.
-* Level 3: measured twice, on test workloads. GKE 0.067 USD/h, AKS 0.096 USD/h, both at list price ([LAB.md](LAB.md) results 12, 17).
+* Level 3: measured three times, on test workloads, all at list price: GKE 0.067 USD/h, AKS 0.096 USD/h
+  ([LAB.md](LAB.md) results 12, 17), and the GKE soak, 2 nodes to 1 after five days of history (result 27).
 * Level 4: **never achieved.** No saving has been confirmed against an invoice.
 
 ## What is reported
@@ -59,8 +60,9 @@ How each item of a bill is treated:
 Flags: `--simulated` labels hand-made or generated files, which can then never reach "reconciled". `--applied=false` or
 `--kept=false` records that the optimisation was not applied or not kept, which caps the level at "estimated".
 
-Status: unit-tested, and the totals were run on the real Google export in the repository. **No pair of real before/after
-exports has been reconciled yet**: that is the next FinOps milestone.
+Status: unit-tested, and run on two real consecutive billing days of a GKE cluster as an A/A control, where it found no saving,
+as it must ([LAB.md](LAB.md) result 26). **No real before/after pair with an invoice that fell has been reconciled yet**: that is
+the next FinOps milestone. `hack/gcp-focus-day.sh` writes one day of Google billing in the shape this command reads.
 
 ## Cost connectors
 

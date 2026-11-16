@@ -19,10 +19,11 @@ Per-feature status is in [STATUS.md](STATUS.md). This page is what to keep in mi
 ## Not implemented
 
 * Automatic node consolidation: nothing drains, cordons or deletes a node to save money ([NODES.md](NODES.md)).
-* Multi-cluster management: one operator per cluster, no central control plane. The console's cluster tabs are samples.
+* Multi-cluster management: one operator per cluster, no central control plane. `rightsize fleet` is a read-only report over
+  your kubeconfig contexts. The console's cluster tabs are samples.
 * A seasonal model: weekly patterns are detected as a caveat, not modelled. The growth forecast is a straight line.
 * Spend forecasting.
-* Billing, payment and licence enforcement.
+* Billing and payment. Licence files exist and their enforcement is opt-in and unit-tested only ([LICENSE_KEYS.md](LICENSE_KEYS.md)).
 * `KubeCostAutoscaler` predictive scaling, OOM protection and bin-packing: accepted by the schema, ignored, reported in status.
 * Direct provider billing APIs: billing data comes from exports you download.
 * AWS / EKS: out of scope for this phase.

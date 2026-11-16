@@ -1,0 +1,23 @@
+WARNING: Merged "kubecost-p13" as current context in C:\Users\santi\.kube\config
+== cluster: v1.36.5
+aks-nodepool1-17800598-vmss000000   Ready   <none>   74s   v1.36.5   0
+aks-nodepool1-17800598-vmss000001   Ready   <none>   78s   v1.36.5   0
+PASS  a pod with a managed disk is running
+== the volume's node affinity, as AKS wrote it:
+topology.disk.csi.azure.com/zone = [""]
+PASS  rightsize nodes --plan ran
+   node 8-vmss000000 cpu=40% mem=15% pods=10 removable=False | pod kube-system/metrics-server-5d58f7df8-hm67g is pinned (required node affinity (not evaluated))
+   node 8-vmss000001 cpu=29% mem=12% pods=12 removable=False | pod p13/withdisk-58645bbfbc-ghr99 is pinned (persistent volume without a known zone (node-local or not readable))
+Traceback (most recent call last):
+  File "<stdin>", line 5, in <module>
+TypeError: 'NoneType' object is not iterable
+PASS  system DaemonSet/static pods do not block a node
+FAIL  the Azure disk zone key is not recognised
+PASS  rightsize fleet ran
+    kubecost-p13 reachable v1.36.5 azure nodes 2 zones ['0'] cpu 35%
+    _us-central1-a_kubecost-soak reachable v1.36.4-gke.2377000 gce nodes 1 zones ['us-central1-a'] cpu 92%
+    kubecost-lab reachable v1.33.4 unknown nodes 1 zones None cpu 28%
+    totals {'Clusters': 3, 'Reachable': 3, 'Nodes': 4, 'CPURequestedCores': 6.44, 'CPUAllocatableCores': 17.73, 'MemRequestedGiB': 5.46887481212616, 'MemAllocatableGiB': 22.977577209472656, 'RemovableCandidates': 0, 'PendingRecommendations': 0}
+PASS  fleet reports the AKS cluster with provider azure and its two nodes
+== 5 passed, 1 failed
+exit=0

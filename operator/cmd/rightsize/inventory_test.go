@@ -57,7 +57,8 @@ func TestSnapshotCarriesSchedulingFactsAndSaturationSignals(t *testing.T) {
 		ClaimRef: &corev1.ObjectReference{Namespace: "shop", Name: "data"},
 		NodeAffinity: &corev1.VolumeNodeAffinity{Required: &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{{MatchExpressions: []corev1.NodeSelectorRequirement{
 			{Key: corev1.LabelTopologyZone, Operator: corev1.NodeSelectorOpIn, Values: []string{"a"}}}}}}}}}
-	local := &corev1.PersistentVolume{ObjectMeta: metav1.ObjectMeta{Name: "pv-local"}, Spec: corev1.PersistentVolumeSpec{ClaimRef: &corev1.ObjectReference{Namespace: "shop", Name: "scratch"}}}
+	local := &corev1.PersistentVolume{ObjectMeta: metav1.ObjectMeta{Name: "pv-local"}, Spec: corev1.PersistentVolumeSpec{ClaimRef: &corev1.ObjectReference{Namespace: "shop", Name: "scratch"},
+		PersistentVolumeSource: corev1.PersistentVolumeSource{Local: &corev1.LocalVolumeSource{Path: "/mnt/disk"}}}} // a real node-local volume names its source
 
 	claim := func(name string) func(*corev1.Pod) {
 		return func(p *corev1.Pod) {
@@ -187,5 +188,98 @@ func TestReconcileCommandLabelsTheLevel(t *testing.T) {
 	}
 	if err := reconcileCmd([]string{"--before", before, "--after", after, "--scope", "aks-other"}, io.Discard); err == nil {
 		t.Fatal("a scope that matches nothing must fail")
+	}
+}
+
+// Two things a real GKE cluster showed (docs/LAB.md result 26): kube-proxy is a static pod owned by its Node, and the persistent
+// disk CSI driver restricts a volume with its own key, topology.gke.io/zone.
+func TestStaticPodsAndCSIZoneKeysAsOnRealGKE(t *testing.T) {
+	yes := true
+	static := invPod("kube-proxy-n1", "n1", func(p *corev1.Pod) {
+		p.OwnerReferences = []metav1.OwnerReference{{Kind: "Node", Name: "n1", Controller: &yes}}
+		p.Annotations = map[string]string{corev1.MirrorPodAnnotationKey: "abc"}
+		p.Spec.Affinity = &corev1.Affinity{NodeAffinity: &corev1.NodeAffinity{RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{}}}
+	})
+	mirrorOnly := invPod("etcd-n1", "n1", func(p *corev1.Pod) {
+		p.OwnerReferences = nil
+		p.Annotations = map[string]string{corev1.MirrorPodAnnotationKey: "abc"}
+	})
+	pv := func(name, claim, key string) *corev1.PersistentVolume {
+		return &corev1.PersistentVolume{ObjectMeta: metav1.ObjectMeta{Name: name}, Spec: corev1.PersistentVolumeSpec{
+			ClaimRef: &corev1.ObjectReference{Namespace: "shop", Name: claim},
+			NodeAffinity: &corev1.VolumeNodeAffinity{Required: &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{{MatchExpressions: []corev1.NodeSelectorRequirement{
+				{Key: key, Operator: corev1.NodeSelectorOpIn, Values: []string{"a"}}}}}}}}}
+	}
+	withClaim := func(name, claim string) *corev1.Pod {
+		return invPod(name, "n1", func(p *corev1.Pod) {
+			p.Spec.Volumes = []corev1.Volume{{Name: "v", VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: claim}}}}
+		})
+	}
+	objs := []runtime.Object{invNode("n1", "a"), invNode("n2", "a"), static, mirrorOnly,
+		pv("pv-gke", "gke", "topology.gke.io/zone"), pv("pv-azure", "azure", "topology.disk.csi.azure.com/zone"), pv("pv-host", "host", "kubernetes.io/hostname"),
+		withClaim("on-gke-disk", "gke"), withClaim("on-azure-disk", "azure"), withClaim("on-local", "host")}
+	s, err := take(context.Background(), fake.NewSimpleClientset(objs...), nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"kube-proxy-n1", "etcd-n1"} {
+		if p := find(t, s, name); !p.DaemonSet {
+			t.Errorf("%s is a static pod: it goes with its node and must not block it: %+v", name, p)
+		}
+	}
+	for _, name := range []string{"on-gke-disk", "on-azure-disk"} {
+		if p := find(t, s, name); p.Pinned || p.VolumeZone != "a" {
+			t.Errorf("%s: the CSI zone key must be read: %+v", name, p)
+		}
+	}
+	if p := find(t, s, "on-local"); !p.Pinned {
+		t.Errorf("a volume tied to a hostname is not a zonal volume: %+v", p)
+	}
+	rep, err := capacity.Analyze(s.nodes, s.pods, 0.85)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range rep.Nodes {
+		if strings.Contains(n.Why, "kube-proxy") || strings.Contains(n.Why, "etcd") {
+			t.Fatalf("a static pod blocked a node: %s", n.Why)
+		}
+	}
+}
+
+// Real AKS, region without availability zones (docs/LAB.md result 26): the disk driver writes its zone key with an EMPTY value.
+// That volume attaches to any node; the pod must be movable and carry no zone restriction.
+func TestVolumeWithAnEmptyZoneValueOrNoAffinityIsMovableAnywhere(t *testing.T) {
+	emptyZone := &corev1.PersistentVolume{ObjectMeta: metav1.ObjectMeta{Name: "pv-nozone"}, Spec: corev1.PersistentVolumeSpec{
+		ClaimRef: &corev1.ObjectReference{Namespace: "shop", Name: "azure"},
+		NodeAffinity: &corev1.VolumeNodeAffinity{Required: &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{{MatchExpressions: []corev1.NodeSelectorRequirement{
+			{Key: "topology.disk.csi.azure.com/zone", Operator: corev1.NodeSelectorOpIn, Values: []string{""}}}}}}}}}
+	network := &corev1.PersistentVolume{ObjectMeta: metav1.ObjectMeta{Name: "pv-nfs"}, Spec: corev1.PersistentVolumeSpec{ClaimRef: &corev1.ObjectReference{Namespace: "shop", Name: "nfs"},
+		PersistentVolumeSource: corev1.PersistentVolumeSource{NFS: &corev1.NFSVolumeSource{Server: "s", Path: "/"}}}}
+	hostPath := &corev1.PersistentVolume{ObjectMeta: metav1.ObjectMeta{Name: "pv-hp"}, Spec: corev1.PersistentVolumeSpec{ClaimRef: &corev1.ObjectReference{Namespace: "shop", Name: "hp"},
+		PersistentVolumeSource: corev1.PersistentVolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: "/data"}}}}
+	twoZones := &corev1.PersistentVolume{ObjectMeta: metav1.ObjectMeta{Name: "pv-two"}, Spec: corev1.PersistentVolumeSpec{ClaimRef: &corev1.ObjectReference{Namespace: "shop", Name: "two"},
+		NodeAffinity: &corev1.VolumeNodeAffinity{Required: &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{{MatchExpressions: []corev1.NodeSelectorRequirement{
+			{Key: corev1.LabelTopologyZone, Operator: corev1.NodeSelectorOpIn, Values: []string{"a", "b"}}}}}}}}}
+	with := func(name, claim string) *corev1.Pod {
+		return invPod(name, "n1", func(p *corev1.Pod) {
+			p.Spec.Volumes = []corev1.Volume{{Name: "v", VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: claim}}}}
+		})
+	}
+	// node zone labels as AKS writes them without zones: "0"
+	objs := []runtime.Object{invNode("n1", "0"), invNode("n2", "0"), emptyZone, network, hostPath, twoZones,
+		with("on-azure", "azure"), with("on-nfs", "nfs"), with("on-hostpath", "hp"), with("on-two-zones", "two"), with("unbound", "nothing")}
+	s, err := take(context.Background(), fake.NewSimpleClientset(objs...), nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"on-azure", "on-nfs"} {
+		if p := find(t, s, name); p.Pinned || p.VolumeZone != "" {
+			t.Errorf("%s attaches anywhere: %+v", name, p)
+		}
+	}
+	for _, name := range []string{"on-hostpath", "on-two-zones", "unbound"} {
+		if p := find(t, s, name); !p.Pinned {
+			t.Errorf("%s cannot be shown to be movable and must stay pinned: %+v", name, p)
+		}
 	}
 }

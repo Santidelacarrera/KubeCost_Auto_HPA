@@ -17,7 +17,8 @@ python -m pytest benchmarks -q
 
 ## Results
 
-`results/` holds result files written by `bench.py collect`. **It is empty of competitor results: none has been run.**
+`results/` holds result files written by `bench.py collect`: one real local run so far. **It holds no competitor result: none
+has been run.**
 
 A result file has `kind: MEASURED` only when `collect` produced it from a real cluster. The simulated comparison of the replica
 autoscaler with a native HPA is in [docs/BENCHMARKS.md](../docs/BENCHMARKS.md) and is not stored here, so a simulation can

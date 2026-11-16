@@ -10,7 +10,8 @@
 | Recommend, approve, apply with an SLO on real latency, observe, forced rollback | 11/11 after one defect was fixed (rollback gave up on write conflicts during a 6-replica rollout) | same run |
 | Node released by the GKE cluster autoscaler after the change | 3 to 2 nodes: 0.067 USD/h less **at list price**, two equivalent 20-minute windows. An observed saving on a test workload, not an invoice | same run |
 | Node matching on real rows of Google's FOCUS export | 2 nodes matched by `ResourceName` for one day | [LAB.md](LAB.md) result 22 |
-| Seven-day soak with the FOCUS billing export | Running. Report due 2026-11-17 | [LAB.md](LAB.md) result 13 |
+| Soak: five days of history, then the planned change (2026-11-16) | Applied with the production defaults and a real-latency SLO; verified, not rolled back; **the autoscaler went from 2 nodes to 1** (0.067 USD/h less at list price), latency unchanged, no restarts | [LAB.md](LAB.md) results 13, 27 |
+| Read-only features of 2026-11-15/16 (insights, constrained node analysis, fleet, reconciliation, render) | Run; two defects found in the node analysis and fixed | [LAB.md](LAB.md) result 26 |
 
 ## What was not run on GKE
 
