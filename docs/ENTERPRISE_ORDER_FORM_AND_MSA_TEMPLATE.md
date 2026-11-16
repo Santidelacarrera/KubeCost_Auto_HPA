@@ -1,5 +1,9 @@
 # Enterprise Order Form & Master Services Agreement (MSA) Template
 
+<!-- status-notice -->
+> **Template, not reviewed by a lawyer, and not an offer (notice added 2026-11-15).** The support levels, the savings
+> guarantee and the indemnity in it are not offered today ([COMMERCIAL.md](COMMERCIAL.md), [SUPPORT.md](SUPPORT.md)).
+
 This document provides the standard legal and procurement agreement template for **KubeCost Auto-HPA** commercial licenses, enterprise support subscriptions, and assisted Proof of Concept (POC) agreements.
 
 ---

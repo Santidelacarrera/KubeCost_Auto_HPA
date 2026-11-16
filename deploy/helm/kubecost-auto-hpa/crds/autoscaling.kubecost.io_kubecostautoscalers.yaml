@@ -314,8 +314,9 @@ spec:
                 minimum: 1
                 type: integer
               nodeBinPacking:
-                description: NodeBinPacking enables cluster-wide pod relocation to
-                  allow Karpenter or Cluster Autoscaler to terminate nodes.
+                description: |-
+                  NodeBinPacking is NOT IMPLEMENTED: no controller relocates pods or drains nodes for consolidation. Accepted, no effect,
+                  reported in UnsupportedFields. The read-only node analysis is `rightsize nodes`.
                 properties:
                   consolidationThresholdPercent:
                     default: 35
@@ -332,8 +333,9 @@ spec:
                 - enabled
                 type: object
               oomProtection:
-                description: OOMProtection prevents container exit code 137 terminations
-                  by dynamically ballooning limits.
+                description: |-
+                  OOMProtection is NOT IMPLEMENTED for KubeCostAutoscaler (this resource only manages replicas): accepted, no effect,
+                  reported in UnsupportedFields. KubeCostHPA implements it.
                 properties:
                   criticalThresholdPercent:
                     default: 88
@@ -363,8 +365,9 @@ spec:
                 - enabled
                 type: object
               predictive:
-                description: Predictive enables ScaleOps-grade AI proactive forecasting
-                  ahead of demand.
+                description: |-
+                  Predictive is NOT IMPLEMENTED for KubeCostAutoscaler: the field is accepted so existing manifests keep applying, and it
+                  has no effect. While it is enabled the status carries UnsupportedFields=True. KubeCostHPA implements predictive pre-warming.
                 properties:
                   enabled:
                     default: false

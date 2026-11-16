@@ -10,6 +10,9 @@ const (
 	ConditionMetricsAvailable = "MetricsAvailable" // cost and demand signals are fresh and valid
 	ConditionDegraded         = "Degraded"         // running under the failure policy
 	ConditionScalingActive    = "ScalingActive"    // this resource currently owns replica writes
+	// ConditionUnsupportedFields is True while the spec sets fields this controller accepts but does not implement
+	// (predictive, oomProtection, nodeBinPacking). It is only present once such a field has been seen.
+	ConditionUnsupportedFields = "UnsupportedFields"
 )
 
 // AnnotationPause is the emergency stop. While a KubeCostAutoscaler carries
@@ -228,15 +231,18 @@ type KubeCostAutoscalerSpec struct {
 	// +kubebuilder:default={}
 	InfrastructurePolicy InfrastructurePolicy `json:"infrastructurePolicy,omitempty"`
 
-	// Predictive enables ScaleOps-grade AI proactive forecasting ahead of demand.
+	// Predictive is NOT IMPLEMENTED for KubeCostAutoscaler: the field is accepted so existing manifests keep applying, and it
+	// has no effect. While it is enabled the status carries UnsupportedFields=True. KubeCostHPA implements predictive pre-warming.
 	// +optional
 	Predictive *PredictivePolicy `json:"predictive,omitempty"`
 
-	// OOMProtection prevents container exit code 137 terminations by dynamically ballooning limits.
+	// OOMProtection is NOT IMPLEMENTED for KubeCostAutoscaler (this resource only manages replicas): accepted, no effect,
+	// reported in UnsupportedFields. KubeCostHPA implements it.
 	// +optional
 	OOMProtection *OOMProtectionPolicy `json:"oomProtection,omitempty"`
 
-	// NodeBinPacking enables cluster-wide pod relocation to allow Karpenter or Cluster Autoscaler to terminate nodes.
+	// NodeBinPacking is NOT IMPLEMENTED: no controller relocates pods or drains nodes for consolidation. Accepted, no effect,
+	// reported in UnsupportedFields. The read-only node analysis is `rightsize nodes`.
 	// +optional
 	NodeBinPacking *NodeBinPackingPolicy `json:"nodeBinPacking,omitempty"`
 }
@@ -274,7 +280,7 @@ type OOMProtectionPolicy struct {
 	MaxLimitMiB int64 `json:"maxLimitMiB,omitempty"`
 }
 
-// NodeBinPackingPolicy enables cluster-wide pod relocation to allow Karpenter or Cluster Autoscaler to terminate nodes.
+// NodeBinPackingPolicy is reserved: nothing reads it (see KubeCostAutoscalerSpec.NodeBinPacking).
 type NodeBinPackingPolicy struct {
 	// Enabled activates node fragmentation scanning and drain candidate tagging.
 	// +kubebuilder:default=false

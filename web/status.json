@@ -1,0 +1,37 @@
+{
+  "_about": "Facts taken from the repository's recorded evidence (docs/LAB.md, docs/STATUS.md). This file is the only non-sample data source of the console when no engine is connected. Edit it only together with the evidence it cites.",
+  "as_of": "2026-11-15",
+  "release": "v0.1.0 published; v0.2.0 prepared, not tagged",
+  "maturity": "Beta",
+  "maturity_note": "Observe-only use is supported. Applying changes is for a supervised pilot. Not validated for unattended production.",
+  "modes": [
+    {"name": "Observe-only", "default": true, "state": "available", "detail": "Chart default (operator.observeOnly=true). Measures, recommends and reports. Writes nothing to the cluster."},
+    {"name": "Assisted", "default": false, "state": "available", "detail": "Opt-in applier. Every change needs a human approval of the exact recommendation; the approver cannot be the publisher. Automatic rollback."},
+    {"name": "Automated", "default": false, "state": "experimental", "detail": "Off by default. Needs requireApproval: false in the policy, inside allowed namespaces, bounds, windows and rate limits. Not validated on real traffic over weeks."}
+  ],
+  "providers": [
+    {"name": "GKE", "state": "validated-partially", "kubernetes": "1.36.4", "date": "2026-11-10",
+     "passed": ["read-only checks 9/9", "recommend, approve, apply, observe, rollback 11/11", "node matching on real FOCUS rows (one day)"],
+     "pending": ["7-day soak report (due 2026-11-17)", "saving reconciled with an invoice (the account is on credits)"],
+     "evidence": "docs/LAB.md results 12, 13, 22"},
+    {"name": "AKS", "state": "validated-partially", "kubernetes": "1.36.5", "date": "2026-11-11",
+     "passed": ["read-only checks and apply/rollback 14/15 (twice)", "applier 27/27 in one run", "Helm lifecycle 4/4", "OpenCost live contract for 2 h"],
+     "pending": ["Azure Cost Management FOCUS export", "multi-day run", "saving reconciled with an invoice"],
+     "evidence": "docs/LAB.md results 14-18"},
+    {"name": "AWS / EKS", "state": "out-of-scope", "passed": [], "pending": [], "evidence": "Not part of this phase. No AWS integration is offered."}
+  ],
+  "savings": [
+    {"level": "estimated", "state": "available", "detail": "Every recommendation: requests delta x unit price. Nothing applied."},
+    {"level": "projected", "state": "available", "detail": "Applied and kept changes (rightsize report, operator outcome metrics). No cost measured."},
+    {"level": "observed", "state": "measured-twice", "detail": "GKE: 0.067 USD/h less at list price (one of three nodes released, two 20-minute windows). AKS: 0.096 USD/h less at list price (one of two nodes released). Trivial test workloads; list price, not invoices."},
+    {"level": "reconciled", "state": "none", "detail": "No saving has been reconciled with a provider invoice yet. The tool exists (rightsize reconcile); it needs two billing exports of equivalent periods."}
+  ],
+  "tests": {"go_packages_passing": 35, "python_tests_passing": 90, "date": "2026-11-15", "where": "local Windows run without -race; CI runs -race, envtest and kind e2e"},
+  "known_gaps": [
+    "Recommender defaults are not tuned on weeks of real traffic",
+    "KubeCostAutoscaler accepts spec.predictive, spec.oomProtection and spec.nodeBinPacking but does not implement them (reported in status)",
+    "Node optimisation is a read-only analysis: nothing drains, cordons or deletes nodes for consolidation",
+    "No multi-cluster control plane: one operator per cluster",
+    "No billing or licence enforcement is implemented"
+  ]
+}

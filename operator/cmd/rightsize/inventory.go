@@ -21,8 +21,9 @@ import (
 
 // snapshot is a read-only view of the cluster: nodes and scheduled pods with their request footprint.
 type snapshot struct {
-	nodes []capacity.Node
-	pods  []capacity.Pod
+	nodes   []capacity.Node
+	pods    []capacity.Pod
+	signals capacity.ClusterSignals
 }
 
 func podRequests(p corev1.Pod) (cpu, mem float64) {
@@ -44,9 +45,34 @@ func take(ctx context.Context, kc kubernetes.Interface, prices map[string]float6
 		if v, ok := prices[n.Name]; ok {
 			price = v
 		}
-		s.nodes = append(s.nodes, capacity.Node{ProviderID: n.Spec.ProviderID, Name: n.Name, CPUAllocatable: n.Status.Allocatable.Cpu().AsApproximateFloat64(),
-			MemAllocatable: n.Status.Allocatable.Memory().AsApproximateFloat64(), HourlyUSD: price})
+		cn := capacity.Node{ProviderID: n.Spec.ProviderID, Name: n.Name, CPUAllocatable: n.Status.Allocatable.Cpu().AsApproximateFloat64(),
+			MemAllocatable: n.Status.Allocatable.Memory().AsApproximateFloat64(), HourlyUSD: price,
+			Labels: n.Labels, Zone: n.Labels[corev1.LabelTopologyZone], Unschedulable: n.Spec.Unschedulable}
+		for _, t := range n.Spec.Taints {
+			cn.Taints = append(cn.Taints, capacity.Taint{Key: t.Key, Value: t.Value, Effect: string(t.Effect)})
+		}
+		s.nodes = append(s.nodes, cn)
+		for _, c := range n.Status.Conditions {
+			switch c.Type {
+			case corev1.NodeMemoryPressure, corev1.NodeDiskPressure, corev1.NodePIDPressure:
+				if c.Status == corev1.ConditionTrue {
+					s.signals.NodesUnderPressure = append(s.signals.NodesUnderPressure, n.Name+": "+string(c.Type))
+				}
+			}
+		}
 	}
+	// zone of each bound zonal volume, by claim: a pod that mounts it can only move inside that zone
+	claimZone := map[string]string{}
+	if pvs, err := kc.CoreV1().PersistentVolumes().List(ctx, metav1.ListOptions{}); err == nil {
+		for _, pv := range pvs.Items {
+			if pv.Spec.ClaimRef == nil {
+				continue
+			}
+			if z := pvZone(pv); z != "" {
+				claimZone[pv.Spec.ClaimRef.Namespace+"/"+pv.Spec.ClaimRef.Name] = z
+			}
+		}
+	} // a role without access to PersistentVolumes keeps the old behaviour: every pod with a claim is pinned
 	pdbs, err := kc.PolicyV1().PodDisruptionBudgets(metav1.NamespaceAll).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return s, err
@@ -56,11 +82,21 @@ func take(ctx context.Context, kc kubernetes.Interface, prices map[string]float6
 		return s, err
 	}
 	for _, p := range pods.Items {
+		if p.Spec.NodeName == "" && p.Status.Phase == corev1.PodPending {
+			for _, c := range p.Status.Conditions {
+				if c.Type == corev1.PodScheduled && c.Status == corev1.ConditionFalse && c.Reason == corev1.PodReasonUnschedulable {
+					s.signals.PendingUnschedulable = append(s.signals.PendingUnschedulable, p.Namespace+"/"+p.Name)
+				}
+			}
+		}
 		if p.Spec.NodeName == "" || p.Status.Phase == corev1.PodSucceeded || p.Status.Phase == corev1.PodFailed {
 			continue
 		}
 		cpu, mem := podRequests(p)
-		cp := capacity.Pod{Namespace: p.Namespace, Name: p.Name, Node: p.Spec.NodeName, CPURequest: cpu, MemRequest: mem}
+		cp := capacity.Pod{Namespace: p.Namespace, Name: p.Name, Node: p.Spec.NodeName, CPURequest: cpu, MemRequest: mem, NodeSelector: p.Spec.NodeSelector}
+		for _, t := range p.Spec.Tolerations {
+			cp.Tolerations = append(cp.Tolerations, capacity.Toleration{Key: t.Key, Operator: string(t.Operator), Value: t.Value, Effect: string(t.Effect)})
+		}
 		controlled := false
 		for _, o := range p.OwnerReferences {
 			if o.Controller != nil && *o.Controller {
@@ -70,13 +106,40 @@ func take(ctx context.Context, kc kubernetes.Interface, prices map[string]float6
 				}
 			}
 		}
-		cp.Pinned = !controlled || pinned(p)
+		cp.PinnedReason = pinned(p, claimZone)
+		if !controlled {
+			cp.PinnedReason = "no controller would recreate it"
+		}
+		cp.Pinned = cp.PinnedReason != ""
+		for _, v := range p.Spec.Volumes {
+			if v.PersistentVolumeClaim != nil {
+				cp.VolumeZone = claimZone[p.Namespace+"/"+v.PersistentVolumeClaim.ClaimName]
+			}
+		}
+		if a := p.Spec.Affinity; a != nil && a.PodAntiAffinity != nil {
+			for _, term := range a.PodAntiAffinity.RequiredDuringSchedulingIgnoredDuringExecution {
+				// only the common shape is modelled: "not on a node that already runs a pod matching my own labels"
+				if term.TopologyKey != corev1.LabelHostname || term.LabelSelector == nil {
+					continue
+				}
+				if sel, err := metav1.LabelSelectorAsSelector(term.LabelSelector); err == nil && !sel.Empty() && sel.Matches(labels.Set(p.Labels)) {
+					cp.AntiAffinityGroup = sel.String()
+				}
+			}
+		}
 		for _, b := range pdbs.Items {
 			if b.Namespace != p.Namespace || b.Spec.Selector == nil {
 				continue
 			}
 			if sel, err := metav1.LabelSelectorAsSelector(b.Spec.Selector); err == nil && !sel.Empty() && sel.Matches(labels.Set(p.Labels)) {
 				cp.ProtectedByPDB = true
+				// status.disruptionsAllowed is only meaningful once the disruption controller has observed this generation
+				if b.Status.ObservedGeneration >= b.Generation {
+					allowed := b.Status.DisruptionsAllowed
+					if cp.PDBDisruptionsAllowed == nil || allowed < *cp.PDBDisruptionsAllowed {
+						cp.PDBDisruptionsAllowed = &allowed
+					}
+				}
 			}
 		}
 		s.pods = append(s.pods, cp)
@@ -84,17 +147,43 @@ func take(ctx context.Context, kc kubernetes.Interface, prices map[string]float6
 	return s, nil
 }
 
-// pinned: tied to its node by a hostname selector, hostPath or a persistent volume claim.
-func pinned(p corev1.Pod) bool {
-	if _, ok := p.Spec.NodeSelector["kubernetes.io/hostname"]; ok {
-		return true
-	}
-	for _, v := range p.Spec.Volumes {
-		if v.HostPath != nil || v.PersistentVolumeClaim != nil {
-			return true
+// pvZone returns the single zone a persistent volume is restricted to, from its node affinity or the well-known label.
+func pvZone(pv corev1.PersistentVolume) string {
+	if na := pv.Spec.NodeAffinity; na != nil && na.Required != nil {
+		for _, term := range na.Required.NodeSelectorTerms {
+			for _, e := range term.MatchExpressions {
+				if (e.Key == corev1.LabelTopologyZone || e.Key == corev1.LabelFailureDomainBetaZone) && e.Operator == corev1.NodeSelectorOpIn && len(e.Values) == 1 {
+					return e.Values[0]
+				}
+			}
 		}
 	}
-	return false
+	return pv.Labels[corev1.LabelTopologyZone]
+}
+
+// pinned says why a pod cannot be moved to another node ("" when it can): a hostname selector, node-local storage, required node
+// affinity (not evaluated, so treated as fixed), required pod affinity, or a volume whose zone is unknown.
+func pinned(p corev1.Pod, claimZone map[string]string) string {
+	if _, ok := p.Spec.NodeSelector[corev1.LabelHostname]; ok {
+		return "nodeSelector on the hostname"
+	}
+	if a := p.Spec.Affinity; a != nil {
+		if a.NodeAffinity != nil && a.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution != nil {
+			return "required node affinity (not evaluated)"
+		}
+		if a.PodAffinity != nil && len(a.PodAffinity.RequiredDuringSchedulingIgnoredDuringExecution) > 0 {
+			return "required pod affinity (not evaluated)"
+		}
+	}
+	for _, v := range p.Spec.Volumes {
+		if v.HostPath != nil {
+			return "hostPath volume"
+		}
+		if v.PersistentVolumeClaim != nil && claimZone[p.Namespace+"/"+v.PersistentVolumeClaim.ClaimName] == "" {
+			return "persistent volume without a known zone (node-local or not readable)"
+		}
+	}
+	return ""
 }
 
 func parsePrices(list string) (map[string]float64, error) {
@@ -149,6 +238,13 @@ func nodesCmd(args []string, out io.Writer) error {
 	rep, err := capacity.Analyze(snap.nodes, snap.pods, target)
 	if err != nil {
 		return err
+	}
+	rep.Signals = snap.signals
+	if n := len(snap.signals.PendingUnschedulable); n > 0 {
+		rep.Caveats = append(rep.Caveats, fmt.Sprintf("%d pod(s) are pending as unschedulable: the cluster is short of capacity somewhere, do not remove nodes on this report", n))
+	}
+	if n := len(snap.signals.NodesUnderPressure); n > 0 {
+		rep.Caveats = append(rep.Caveats, fmt.Sprintf("%d node condition(s) report pressure: requests understate real use there", n))
 	}
 	return printJSON(out, rep)
 }

@@ -1,5 +1,12 @@
 # KubeCost Auto-HPA: Go-To-Market & Community Launch Pack
 
+<!-- status-notice -->
+> **Sales draft, not evidence (notice added 2026-11-15).** This document was written as sales material before the product was
+> measured. Its percentages, savings, ROI, payback times, support levels and comparisons with other products are models,
+> targets or assumptions: none was measured on a customer cluster or confirmed against an invoice, and no benchmark against
+> any competitor has been run. AWS is out of scope and is not a supported integration. What is verified is in
+> [STATUS.md](STATUS.md); the commercial model is in [COMMERCIAL.md](COMMERCIAL.md). Do not send this to a prospect as it is.
+
 **Objective:** Maximum developer awareness, technical credibility, and pipeline generation across the global DevOps and FinOps community within 72 hours of launch.  
 **Target Audiences:** Platform Engineers, Site Reliability Engineers (SRE), Heads of DevOps, FinOps Practitioners, VPs of Infrastructure.
 
