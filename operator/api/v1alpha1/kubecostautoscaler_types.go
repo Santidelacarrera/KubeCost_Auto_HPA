@@ -10,9 +10,6 @@ const (
 	ConditionMetricsAvailable = "MetricsAvailable" // cost and demand signals are fresh and valid
 	ConditionDegraded         = "Degraded"         // running under the failure policy
 	ConditionScalingActive    = "ScalingActive"    // this resource currently owns replica writes
-	// ConditionUnsupportedFields is True while the spec sets fields this controller accepts but does not implement
-	// (predictive, oomProtection, nodeBinPacking). It is only present once such a field has been seen.
-	ConditionUnsupportedFields = "UnsupportedFields"
 )
 
 // AnnotationPause is the emergency stop. While a KubeCostAutoscaler carries
@@ -230,24 +227,9 @@ type KubeCostAutoscalerSpec struct {
 	FailurePolicy FailurePolicy `json:"failurePolicy,omitempty"`
 	// +kubebuilder:default={}
 	InfrastructurePolicy InfrastructurePolicy `json:"infrastructurePolicy,omitempty"`
-
-	// Predictive is NOT IMPLEMENTED for KubeCostAutoscaler: the field is accepted so existing manifests keep applying, and it
-	// has no effect. While it is enabled the status carries UnsupportedFields=True. KubeCostHPA implements predictive pre-warming.
-	// +optional
-	Predictive *PredictivePolicy `json:"predictive,omitempty"`
-
-	// OOMProtection is NOT IMPLEMENTED for KubeCostAutoscaler (this resource only manages replicas): accepted, no effect,
-	// reported in UnsupportedFields. KubeCostHPA implements it.
-	// +optional
-	OOMProtection *OOMProtectionPolicy `json:"oomProtection,omitempty"`
-
-	// NodeBinPacking is NOT IMPLEMENTED: no controller relocates pods or drains nodes for consolidation. Accepted, no effect,
-	// reported in UnsupportedFields. The read-only node analysis is `rightsize nodes`.
-	// +optional
-	NodeBinPacking *NodeBinPackingPolicy `json:"nodeBinPacking,omitempty"`
 }
 
-// PredictivePolicy configures proactive scaling ahead of traffic surges.
+// PredictivePolicy configures proactive scaling ahead of traffic surges (KubeCostHPA).
 type PredictivePolicy struct {
 	// Enabled turns on predictive forecasting.
 	// +kubebuilder:default=false
@@ -262,7 +244,7 @@ type PredictivePolicy struct {
 	TargetRPSPerPod int32 `json:"targetRPSPerPod,omitempty"`
 }
 
-// OOMProtectionPolicy prevents container exit code 137 terminations by dynamically ballooning limits.
+// OOMProtectionPolicy raises the memory limit in place before a container is OOM-killed (KubeCostHPA).
 type OOMProtectionPolicy struct {
 	// Enabled activates active memory velocity monitoring and limit inflation.
 	// +kubebuilder:default=true
@@ -278,16 +260,6 @@ type OOMProtectionPolicy struct {
 	// MaxLimitMiB is the hard ceiling for emergency memory inflation.
 	// +kubebuilder:default=16384
 	MaxLimitMiB int64 `json:"maxLimitMiB,omitempty"`
-}
-
-// NodeBinPackingPolicy is reserved: nothing reads it (see KubeCostAutoscalerSpec.NodeBinPacking).
-type NodeBinPackingPolicy struct {
-	// Enabled activates node fragmentation scanning and drain candidate tagging.
-	// +kubebuilder:default=false
-	Enabled bool `json:"enabled"`
-	// ConsolidationThresholdPercent is the node utilization ceiling below which a node becomes a drain candidate.
-	// +kubebuilder:default=35
-	ConsolidationThresholdPercent int32 `json:"consolidationThresholdPercent,omitempty"`
 }
 
 // Recommendation is one persisted entry of the stabilisation history.

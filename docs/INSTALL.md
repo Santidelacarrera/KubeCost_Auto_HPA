@@ -87,6 +87,12 @@ cd operator && go build -o ../bin/rightsize ./cmd/rightsize
 kubectl apply -f deploy/rbac/rightsize.yaml
 ```
 
+A first report for one namespace, changing nothing:
+
+```bash
+rightsize survey --context <ctx> --namespace <ns> --prometheus-url http://localhost:9090 > report.md
+```
+
 Bind `kubecost-rightsize-read` to whoever reads; bind the apply role per namespace, only to whoever may change workloads.
 
 ## GKE

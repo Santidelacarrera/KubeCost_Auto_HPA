@@ -1,0 +1,27 @@
+== images
+== vendor key and licences
+PASS  the CLI verifies the professional licence offline
+PASS  the CLI refuses a licence signed by another key
+== 1. enforcement, no licence
+   none: kubecost_license_info{enforced="true",tier="starter",valid="false"} 1
+PASS  no licence: the operator runs observe-only although it was configured to write
+PASS  no licence: the applier was not started
+PASS  no licence: metric says starter, invalid, enforced
+== 2. professional licence
+   pro: kubecost_license_info{enforced="true",tier="professional",valid="true"} 1
+PASS  professional: the operator is not forced into observe-only
+PASS  professional: the applier started
+PASS  professional: metric says professional, valid
+== 3. a licence signed by another key (forged)
+   forged: kubecost_license_info{enforced="true",tier="starter",valid="false"} 1
+PASS  forged licence: observe-only
+PASS  forged licence: the log says the signature does not verify
+PASS  forged licence: metric says starter, invalid
+== 4. enterprise licence
+   ent: kubecost_license_info{enforced="true",tier="enterprise",valid="true"} 1
+PASS  enterprise: the applier started and nothing was restricted
+PASS  enterprise: metric says enterprise
+== 5. the pods stay healthy through all four
+PASS  operator, engine and redis are running
+== 14 passed, 0 failed
+exit=0

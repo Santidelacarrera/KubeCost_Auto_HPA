@@ -80,23 +80,6 @@ tls:
     secretName: ""         # server cert/key for the engine; enables https
     clientSecretName: ""   # operator client cert/key + ca.crt; enables mTLS when the server secret has ca.crt
 
-# DEPRECATED, NO EFFECT: no template reads `features.*`. The keys are still accepted so existing values files keep
-# installing; they will be removed in the next minor version. Predictive pre-warming and OOM protection are configured
-# per resource (KubeCostHPA spec.predictive / spec.oomProtection). Nothing in this chart relocates pods or drains nodes
-# for consolidation; the read-only node analysis is `rightsize nodes` (docs/NODES.md).
-features:
-  predictiveScaling:
-    enabled: true
-    warmupLeadTimeSeconds: 120
-  oomProtection:
-    enabled: true
-    criticalThresholdPercent: 88
-    warningThresholdPercent: 78
-    maxLimitMiB: 16384
-  nodeBinPacking:
-    enabled: true
-    consolidationThresholdPercent: 35
-
 telemetry:
   enabled: false
   redisUrl: ""

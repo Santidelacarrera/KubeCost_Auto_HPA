@@ -1,0 +1,27 @@
+# KubeCostHPA with the two EXPERIMENTAL features: predictive pre-warming and OOM protection.
+# Both are unit-tested and were never validated on production traffic (docs/STATUS.md). Start in dryRun and read the decisions.
+apiVersion: autoscaling.kubecost.io/v1alpha1
+kind: KubeCostHPA
+metadata:
+  name: checkout
+  namespace: production
+spec:
+  targetRef: {name: checkout-api}
+  slo: {p99LatencyMs: 250}
+  cpu: {min: 100m, max: "2"}
+  memory: {min: 128Mi, max: 4Gi}
+  replicas: {min: 4, max: 35}        # never together with another HPA on the same Deployment
+  dryRun: true
+
+  # Pre-warms replicas ahead of a forecast peak.
+  predictive:
+    enabled: true
+    warmupLeadTimeSeconds: 120
+    targetRPSPerPod: 50
+
+  # Raises the memory limit in place when the working set approaches it.
+  oomProtection:
+    enabled: true
+    criticalThresholdPercent: 88
+    warningThresholdPercent: 78
+    maxLimitMiB: 8192

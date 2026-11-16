@@ -530,3 +530,45 @@ script. Read-only against the cluster, apart from one test pod with a managed di
 Not covered: a cluster with availability zones (the subscription has none), so the "pod stays inside its disk's zone" rule has
 only unit tests on Azure; a real drain to compare the plan with.
 
+## Result 30: a namespace report in one command on the REAL GKE cluster, and the soak ten hours after its change (2026-11-16)
+
+`rightsize survey --context <gke> --namespace lab --prometheus-url ... --window 144h` planned every container of every
+Deployment of the namespace with the settings a single `plan` would use, added the node analysis and printed one report.
+Read-only. Evidence: `evidence/2026-11-16-gke-survey-lab.md`.
+
+| Workload | What the report says |
+|---|---|
+| `shop` (already halved in result 27) | A further reduction, 250m to 125m and 64Mi to 32Mi, confidence Medium: the step cap halves once per change, so the report shows the next step, not the end state |
+| `loadgen` | **Increase**, 50m to 140m and 16Mi to 32Mi, confidence Low, signal `no-memory-limit`: the load generator was set up with too little. The survey found an under-provisioned workload nobody had asked about |
+| Nodes | One node left; not a candidate, with its reason |
+
+The soak, 613 minutes after the change of result 27 (it now includes Monday's morning peak of 121 requests/s):
+
+| Item | Value |
+|---|---|
+| Nodes | mean 1.000 over 9.2 h after (maximum 1), against 2.000 over 126.9 h before |
+| Restarts, CPU throttling | 0, 0 |
+| Worst 5-minute p95 latency | 4.75 ms (the same as in the five days before) |
+
+Still list price, a trivial application and generated traffic. The cluster was left running to accumulate days.
+
+## Result 31: licence enforcement on a real cluster (`hack/lab-license.sh`, minikube 1.33.4, 2026-11-16): 14 passed, 0 failed
+
+The operator image built from this checkout, installed with the chart and **configured to write** (observe-only off, applier
+on), started with `--enforce-license` under four licences. What the running operator decided is read from its own log and its
+`kubecost_license_info` metric. Evidence: `evidence/2026-11-16-lab-license.log`.
+
+| Licence in the Secret | What the operator did | Metric |
+|---|---|---|
+| none | Ran observe-only although configured to write; the applier was not started | `tier="starter", valid="false", enforced="true"` |
+| professional, signed by the vendor key | Not forced into observe-only; the applier started | `tier="professional", valid="true"` |
+| enterprise, signed by ANOTHER key (forged) | Observe-only; the log says the signature does not verify | `tier="starter", valid="false"` |
+| enterprise, signed by the vendor key | The applier started; nothing restricted | `tier="enterprise", valid="true"` |
+
+Also: the CLI verifies a good licence and refuses the forged one, and the operator, engine and Redis stayed healthy through the
+four restarts. No defect found.
+
+Not shown: that a professional licence forces an approval when the policy says `requireApproval: false` (unit-tested in
+`internal/license` and wired in the applier; not exercised with a real change here), the node limit against a real node count
+above it, and expiry while the operator keeps running (it is read at start-up only).
+

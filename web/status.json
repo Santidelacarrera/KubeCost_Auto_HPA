@@ -1,7 +1,7 @@
 {
   "_about": "Facts taken from the repository's recorded evidence (docs/LAB.md, docs/STATUS.md). This file is the only non-sample data source of the console when no engine is connected. Edit it only together with the evidence it cites.",
   "as_of": "2026-11-16",
-  "release": "v0.1.0 published; v0.2.0 prepared, not tagged",
+  "release": "v0.2.0",
   "maturity": "Beta",
   "maturity_note": "Observe-only use is supported. Applying changes is for a supervised pilot. Not validated for unattended production.",
   "modes": [
@@ -26,10 +26,9 @@
     {"level": "observed", "state": "measured-three-times", "detail": "GKE: 0.067 USD/h less at list price (one of three nodes released, two 20-minute windows). AKS: 0.096 USD/h less (one of two nodes). GKE soak: 2 nodes to 1 after five days of history, 0.067 USD/h less. Trivial test workloads; list price, not invoices."},
     {"level": "reconciled", "state": "none", "detail": "No saving has been reconciled with a provider invoice yet. The tool exists (rightsize reconcile); it needs two billing exports of equivalent periods."}
   ],
-  "tests": {"go_packages_passing": 36, "python_tests_passing": 97, "date": "2026-11-16", "where": "local Windows run without -race; CI runs -race, envtest and kind e2e"},
+  "tests": {"go_packages_passing": 33, "python_tests_passing": 97, "date": "2026-11-16", "where": "local Windows run without -race; CI runs -race, envtest and kind e2e"},
   "known_gaps": [
     "Recommender defaults are not tuned on weeks of real traffic",
-    "KubeCostAutoscaler accepts spec.predictive, spec.oomProtection and spec.nodeBinPacking but does not implement them (reported in status)",
     "Node optimisation is a read-only analysis: nothing drains, cordons or deletes nodes for consolidation",
     "No multi-cluster control plane: one operator per cluster (rightsize fleet is a read-only report)",
     "No billing; licence files exist, enforcement is opt-in and unit-tested only",

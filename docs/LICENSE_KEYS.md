@@ -4,8 +4,8 @@ A licence is a signed file that the operator verifies **offline**. Nothing is se
 isolated network. Enforcement is **off by default**: without `--enforce-license` the operator behaves exactly as configured and
 only reports the licence. Design and commercial context: [COMMERCIAL.md](COMMERCIAL.md).
 
-Status: implemented and unit-tested (2026-11-16). Not yet run in a cluster. No licence has been issued to anyone and nothing is
-sold.
+Status: implemented, unit-tested, and run on a real cluster under four licences, 14/14 ([LAB.md](LAB.md) result 31). No licence
+has been issued to anyone and nothing is sold.
 
 ## What a tier allows, under enforcement
 

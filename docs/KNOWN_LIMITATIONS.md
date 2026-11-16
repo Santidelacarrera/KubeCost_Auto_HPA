@@ -24,10 +24,8 @@ Per-feature status is in [STATUS.md](STATUS.md). This page is what to keep in mi
 * A seasonal model: weekly patterns are detected as a caveat, not modelled. The growth forecast is a straight line.
 * Spend forecasting.
 * Billing and payment. Licence files exist and their enforcement is opt-in and unit-tested only ([LICENSE_KEYS.md](LICENSE_KEYS.md)).
-* `KubeCostAutoscaler` predictive scaling, OOM protection and bin-packing: accepted by the schema, ignored, reported in status.
 * Direct provider billing APIs: billing data comes from exports you download.
 * AWS / EKS: out of scope for this phase.
-* GPU, PSI and the "suite" analyses in `operator/internal/{gpu,psi,castsuite}`: libraries with tests, used by no binary.
 * A real-time console: the web console is a demo with a verified-status panel.
 
 ## Design limits

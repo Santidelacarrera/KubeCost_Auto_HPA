@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -311,7 +310,7 @@ func (rs *runState) cond(t string, ok bool, reason, msg string) {
 	})
 	if changed && rs.r.Recorder != nil {
 		typ := corev1.EventTypeNormal
-		if (t == v1alpha1.ConditionReady && !ok) || (t == v1alpha1.ConditionDegraded || t == v1alpha1.ConditionUnsupportedFields) && ok {
+		if (t == v1alpha1.ConditionReady && !ok) || t == v1alpha1.ConditionDegraded && ok {
 			typ = corev1.EventTypeWarning
 		}
 		rs.r.Recorder.Event(rs.a, typ, reason, fmt.Sprintf("%s=%s: %s", t, status, truncate(msg, 256)))
@@ -665,33 +664,9 @@ func (rs *runState) setHealthConditions(derr, cerr error, dec policy.Decision, s
 	default:
 		rs.cond(v1alpha1.ConditionScalingActive, true, "Owner", "this controller is the single writer of the target's replicas")
 	}
-	rs.unsupportedFields()
 	rs.cond(v1alpha1.ConditionReady, true, "Reconciled", dec.Message)
 	t := metav1.NewTime(rs.now)
 	st.LastSuccessfulReconcileTime = &t
-}
-
-// unsupportedFields says, in the status and once as a Warning event, that the spec enables something this controller accepts
-// but does not implement. Silence would let a user believe predictive scaling, OOM protection or node bin-packing is running.
-func (rs *runState) unsupportedFields() {
-	var set []string
-	sp := rs.a.Spec
-	if sp.Predictive != nil && sp.Predictive.Enabled {
-		set = append(set, "spec.predictive")
-	}
-	if sp.OOMProtection != nil && sp.OOMProtection.Enabled {
-		set = append(set, "spec.oomProtection")
-	}
-	if sp.NodeBinPacking != nil && sp.NodeBinPacking.Enabled {
-		set = append(set, "spec.nodeBinPacking")
-	}
-	switch {
-	case len(set) > 0:
-		rs.cond(v1alpha1.ConditionUnsupportedFields, true, "Ignored", strings.Join(set, ", ")+
-			": accepted by the schema but not implemented for KubeCostAutoscaler; it has no effect (predictive and oomProtection exist on KubeCostHPA; node analysis is read-only in `rightsize nodes`)")
-	case meta.FindStatusCondition(rs.st.Conditions, v1alpha1.ConditionUnsupportedFields) != nil:
-		rs.cond(v1alpha1.ConditionUnsupportedFields, false, "None", "no unsupported field is enabled")
-	}
 }
 
 // requeueDelay is the evaluation interval, backed off exponentially (with

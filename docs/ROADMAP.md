@@ -47,7 +47,7 @@ Status of every feature: docs/STATUS.md. In order:
 | 5 | Helm chart and applier on GKE; a multi-day run on AKS | Gaps in provider coverage | Approval of the cloud spend |
 | 6 | Run the benchmark harness on a cluster (baseline, then this product), then against one competitor | The harness has never run; no comparison exists | A cluster; a vendor account |
 | 7 | Automated mode under real load; several operator replicas through an API outage | Needed for a Release Candidate | 2 |
-| 8 | Remove or wire the unused code (`internal/castsuite`, `internal/gpu`, `internal/psi`); drop `features.*`; decide the fate of the three ignored `KubeCostAutoscaler` fields | Dead code and dead schema mislead | A decision |
+| 8 | ~~Remove the unused code~~ done in v0.2.0 (`internal/castsuite`, `internal/gpu`, `internal/psi`, `features.*`, the three ignored `KubeCostAutoscaler` fields). Left: the engine's sample endpoints and the demo console that calls them | Dead code and dead schema mislead | 12 |
 | 9 | Licence check (signed file, verified offline) | First step of the commercial architecture | 2, 3 |
 | 10 | Node consolidation as its own controller, with policy, approval and rollback | The largest missing capability | An ADR; 7 |
 | 11 | Multi-cluster read-only view | Enterprise tier | 9 |
