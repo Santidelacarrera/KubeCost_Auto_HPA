@@ -31,12 +31,12 @@ spec:
 * Demand decides. Cost only bounds the decision: a lower cost never removes capacity by itself, and an exceeded budget never
   leaves an overloaded workload under-scaled.
 * Invalid or stale cost or demand data freezes scaling (`failurePolicy`).
-* Conditions: `Ready`, `MetricsAvailable`, `Degraded`, `ScalingActive`, and `UnsupportedFields` (below).
+* Conditions: `Ready`, `MetricsAvailable`, `Degraded`, `ScalingActive`.
 * `autoscaling.kubecost.io/pause=true` stops all writes of that autoscaler immediately.
 
-**Fields accepted and not implemented:** `spec.predictive`, `spec.oomProtection`, `spec.nodeBinPacking`. They are kept so
-manifests that set them still apply. They have no effect. While one is enabled, the status carries
-`UnsupportedFields=True` with the list, and a Warning event is emitted once. Full reference:
+`spec.predictive`, `spec.oomProtection` and `spec.nodeBinPacking` were **removed from this kind in v0.2.0**: no code ever read
+them. Predictive pre-warming and OOM protection exist on `KubeCostHPA`. A manifest that still sets them is rejected by
+`kubectl apply` with strict validation; delete the three blocks. Full reference:
 [KUBECOST_AUTOSCALER.md](KUBECOST_AUTOSCALER.md).
 
 ## KubeCostHPA

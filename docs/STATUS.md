@@ -51,8 +51,6 @@ validation** (needs a run on real infrastructure or data before anyone relies on
 | `KubeCostHPA`: SLO/cost-driven in-place resize of CPU and memory | Verified in kind (CI job `e2e-kind`) | Experimental | Never run on a managed cluster or real traffic |
 | `KubeCostHPA` predictive pre-warming (`spec.predictive`) | Implemented, unit-tested | Experimental | Python engine + Go tests. No accuracy measured on real traffic |
 | `KubeCostHPA` OOM protection (`spec.oomProtection`, raises the memory limit in place) | Implemented, unit-tested | Experimental | Never observed preventing a real OOM kill |
-| `KubeCostAutoscaler` `spec.predictive`, `spec.oomProtection`, `spec.nodeBinPacking` | **Documented only** | Not available | The schema accepts them; no code reads them. Since this pass the status says so (`UnsupportedFields=True`) |
-| Chart values `features.*` | **Documented only** | Not available | No template reads them. Marked deprecated in `values.yaml` |
 | PodDisruptionBudget respected on Spot drain (Eviction API) | Verified in envtest | Experimental | Never run against a real Spot interruption |
 
 ## Nodes
@@ -95,13 +93,13 @@ validation** (needs a run on real infrastructure or data before anyone relies on
 | AWS / EKS | **Out of scope** | Not available | No AWS integration is offered. See "AWS" below |
 | Multi-cluster **read-only report** (`rightsize fleet --contexts a,b`): nodes, requested capacity, node candidates, recommendation phases per cluster, and totals | Verified on real clusters (GKE + lab + AKS, docs/LAB.md result 26) | Available | Added 2026-11-16. A snapshot through your kubeconfig; no central service |
 | Multi-cluster management (central control plane, policies pushed to clusters) | **Not implemented** | Not available | One operator per cluster. The console's cluster tabs are samples |
+| Namespace report in one command (`rightsize survey`) | Verified on the real GKE cluster (docs/LAB.md result 30) | Available | Added 2026-11-16. DaemonSets are left out |
 | Readable report (`rightsize render`: Markdown from the outputs of `plan`, `nodes`, `fleet`, `reconcile`) | Verified on the real outputs of the GKE cluster (docs/LAB.md result 26) | Available | Added 2026-11-16. Copies figures and their savings level; adds none |
 | Benchmark harness (`benchmarks/`) | Run once for real on the lab cluster against its own baseline (docs/LAB.md result 28) | Available | No competitor has been run |
 | Web console | Partial | Demo | Shows verified status from `web/status.json`; everything else on it is labelled sample data |
 | Python engine endpoints `/v1/cast/*`, `/v1/gpu/*`, `/v1/greenops/*`, `/v1/gameday/*`, `/v1/cluster/topology`, `/v1/pricing/lookup`, `/v1/billing/invoice` | Partial: they compute from built-in example inputs | Demo | Since this pass every answer carries `data_source: sample` |
-| Licence files: Ed25519-signed, verified offline; opt-in enforcement maps the tier to the operating mode and fails safe to observe-only | Implemented, unit-tested | Experimental | Added 2026-11-16 (docs/LICENSE_KEYS.md). Never run in a cluster; no licence issued to anyone |
+| Licence files: Ed25519-signed, verified offline; opt-in enforcement maps the tier to the operating mode and fails safe to observe-only | Verified on a real cluster under four licences (docs/LAB.md result 31) | Experimental | Added 2026-11-16 (docs/LICENSE_KEYS.md). The forced approval of the professional tier is unit-tested only; no licence issued to anyone |
 | Billing and payments | **Not implemented** | Not available | `scripts/setup_stripe_billing.py` only has a dry-run that was ever run; the invoice endpoint is a pricing preview (docs/COMMERCIAL.md) |
-| Go packages `internal/castsuite`, `internal/gpu`, `internal/psi` | Implemented, unit-tested, **not wired** | Not available | No binary imports them |
 
 ## AWS
 

@@ -88,7 +88,6 @@ A per-namespace policy overrides the global one: key `policy.<namespace>.yaml` i
 | `networkPolicy.enabled` | `false` | Restrict ingress to the engine and Redis; optional operator egress rules |
 | `serviceMonitor.enabled`, `prometheusRule.enabled`, `grafanaDashboard.enabled` | `false` | Need the Prometheus Operator CRDs / Grafana sidecar |
 | `telemetry.*` | disabled | Publishes decisions to a Redis stream you name. Nothing leaves the cluster unless you point it elsewhere |
-| `features.*` | — | **Deprecated, no effect.** Nothing reads them |
 
 ## Operator flags
 

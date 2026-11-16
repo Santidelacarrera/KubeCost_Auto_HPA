@@ -3,13 +3,16 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -178,5 +181,66 @@ func TestRenderRefusesToShowASavingForBillsThatCannotBeCompared(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "cannot be compared") || strings.Contains(out.String(), "per day") {
 		t.Fatalf("%s", out.String())
+	}
+}
+
+func TestSurveyTargetsAndOneFailureDoesNotStopTheRest(t *testing.T) {
+	mk := func(containers ...string) corev1.PodTemplateSpec {
+		var cs []corev1.Container
+		for _, c := range containers {
+			cs = append(cs, corev1.Container{Name: c})
+		}
+		return corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: cs}}
+	}
+	kc := fake.NewSimpleClientset(
+		&appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Namespace: "shop", Name: "web"}, Spec: appsv1.DeploymentSpec{Template: mk("app", "proxy")}},
+		&appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Namespace: "shop", Name: "api"}, Spec: appsv1.DeploymentSpec{Template: mk("app")}},
+		&appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Namespace: "other", Name: "x"}, Spec: appsv1.DeploymentSpec{Template: mk("app")}},
+		&appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Namespace: "shop", Name: "db"}, Spec: appsv1.StatefulSetSpec{Template: mk("pg")}},
+		&appsv1.DaemonSet{ObjectMeta: metav1.ObjectMeta{Namespace: "shop", Name: "agent"}, Spec: appsv1.DaemonSetSpec{Template: mk("a")}},
+	)
+	targets, err := surveyTargets(context.Background(), kc, "shop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, x := range targets {
+		names = append(names, x.Kind+"/"+x.Name+":"+strings.Join(x.Containers, "+"))
+	}
+	if got := strings.Join(names, " "); got != "Deployment/api:app Deployment/web:app+proxy StatefulSet/db:pg" {
+		t.Fatalf("sorted, this namespace only, no DaemonSet: %s", got)
+	}
+	var calls []string
+	recs, problems := runSurvey(targets, func(kind, name, container string, w io.Writer) error {
+		calls = append(calls, name+"/"+container)
+		switch {
+		case name == "api":
+			return fmt.Errorf("prometheus unreachable")
+		case container == "proxy":
+			_, err := w.Write([]byte(`{"not":"a record"}`))
+			return err
+		}
+		_, err := fmt.Fprintf(w, `{"ID":"id-%s","Namespace":"shop","Workload":%q,"Kind":%q,"Container":%q}`, name, name, kind, container)
+		return err
+	})
+	if len(calls) != 4 {
+		t.Fatalf("every container of every workload is planned, whatever failed before: %v", calls)
+	}
+	if len(recs) != 2 || recs[0].Workload != "web" || recs[1].Workload != "db" {
+		t.Fatalf("%+v", recs)
+	}
+	if len(problems) != 2 || !strings.Contains(problems[0], "Deployment/api container app: prometheus unreachable") || !strings.Contains(problems[1], "did not return a recommendation") {
+		t.Fatalf("%v", problems)
+	}
+}
+
+func TestSurveyGuardsItsFlags(t *testing.T) {
+	if err := surveyCmd([]string{"--namespace", "shop"}, io.Discard); err == nil || !strings.Contains(err.Error(), "--context") {
+		t.Fatalf("%v", err)
+	}
+	for _, bad := range []string{"--workload=x", "--publish"} {
+		if err := surveyCmd([]string{"--context", "c", "--namespace", "shop", bad}, io.Discard); err == nil || !strings.Contains(err.Error(), "not a survey flag") {
+			t.Fatalf("%s: %v", bad, err)
+		}
 	}
 }

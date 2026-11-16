@@ -33,4 +33,4 @@ evaluated or the affected pods excluded.
 ## Consequences
 
 * A cluster without an autoscaler gets a plan, not a saving. That is slower and it is safe.
-* `KubeCostAutoscaler.spec.nodeBinPacking` stays unimplemented and reported as such.
+* `KubeCostAutoscaler.spec.nodeBinPacking`, a field no code read, was removed in v0.2.0.

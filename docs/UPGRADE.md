@@ -8,9 +8,8 @@ the `rightsize` binary and the Helm chart: the chart's `version` and `appVersion
 
 | Version | State | Notes |
 |---|---|---|
-| `v0.1.0` | Published 2026-11-05 (images and chart on GHCR, signed) | The only published release |
-| `v0.2.0` | Prepared on the branch `release/v0.2.0`. **Not tagged, not published** | Everything since `v0.1.0` up to the eleventh pass |
-| Unreleased | On the working branch | The twelfth pass ([CHANGELOG.md](../CHANGELOG.md)) |
+| `v0.1.0` | Published 2026-11-05 | Superseded |
+| `v0.2.0` | Published 2026-11-16 (images and chart on GHCR, signed) | Everything since `v0.1.0`: [CHANGELOG.md](../CHANGELOG.md) |
 
 While the major version is 0, a minor version (0.x) may change behaviour. Every such change is listed under "Changed" in the
 changelog with what to do. Patch versions (0.x.y) contain fixes only.
@@ -55,8 +54,7 @@ Skipping step 3 is the one known way to break an upgrade: an operator that expec
 until the CRD is applied. This was reproduced and is documented in [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
 
 Verified: upgrade from the chart before the applier existed, rollback, and re-upgrade, on the lab cluster ([LAB.md](LAB.md)
-result 10); install, upgrade, rollback, uninstall on AKS (result 15). Not verified: an upgrade between two **published**
-versions, because only one has been published.
+result 10); install, upgrade, rollback, uninstall on AKS (result 15). Not verified: an upgrade from the published `v0.1.0` chart to the published `v0.2.0` chart on a cluster.
 
 ## Rolling back an upgrade
 
@@ -79,8 +77,7 @@ know. More in [ROLLBACK.md](ROLLBACK.md).
 
 | From | To | What to do |
 |---|---|---|
-| `v0.1.0` | `v0.2.0` | Apply the CRDs (the `WorkloadRecommendation` kind is new). Policies gain `maxRecommendationAge` (default 7 days): an approval of an older recommendation is now refused, so re-plan anything older. No object needs editing |
-| `v0.2.0` | next | Chart values `features.*` are deprecated and do nothing; remove them from your values files before the release that drops them. `KubeCostAutoscaler` objects that set `spec.predictive`, `spec.oomProtection` or `spec.nodeBinPacking` now show `UnsupportedFields=True`: remove the fields or ignore the condition; behaviour is unchanged. The Kustomize base now starts in observe-only: if you relied on it writing, remove `--observe-only` in your overlay deliberately. `deploy/rbac/rightsize.yaml` adds `list persistentvolumes` to the read role: re-apply it to get zone-aware node analysis |
+| `v0.1.0` | `v0.2.0` | Apply the CRDs first (the `WorkloadRecommendation` kind is new, and `KubeCostAutoscaler` lost three fields). **Remove `spec.predictive`, `spec.oomProtection` and `spec.nodeBinPacking` from `KubeCostAutoscaler` manifests**: they never had an effect and are no longer in the schema (objects already stored keep working; the fields are pruned). **Remove `features.*` from your Helm values**: nothing read them and the schema now rejects them. Policies gain `maxRecommendationAge` (default 7 days): re-plan anything older. The Kustomize base now starts in observe-only: if you relied on it writing, remove `--observe-only` in your overlay deliberately. `deploy/rbac/rightsize.yaml` adds `list persistentvolumes` to the read role: re-apply it |
 
 ## Deprecation policy
 

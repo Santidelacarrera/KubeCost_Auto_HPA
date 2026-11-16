@@ -88,8 +88,7 @@ zone availability to be right for every pod, and a way back when a pod does not 
 first half. The second half would be a controller with its own policy, approval and rollback, in the same shape as the
 rightsizing applier. It is not built, and it will not be added as a side effect of another feature.
 
-`KubeCostAutoscaler.spec.nodeBinPacking` exists in the schema and does nothing; the resource's status reports it
-(`UnsupportedFields`).
+The `KubeCostAutoscaler.spec.nodeBinPacking` field, which did nothing, was removed in v0.2.0.
 
 ## Spot interruption drain
 

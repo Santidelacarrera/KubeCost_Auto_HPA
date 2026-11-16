@@ -4,6 +4,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 
 ## [Unreleased]
 
+### Removed (fourteenth pass: code nothing ran)
+- **`KubeCostAutoscaler` `spec.predictive`, `spec.oomProtection`, `spec.nodeBinPacking`**, and the `UnsupportedFields` condition that reported them. No code ever read the three fields. Stored objects keep working (the fields are pruned); a manifest that still sets them is rejected by strict validation, so delete the three blocks. Predictive pre-warming and OOM protection are unchanged on `KubeCostHPA`.
+- **Chart values `features.*`**: no template ever read them. The values schema now rejects them.
+- Go packages `internal/castsuite`, `internal/gpu`, `internal/psi`: tested libraries that no binary imported.
+- `examples/05-scaleops-predictive-oom-shield-binpack.yaml`, replaced by `examples/05-predictive-and-oom-protection.yaml` (a `KubeCostHPA` with the two experimental features that exist).
+
+### Added (fourteenth pass, 2026-11-16)
+- **`rightsize survey --context ctx --namespace ns`**: one read-only Markdown report for a namespace. It runs `plan` for every container of every Deployment and StatefulSet with the flags a single plan takes, adds the node analysis, and lists every workload it could not plan instead of stopping. `--out-dir` keeps the records for `approve` and `apply`.
+- `hack/lab-license.sh`: licence enforcement on a real cluster (docs/LAB.md result 31).
+
 ### Added (thirteenth pass, 2026-11-16)
 - **Licence files** (`internal/license`): Ed25519-signed, verified offline. `rightsize license issue|verify`. Operator flags `--license-file`, `--license-public-key-file`, `--enforce-license` (off by default). Under enforcement the tier sets the mode: starter observe-only, professional applies with a human approval whatever the policy says, enterprise may automate. A missing, invalid or expired licence, or a cluster over the node limit, means observe-only. Enforcement can only restrict. Metric `kubecost_license_info` (docs/LICENSE_KEYS.md).
 - **`rightsize fleet --contexts a,b,c`**: a read-only report over several clusters with totals; an unreachable cluster is reported, not fatal.

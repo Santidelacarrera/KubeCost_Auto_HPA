@@ -27,21 +27,20 @@ needs evidence that does not exist yet.
 | 6 | A view over several clusters | **Done, minimal.** `rightsize fleet` (read-only report) |
 | 7 | Something a person can read | **Done, minimal.** `rightsize render` turns the outputs of `plan`, `nodes`, `fleet` and `reconcile` into one Markdown report (an example from the real GKE cluster is in `docs/reports/evidence/2026-11-16-rendered-report.md`). The web console is still a demo with sample data |
 | 8 | Defaults a customer can trust | **Not done.** Never checked on weeks of real traffic. This is the item that most limits the MVP |
-| 9 | A way to tell a paying tier from a free one | **Done, untested in a cluster.** Signed licence files, opt-in enforcement |
-| 10 | Published release | **Not done.** v0.1.0 is published and old; everything since is unreleased |
+| 9 | A way to tell a paying tier from a free one | **Done.** Signed licence files, opt-in enforcement, run on a real cluster (LAB result 31) |
+| 10 | Published release | **Done.** v0.2.0 |
 
 ## What is left, in the order to do it
 
 Things the project can do alone:
 
-1. **Publish a release** (v0.2.0) with everything since v0.1.0, after the dry-run and the Helm rehearsal. Needs the owner's
-   go-ahead because it publishes images and a chart.
-2. ~~A report people can read~~ **done on 2026-11-16**: `rightsize render`. Next: one command that runs `plan` for every
-   workload of a namespace and renders the result, so the weekly report is one line.
+1. ~~Publish a release~~ **done**: v0.2.0.
+2. ~~A report people can read~~ **done on 2026-11-16**: `rightsize render`. And `rightsize survey --namespace <ns>` runs `plan` for every
+   workload of a namespace and renders the result: the weekly report is one line (run on the real GKE cluster, LAB result 30).
 3. **The chart and the applier on GKE**, after the soak ends, so both providers have the same coverage.
-4. **Run the licence enforcement in a cluster** (lab), and the benchmark harness on GKE or AKS.
-5. **Remove the dead weight**: the unused Go packages, the `features.*` values, the three ignored CRD fields, the sample
-   endpoints of the engine. An MVP should not carry code nobody runs.
+4. ~~Run the licence enforcement in a cluster~~ done (LAB result 31). Left: the benchmark harness on GKE or AKS.
+5. ~~Remove the dead weight~~ **done in v0.2.0**: the unused Go packages, the `features.*` values and the three ignored CRD
+   fields are gone. Left: the engine's sample endpoints, which the demo console still calls.
 
 Things that need someone else:
 

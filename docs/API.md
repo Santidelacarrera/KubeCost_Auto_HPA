@@ -20,6 +20,7 @@ Read-only unless `--execute` is given together with an explicit `--context`. `ri
 | `nodes` | cluster | nothing | Node candidate analysis; `--plan` adds a manual drain plan ([NODES.md](NODES.md)) |
 | `cost` | cluster, optional billing file | nothing | Allocation, budgets, deviations |
 | `reconcile` | two FOCUS billing exports | nothing | Before/after bill comparison and the saving's level ([FINOPS.md](FINOPS.md)) |
+| `survey` | Prometheus, cluster | nothing (Markdown on stdout; `--out-dir` keeps each record) | One report for a namespace: `plan` for every container of every Deployment and StatefulSet, plus the node analysis |
 | `render` | the JSON outputs of `plan`, `nodes`, `fleet`, `reconcile` | nothing (Markdown on stdout) | One readable report; every saving keeps its level |
 | `fleet` | several clusters (`--contexts a,b,c`) | nothing | One read-only report over several clusters, with totals |
 | `license issue`, `license verify` | a key, a licence file | `issue`: one licence file | Sign a licence (vendor side) and verify one offline ([LICENSE_KEYS.md](LICENSE_KEYS.md)) |
