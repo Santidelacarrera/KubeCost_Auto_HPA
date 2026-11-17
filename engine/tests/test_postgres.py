@@ -92,10 +92,26 @@ def test_all_legacy_entities_and_recovery(stores):
 
 def test_single_control_plane_lease_release(stores):
     stores[0].acquire_control_plane()
+    stores[0].acquire_control_plane()  # Must not stack session-lock acquisitions.
     with pytest.raises(RuntimeError, match="another control plane"):
         stores[1].acquire_control_plane()
     stores[0].close()
     stores[2].acquire_control_plane()
+
+
+def test_repeated_immediate_control_plane_handoff(stores):
+    dsn = os.environ["KCA_TEST_POSTGRES_DSN"]
+    for _ in range(20):
+        holder = PostgreSQLSaaSStore(dsn)
+        holder.acquire_control_plane()
+        holder.acquire_control_plane()
+        holder.close()
+        holder.close()  # Repeated shutdown remains harmless.
+        successor = PostgreSQLSaaSStore(dsn)
+        try:
+            successor.acquire_control_plane()
+        finally:
+            successor.close()
 
 
 def test_sqlite_migration_restart_and_no_overwrite(stores, tmp_path, monkeypatch):

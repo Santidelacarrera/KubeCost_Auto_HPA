@@ -44,10 +44,24 @@ class PostgreSQLSaaSStore(SQLiteSaaSStore):
     def acquire_control_plane(self):
         """Fail closed until runtime caches support multiple simultaneous writers."""
         with self._lock:
+            if getattr(self, "_control_plane_acquired", False):
+                return
             row = self._conn.execute("SELECT pg_try_advisory_lock(1262698833) AS acquired").fetchone()
             if not row["acquired"]:
                 self._conn.close()
                 raise RuntimeError("another control plane is active; multi-replica runtime is not supported")
+            self._control_plane_acquired = True
+
+    def close(self):
+        with self._lock:
+            try:
+                if getattr(self, "_control_plane_acquired", False) and not self._conn.conn.closed:
+                    # Wait for the server to release the lock before returning.
+                    # Closing the socket alone only queues backend cleanup.
+                    self._conn.execute("SELECT pg_advisory_unlock(1262698833)")
+            finally:
+                self._control_plane_acquired = False
+                self._conn.close()
 
     def __init__(self, dsn):
         import psycopg
