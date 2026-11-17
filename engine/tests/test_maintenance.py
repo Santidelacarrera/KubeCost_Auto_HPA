@@ -47,3 +47,90 @@ def test_configured_retention_runs_on_ingestion(monkeypatch):
     assert len(cp.get_telemetry_events("a")) == 1
     assert cp._store.list_objects("a", "maintenance")[0]["principal"] == "system:retention"
     cp._store.close()
+
+
+def test_scheduled_retention_cleans_idle_tenants_and_stops(tmp_path, monkeypatch):
+    from kubecost_engine import server
+    from kubecost_engine.maintenance import RetentionWorker
+    import threading
+
+    cp = SaaSControlPlane(str(tmp_path / "idle.db"))
+    cp.ingest_telemetry({"client_id": "idle", "cluster_id": "idle-cluster", "event_id": "expired", "timestamp": int(time.time()) - 3*86400, "metrics": {"rps": 1}})
+    monkeypatch.setenv("TELEMETRY_RETENTION_DAYS", "2")
+    monkeypatch.setenv("TELEMETRY_RETENTION_INTERVAL_SECONDS", "1")
+    monkeypatch.setattr(server, "get_control_plane", lambda: cp)
+    completed = threading.Event()
+    original = RetentionWorker.run_once
+
+    def run_once(worker):
+        result = original(worker)
+        completed.set()
+        return result
+
+    monkeypatch.setattr(RetentionWorker, "run_once", run_once)
+    httpd = server.make_server("127.0.0.1", 0)
+    try:
+        assert completed.wait(5)
+        assert cp.get_telemetry_events("idle") == []
+        assert cp._store.list_objects("idle", "maintenance")[0]["principal"] == "system:scheduled-retention"
+    finally:
+        httpd.server_close()
+    assert not httpd.retention_worker._thread.is_alive()
+    cp._store.close()
+
+
+def test_worker_isolates_failed_tenant_and_invalid_settings(monkeypatch):
+    from kubecost_engine.maintenance import RetentionWorker, configured_worker
+    from kubecost_engine.enterprise import EnterpriseService
+
+    cp = SaaSControlPlane()
+    for tenant in ("a", "b"):
+        cp.ingest_telemetry({"client_id": tenant, "cluster_id": tenant + "-cluster", "event_id": tenant + "-expired", "timestamp": int(time.time())-3*86400, "metrics": {"rps": 1}})
+    EnterpriseService(cp)._save("b", "license", {"status": "active", "claims": {"plan": "Starter", "expires_at": time.time()+100}})
+    monkeypatch.setenv("REQUIRE_LICENSE", "true")
+    assert len(RetentionWorker(cp, 2).run_once()) == 1
+    assert len(cp.get_telemetry_events("a")) == 1
+    assert cp.get_telemetry_events("b") == []
+    monkeypatch.setenv("TELEMETRY_RETENTION_DAYS", "bad")
+    with pytest.raises(ValueError):
+        configured_worker(cp)
+    cp._store.close()
+
+
+def test_worker_repeats_after_idle_initial_scan_and_transient_failure(monkeypatch):
+    import threading
+    from kubecost_engine.maintenance import RetentionWorker
+
+    cp = SaaSControlPlane()
+    worker = RetentionWorker(cp, 2, interval_seconds=1)
+    first = threading.Event()
+    cleaned = threading.Event()
+    original = cp._store.telemetry_tenants
+    calls = []
+
+    def tenants():
+        calls.append(True)
+        if len(calls) == 1:
+            first.set()
+            raise ConnectionError("simulated transient scan failure")
+        return original()
+
+    monkeypatch.setattr(cp._store, "telemetry_tenants", tenants)
+    original_prune = cp._store.prune_telemetry
+
+    def prune(*args):
+        result = original_prune(*args)
+        cleaned.set()
+        return result
+
+    monkeypatch.setattr(cp._store, "prune_telemetry", prune)
+    worker.start()
+    try:
+        assert first.wait(5)
+        cp._store.save_telemetry_event("idle", "expired", "idle-cluster", int(time.time())-3*86400, {})
+        assert cleaned.wait(5)
+    finally:
+        worker.stop()
+    assert len(calls) >= 2
+    assert cp._store.telemetry_history("idle", "idle-cluster", 0) == []
+    cp._store.close()

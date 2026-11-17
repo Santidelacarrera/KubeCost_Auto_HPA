@@ -1316,6 +1316,9 @@ class HighConcurrencyHTTPServer(ThreadingHTTPServer):
             pass
 
     def server_close(self):
+        worker = getattr(self, "retention_worker", None)
+        if worker is not None:
+            worker.stop()
         super().server_close()
         self.executor.shutdown(wait=False)
 
@@ -1324,6 +1327,8 @@ def make_server(
     host: str = "0.0.0.0", port: int = 8000, max_workers: int | None = None
 ) -> HighConcurrencyHTTPServer:
     """TLS is enabled with TLS_CERT/TLS_KEY; adding TLS_CLIENT_CA requires client certs (mTLS)."""
+    from .maintenance import configured_worker
+    worker = configured_worker(get_control_plane())
     srv = HighConcurrencyHTTPServer((host, port), Handler, max_workers=max_workers)
     cert, key = os.environ.get("TLS_CERT"), os.environ.get("TLS_KEY")
     if cert and key:
@@ -1335,12 +1340,18 @@ def make_server(
             ctx.load_verify_locations(ca)
             ctx.verify_mode = ssl.CERT_REQUIRED
         srv.socket = ctx.wrap_socket(srv.socket, server_side=True)
+    srv.retention_worker = worker
+    if worker is not None:
+        worker.start()
     return srv
 
 
 def main() -> None:
     srv = make_server(port=int(os.environ.get("PORT", "8000")))
-    srv.serve_forever()
+    try:
+        srv.serve_forever()
+    finally:
+        srv.server_close()
 
 
 if __name__ == "__main__":

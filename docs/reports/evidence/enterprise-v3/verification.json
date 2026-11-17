@@ -1,0 +1,12 @@
+{
+  "date": "2026-11-17",
+  "full_suite_passed": 163,
+  "full_suite_skipped": 0,
+  "coverage_percent": 86.22,
+  "followup_maintenance_tests_passed": 9,
+  "postgres": "real PostgreSQL 17",
+  "browser": "real HTTP API",
+  "helm": "lint and retention-enabled rendering passed",
+  "ruff": "passed",
+  "release_candidate": false
+}

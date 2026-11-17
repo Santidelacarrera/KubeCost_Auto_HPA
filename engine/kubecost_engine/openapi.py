@@ -101,6 +101,16 @@ def specification():
                 ]["properties"].values():
                     if prop["type"] == "array":
                         prop["items"] = {"type": "object"}
+                schema = operation["requestBody"]["content"]["application/json"]["schema"]
+                if route == "maintenance/retention":
+                    schema["properties"].update(days={"type": "integer", "minimum": 1, "maximum": 3650}, dry_run={"type": "boolean", "default": True})
+                if route in ("rightsizing", "predictions", "predictions/backtest"):
+                    schema["required"].remove("samples")
+                    schema["properties"].update(source={"type": "string", "enum": ["telemetry", "submitted"]}, namespace={"type": "string"}, pod_name={"type": "string"}, container_name={"type": "string"})
+                    schema["oneOf"] = [
+                        {"required": ["samples"], "properties": {"source": {"enum": ["submitted"]}}},
+                        {"required": ["source", "namespace", "pod_name", "container_name"], "properties": {"source": {"enum": ["telemetry"]}}},
+                    ]
             else:
                 operation["parameters"] = [
                     {

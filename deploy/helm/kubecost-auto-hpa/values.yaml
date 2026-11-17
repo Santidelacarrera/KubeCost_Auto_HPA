@@ -41,6 +41,10 @@ operator:
     limits: {memory: 256Mi}
 
 engine:
+  retention:
+    enabled: false
+    days: 90
+    intervalSeconds: 3600
   postgres: {secretName: "", key: dsn}
   podDisruptionBudget: {enabled: true, minAvailable: 1}
   image: {repository: ghcr.io/santidelacarrera/kubecost-auto-hpa-engine, tag: "", pullPolicy: IfNotPresent}

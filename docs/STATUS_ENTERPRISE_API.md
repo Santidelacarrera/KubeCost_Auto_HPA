@@ -36,3 +36,7 @@ No hay validación GKE/AKS, soak de varios días, pentest, certificación SOC 2/
 ## Retention and administration follow-up (2026-11-17)
 
 [Implementation and limits](MAINTENANCE_IMPLEMENTATION.md). Latest suite: 139 passed, no skips, 85.93% coverage; real PostgreSQL and browser. Consolidation executor and runtime HA remain incomplete.
+
+## Scheduled retention follow-up
+
+See [LOCAL_COMPLETION_V3](LOCAL_COMPLETION_V3.md) for server-owned retention of idle tenants and payment boundary hardening. Remaining HA and consolidation limits still apply.
