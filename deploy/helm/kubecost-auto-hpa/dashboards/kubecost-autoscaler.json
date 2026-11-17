@@ -344,6 +344,185 @@
       },
       "options": {},
       "description": "spot, ondemand, unknown and pending pods of the target. Price weights are relative, never capacity guarantees."
+    },
+    {
+      "id": 9,
+      "type": "row",
+      "title": "Recommendation outcomes (opt-in applier)",
+      "gridPos": {
+        "x": 0,
+        "y": 31,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 10,
+      "type": "stat",
+      "title": "Acceptance ratio",
+      "gridPos": {
+        "x": 0,
+        "y": 32,
+        "w": 4,
+        "h": 6
+      },
+      "targets": [
+        {
+          "expr": "kubecost_recommendation_acceptance_ratio",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "description": "Applied / (applied + denied), from the WorkloadRecommendation objects."
+    },
+    {
+      "id": 11,
+      "type": "stat",
+      "title": "Rollback ratio",
+      "gridPos": {
+        "x": 4,
+        "y": 32,
+        "w": 4,
+        "h": 6
+      },
+      "targets": [
+        {
+          "expr": "kubecost_recommendation_rollback_ratio",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "description": "RolledBack / (Verified + RolledBack)."
+    },
+    {
+      "id": 12,
+      "type": "stat",
+      "title": "Kept CPU request reduction (per pod template)",
+      "gridPos": {
+        "x": 8,
+        "y": 32,
+        "w": 5,
+        "h": 6
+      },
+      "targets": [
+        {
+          "expr": "kubecost_recommendation_kept_request_reduction{resource=\"cpu_cores\"}",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "description": "Cores removed from pod-template requests by verified decreases. A spec change, not a measured bill."
+    },
+    {
+      "id": 13,
+      "type": "stat",
+      "title": "Kept memory request reduction (per pod template)",
+      "gridPos": {
+        "x": 13,
+        "y": 32,
+        "w": 5,
+        "h": 6
+      },
+      "targets": [
+        {
+          "expr": "kubecost_recommendation_kept_request_reduction{resource=\"memory_bytes\"}",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 14,
+      "type": "stat",
+      "title": "Kept ESTIMATED monthly saving",
+      "gridPos": {
+        "x": 18,
+        "y": 32,
+        "w": 6,
+        "h": 6
+      },
+      "targets": [
+        {
+          "expr": "kubecost_recommendation_kept_estimated_monthly_usd",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD"
+        },
+        "overrides": []
+      },
+      "description": "ESTIMATE: requests delta x supplied unit prices. Not a bill and not an observed saving."
+    },
+    {
+      "id": 15,
+      "type": "timeseries",
+      "title": "Recommendations by phase",
+      "gridPos": {
+        "x": 0,
+        "y": 38,
+        "w": 24,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "kubecost_recommendations",
+          "legendFormat": "{{phase}}",
+          "refId": "A"
+        }
+      ],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      }
     }
   ],
   "templating": {

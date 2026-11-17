@@ -154,4 +154,17 @@ spec:
       labels: {severity: warning}
       annotations:
         summary: "KubeCost Auto-HPA operator metrics are missing"
+    {{- if .Values.operator.recommendationApplier.enabled }}
+    # --- recommendation applier (opt-in) ---
+    - alert: KubeCostRecommendationRolledBack
+      expr: increase(kubecost_recommendation_phase_transitions_total{phase="RolledBack"}[30m]) > 0
+      labels: {severity: warning}
+      annotations:
+        summary: "An applied rightsizing change degraded the workload and was rolled back (kubectl get workloadrecommendations -A)"
+    - alert: KubeCostRecommendationFailed
+      expr: increase(kubecost_recommendation_phase_transitions_total{phase="Failed"}[30m]) > 0
+      labels: {severity: critical}
+      annotations:
+        summary: "A rightsizing change ended in Failed: a human must check the workload (its rollback may not have completed)"
+    {{- end }}
 {{- end }}

@@ -347,6 +347,29 @@ _MIME_TYPES = {
 }
 
 
+# GET endpoints whose answer comes from built-in example inputs, static reference tables or figures supplied in the query
+# string: never from a connected cluster and never from a provider bill.
+_SAMPLE_DATA_PATHS = frozenset(
+    {
+        "/v1/ui/cast-dashboard",
+        "/v1/pricing/lookup",
+        "/v1/billing/invoice",
+        "/v1/gpu/optimize",
+        "/v1/greenops/report",
+        "/v1/gameday/simulate",
+        "/v1/cluster/topology",
+    }
+)
+SAMPLE_DATA_NOTICE = (
+    "sample: computed from built-in example inputs, static reference tables or the figures in the request; "
+    "not read from a connected cluster and not a provider bill"
+)
+
+
+def _is_sample_data_path(path_only: str) -> bool:
+    return path_only in _SAMPLE_DATA_PATHS or path_only.startswith("/v1/cast/")
+
+
 class Handler(BaseHTTPRequestHandler):
     def _extract_raw_credential(self) -> Optional[str]:
         """Extract Bearer token or X-API-Key header if provided."""
@@ -507,6 +530,12 @@ class Handler(BaseHTTPRequestHandler):
         route = urllib.parse.urlparse(self.path).path
         if code == 200 and (route.startswith("/v1/cast/") or route in ("/v1/gameday/simulate", "/v1/gpu/optimize", "/v1/greenops/report", "/v1/billing/invoice", "/v1/pricing/lookup")):
             payload = {**payload, "evidence_kind": "model_or_simulation", "externally_validated": False}
+        # Endpoints that answer from built-in example inputs or static tables say so, in a header and in the body, so a
+        # console or a report can never present them as measurements of a connected cluster or as a provider bill.
+        path_only = getattr(self, "path", "").split("?", 1)[0]
+        if code == 200 and self.command == "GET" and _is_sample_data_path(path_only) and isinstance(payload, dict):
+            headers["X-KubeCost-Data-Source"] = "sample"
+            payload = {**payload, "data_source": SAMPLE_DATA_NOTICE}
         self._send(code, json.dumps(payload), "application/json", extra_headers=headers)
 
     def _write_rate_limited(self, rl_decision: RateLimitDecision) -> None:
@@ -538,17 +567,9 @@ class Handler(BaseHTTPRequestHandler):
         if n < 0:
             raise InputValidationError("Content-Length cannot be negative")
         if n > max_bytes:
-            # Drain socket gracefully so client doesn't get WinError 10053 ConnectionAbortedError
-            try:
-                remaining = n
-                while remaining > 0:
-                    chunk_size = min(remaining, 65536)
-                    chunk = self.rfile.read(chunk_size)
-                    if not chunk:
-                        break
-                    remaining -= len(chunk)
-            except Exception:
-                pass
+            # Reject from headers without waiting for an attacker-controlled body.
+            # Close the connection so unread bytes cannot become another request.
+            self.close_connection = True
             raise PayloadTooLargeError("payload too large")
         if n == 0:
             raise InputValidationError("request body cannot be empty")

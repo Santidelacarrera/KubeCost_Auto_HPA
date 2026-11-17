@@ -1,0 +1,264 @@
+# Simulated shoppers on the minikube lab, 2026-11-11/12 (redacted: local actor -> <id>)
+# run 3 (the valid run): hack/lab-synthetic-users.sh, SKIP_RUN=1, from a frozen copy
+== 1. backtest: train on the history before the last 120m, test on that unseen part
+PASS  backtest ran on the simulated week
+{
+  "cpu": {
+    "TrainSamples": 1219,
+    "TestSamples": 488,
+    "TestP95": 0.3349183959217084,
+    "TestMax": 0.4027395708407248,
+    "Rows": [
+      {
+        "Percentile": 0.9,
+        "Headroom": 0.05,
+        "Recommended": 0.3398594444226692,
+        "ExceedFraction": 0.0471311475409836,
+        "PeakRatio": 1.1850180345138628,
+        "Waste": 0.014538505791281757
+      },
+      {
+        "Percentile": 0.9,
+        "Headroom": 0.1,
+        "Recommended": 0.3560432274904154,
+        "ExceedFraction": 0.03483606557377049,
+        "PeakRatio": 1.131153578399596,
+        "Waste": 0.059332210073496365
+      },
+      {
+        "Percentile": 0.9,
+        "Headroom": 0.15,
+        "Recommended": 0.3722270105581615,
+        "ExceedFraction": 0.022540983606557378,
+        "PeakRatio": 1.0819729880343965,
+        "Waste": 0.10023080963551811
+      },
+      {
+        "Percentile": 0.9,
+        "Headroom": 0.2,
+        "Recommended": 0.38841079362590764,
+        "ExceedFraction": 0.00819672131147541,
+        "PeakRatio": 1.0368907801996299,
+        "Waste": 0.13772119256737153
+      },
+      {
+        "Percentile": 0.9,
+        "Headroom": 0.3,
+        "Recommended": 0.4207783597614,
+        "ExceedFraction": 0,
+        "PeakRatio": 0.9571299509535044,
+        "Waste": 0.20405033160065073
+      },
+      {
+        "Percentile": 0.95,
+        "Headroom": 0.05,
+        "Recommended": 0.3833143181091029,
+        "ExceedFraction": 0.01639344262295082,
+        "PeakRatio": 1.0506770861768147,
+        "Waste": 0.12625649473813685
+      },
+      {
+        "Percentile": 0.95,
+        "Headroom": 0.1,
+        "Recommended": 0.40156738087620303,
+        "ExceedFraction": 0.004098360655737705,
+        "PeakRatio": 1.0029190368051413,
+        "Waste": 0.16597210861367612
+      },
+      {
+        "Percentile": 0.95,
+        "Headroom": 0.15,
+        "Recommended": 0.4198204436433031,
+        "ExceedFraction": 0,
+        "PeakRatio": 0.9593138612918742,
+        "Waste": 0.20223419084786404
+      },
+      {
+        "Percentile": 0.95,
+        "Headroom": 0.2,
+        "Recommended": 0.43807350641040327,
+        "ExceedFraction": 0,
+        "PeakRatio": 0.9193424504047129,
+        "Waste": 0.23547443289586972
+      },
+      {
+        "Percentile": 0.95,
+        "Headroom": 0.3,
+        "Recommended": 0.47457963194460356,
+        "ExceedFraction": 0,
+        "PeakRatio": 0.848623800373581,
+        "Waste": 0.2942840919038798
+      },
+      {
+        "Percentile": 0.99,
+        "Headroom": 0.05,
+        "Recommended": 0.5210890456812127,
+        "ExceedFraction": 0,
+        "PeakRatio": 0.7728805166384352,
+        "Waste": 0.3572722384062515
+      },
+      {
+        "Percentile": 0.99,
+        "Headroom": 0.1,
+        "Recommended": 0.5459028097612705,
+        "ExceedFraction": 0,
+        "PeakRatio": 0.7377495840639609,
+        "Waste": 0.3864871366605128
+      },
+      {
+        "Percentile": 0.99,
+        "Headroom": 0.15,
+        "Recommended": 0.5707165738413281,
+        "ExceedFraction": 0,
+        "PeakRatio": 0.7056735151916148,
+        "Waste": 0.41316160897962084
+      },
+      {
+        "Percentile": 0.99,
+        "Headroom": 0.2,
+        "Recommended": 0.595530337921386,
+        "ExceedFraction": 0,
+        "PeakRatio": 0.6762704520586307,
+        "Waste": 0.4376132086054701
+      },
+      {
+        "Percentile": 0.99,
+        "Headroom": 0.3,
+        "Recommended": 0.6451578660815015,
+        "ExceedFraction": 0,
+        "PeakRatio": 0.6242496480541206,
+        "Waste": 0.4808737310204339
+      },
+      {
+        "Percentile": 1,
+        "Headroom": 0.05,
+        "Recommended": 0.6102644748983721,
+        "ExceedFraction": 0,
+        "PeakRatio": 0.6599426763417506,
+        "Waste": 0.45119139373550676
+      },
+      {
+        "Percentile": 1,
+        "Headroom": 0.1,
+        "Recommended": 0.6393246879887707,
+        "ExceedFraction": 0,
+        "PeakRatio": 0.6299452819625803,
+        "Waste": 0.47613723947480185
+      },
+      {
+     
+== 2. plan from the whole history (production minimums: 200 samples), apply with the SLO, observe through a peak
+abstained False confidence Medium cpu 1 -> 0.5 mem 268435456 -> 134217728 reasons None
+PASS  the recommender produced a recommendation (not abstained)
+requests: 1/256Mi -> 500m/128Mi (apply exit 0; tail of its output below)
+  "healthy": true,
+  "mode": "execute",
+  "reasons": null,
+  "rolledBack": false
+}
+{"time":"2026-11-12T01:19:59.2999534Z","type":"decision","actor":"<id>","recommendationId":"44cf00276b845d54","target":"lab/Deployment/shop","details":{"allowed":true,"execute":true,"reasons":null}}
+{"time":"2026-11-12T01:19:59.3174433Z","type":"applied","actor":"<id> latency over one simulated day: before 0.08638723008402814 s, after 0.07463259964320566 s; error ratio before nan, after nan
+after the change: CPU throttled periods 0.009556689520070424, restarts [0 0 ]
+minutes of flash sale inside the observation: 0
+PASS  the change was applied and kept (no SLO breach during a full simulated day)
+PASS  p95 latency after stays under the 250 ms SLO
+
+RESULT: 4 passed, 0 failed
+
+# run 3 audit trail
+{"time":"2026-11-12T01:19:59.1679576Z","type":"approved","actor":"<id>","recommendationId":"44cf00276b845d54","target":"lab/Deployment/shop","details":{"approvedBy":"minikube-user","signed":false},"hash":"7296bf0c338e1535e651298c49166cddf5e80dd66031ebd1c62d610f2ad9cc50"}
+{"time":"2026-11-12T01:19:59.2999534Z","type":"decision","actor":"<id>","recommendationId":"44cf00276b845d54","target":"lab/Deployment/shop","details":{"allowed":true,"execute":true,"reasons":null},"prev":"7296bf0c338e1535e651298c49166cddf5e80dd66031ebd1c62d610f2ad9cc50","hash":"5141bf64844f66e2a6d0265b2f660d4bc8c2ec17ccd5c36f7963db52a5ccdce6"}
+{"time":"2026-11-12T01:19:59.3174433Z","type":"applied","actor":"<id>","recommendationId":"44cf00276b845d54","target":"lab/Deployment/shop","details":{"approvedBy":"minikube-user","cpu":0.5,"cpuPotentialMonthlyUSD":0,"memory":134217728,"memoryPotentialMonthlyUSD":0,"previous":{"app":{"cpuLimit":"1","cpuRequest":"1","memLimit":"512Mi","memRequest":"256Mi"}}},"prev":"5141bf64844f66e2a6d0265b2f660d4bc8c2ec17ccd5c36f7963db52a5ccdce6","hash":"6055cb391eb4f5f9cf7ec062c67d43f58c42b848abb57346c1f9b54e552cfa3d"}
+{"time":"2026-11-12T02:20:32.0587766Z","type":"verified","actor":"<id>","recommendationId":"44cf00276b845d54","target":"lab/Deployment/shop","details":{"observedFor":"1h0m0s"},"prev":"6055cb391eb4f5f9cf7ec062c67d43f58c42b848abb57346c1f9b54e552cfa3d","hash":"8e974fa0bb5d502c0bce021849139f0bb437c3591680d65b3ad4dddfa014626c"}
+
+# load generator progress, every 5 min (columns in its first line; nan = the query returned no series)
+utc	rps	p95_s	err_ratio	cpu_cores	mem_mib	shoppers
+17:07:26Z	nan	nan	nan	nan	nan	
+17:12:35Z	4.51151065489536	0.049078394719855374	nan	0.06538807066544418	nan	day=0 frac=0.08 target=4 active=4 req_per_min=264 flash=False
+17:17:38Z	3.9114410231264363	0.0479032211566776	nan	0.050684942105374275	nan	day=0 frac=0.17 target=4 active=4 req_per_min=252 flash=False
+17:22:40Z	4.4447407604951445	0.0488578431372549	nan	0.0721213262581269	nan	day=0 frac=0.25 target=4 active=4 req_per_min=290 flash=False
+17:27:42Z	16.067918618049216	0.054036144578313225	nan	0.16270686282547414	nan	day=0 frac=0.33 target=17 active=17 req_per_min=968 flash=False
+17:32:45Z	29.624197168700135	0.06516939525416784	nan	0.29772269200677737	nan	day=0 frac=0.42 target=29 active=29 req_per_min=1743 flash=False
+17:37:47Z	72.98345526548502	0.08434226552984161	nan	1.0139813858357298	nan	day=0 frac=0.50 target=73 active=73 req_per_min=4524 flash=True
+17:42:49Z	42.00366855142444	0.07788881021058737	nan	0.6464199328467879	nan	day=0 frac=0.58 target=40 active=40 req_per_min=2580 flash=False
+17:47:52Z	41.93655140460589	0.07833248321981448	nan	0.5282406198344768	nan	day=0 frac=0.67 target=38 active=38 req_per_min=2530 flash=False
+17:52:54Z	34.98168045266339	0.07892144638403982	nan	0.44603807072791546	nan	day=0 frac=0.75 target=32 active=32 req_per_min=2059 flash=False
+17:57:56Z	22.29136570730081	0.06940612812271682	nan	0.2611634253833196	nan	day=0 frac=0.84 target=22 active=22 req_per_min=1413 flash=False
+18:02:58Z	9.134754295112574	0.060653526970954344	nan	0.1101146631626268	nan	day=0 frac=0.92 target=9 active=9 req_per_min=672 flash=False
+18:08:01Z	5.222979863632133	0.04884541984732825	nan	0.06228880313907337	nan	day=1 frac=0.00 target=4 active=4 req_per_min=288 flash=False
+18:13:03Z	4.5115556043514875	0.04917871392951732	nan	0.05343246941299155	nan	day=1 frac=0.09 target=4 active=4 req_per_min=244 flash=False
+18:18:06Z	3.8892331188070486	0.05024996101966694	nan	0.0716727455432748	nan	day=1 frac=0.17 target=4 active=4 req_per_min=236 flash=False
+18:23:08Z	5.178246966305633	0.04747081712062257	nan	0.07320540720929104	nan	day=1 frac=0.25 target=4 active=4 req_per_min=248 flash=False
+18:28:10Z	19.223752241836372	0.06155173510251696	nan	0.284126983771977	nan	day=1 frac=0.34 target=18 active=18 req_per_min=1063 flash=False
+18:33:20Z	29.514390487831978	0.06959741088861696	nan	0.3640739397664633	nan	day=1 frac=0.42 target=29 active=29 req_per_min=1695 flash=False
+18:38:22Z	38.47083756494649	0.07549931951441444	nan	0.5186127829645728	nan	day=1 frac=0.50 target=37 active=37 req_per_min=2280 flash=False
+18:43:24Z	41.22680297810868	0.07547192353643958	nan	0.5491409627504793	nan	day=1 frac=0.59 target=40 active=40 req_per_min=2485 flash=False
+18:48:27Z	40.76055765591257	0.07583711691259923	nan	0.5046908836726813	nan	day=1 frac=0.67 target=38 active=38 req_per_min=2550 flash=False
+18:53:29Z	31.62573619291032	0.07456737588652472	nan	0.31360676007360255	nan	day=1 frac=0.75 target=32 active=32 req_per_min=2050 flash=False
+18:58:31Z	21.735265356920614	0.06905986904460293	nan	0.321480444177325	nan	day=1 frac=0.84 target=21 active=21 req_per_min=1409 flash=False
+19:03:34Z	7.62284104627218	0.053777447663492677	nan	0.12334591881682397	nan	day=1 frac=0.92 target=9 active=9 req_per_min=641 flash=False
+19:08:36Z	4.066983235019868	0.04820097985851246	nan	0.05331276201052161	nan	day=2 frac=0.01 target=4 active=4 req_per_min=272 flash=False
+19:13:38Z	4.689097293213032	0.04920036668731924	nan	0.058671602487809435	nan	day=2 frac=0.09 target=4 active=4 req_per_min=305 flash=False
+19:18:41Z	4.666826672724525	0.04892992424242422	nan	0.055350118462704545	nan	day=2 frac=0.17 target=4 active=4 req_per_min=231 flash=False
+19:23:43Z	6.467097806520435	0.04934139880137667	nan	0.08852432993677244	nan	day=2 frac=0.27 target=8 active=8 req_per_min=409 flash=False
+19:28:45Z	20.201569013244615	0.05790887850467287	nan	0.32540980040252154	nan	day=2 frac=0.36 target=20 active=20 req_per_min=1200 flash=False
+19:33:48Z	32.20252171472342	0.07299908512234163	nan	0.4799462123857991	nan	day=2 frac=0.44 target=31 active=31 req_per_min=1897 flash=False
+19:38:50Z	39.38130206322135	0.07380652568189351	nan	0.6000189497560982	nan	day=2 frac=0.52 target=38 active=38 req_per_min=2359 flash=False
+19:43:52Z	42.46902684501927	0.07813911350335956	nan	0.6147122416331365	nan	day=2 frac=0.61 target=40 active=40 req_per_min=2578 flash=False
+19:48:55Z	78.44880716588617	0.08894415628539436	nan	0.7703580440746125	nan	day=2 frac=0.69 target=74 active=74 req_per_min=4716 flash=True
+19:53:57Z	29.757897501300707	0.07814286258484184	nan	0.3842985439607013	nan	day=2 frac=0.77 target=30 active=30 req_per_min=1797 flash=False
+19:59:00Z	20.445785777083223	0.06972756122306058	nan	0.30256044345937466	nan	day=2 frac=0.86 target=19 active=19 req_per_min=1261 flash=False
+20:04:02Z	6.533691878784177	0.05299382716049385	nan	0.10173735381091889	nan	day=2 frac=0.94 target=5 active=6 req_per_min=398 flash=False
+20:09:04Z	4.800426704595964	0.04782490974729242	nan	0.05875266368039235	nan	day=3 frac=0.02 target=4 active=4 req_per_min=288 flash=False
+20:14:06Z	4.511512134411947	0.047998046874999985	nan	0.07263909860600654	nan	day=3 frac=0.11 target=4 active=4 req_per_min=278 flash=False
+20:19:08Z	3.6891713837502063	0.050431054239369354	nan	0.06611416843106843	nan	day=3 frac=0.19 target=4 active=4 req_per_min=242 flash=False
+20:24:10Z	7.667417859861592	0.05371522273561611	nan	0.09006963652951294	nan	day=3 frac=0.27 target=8 active=8 req_per_min=406 flash=False
+20:29:13Z	21.445871710515984	0.07199242882140217	nan	0.24822046664864994	nan	day=3 frac=0.36 target=21 active=21 req_per_min=1224 flash=False
+20:34:16Z	65.82513300072333	0.0850191645861987	nan	0.9936892148135005	nan	day=3 frac=0.44 target=63 active=63 req_per_min=3886 flash=True
+20:39:18Z	41.18007223168973	0.08199449706985537	nan	0.6499539661217784	nan	day=3 frac=0.53 target=38 active=38 req_per_min=2404 flash=False
+20:44:20Z	41.04671272300365	0.08187251863369827	nan	0.6130984817242144	nan	day=3 frac=0.61 target=40 active=40 req_per_min=2563 flash=False
+20:49:22Z	39.78038932685192	0.08149493128678645	nan	0.535185064943049	nan	day=3 frac=0.69 target=37 active=37 req_per_min=2419 flash=False
+20:54:25Z	29.091486172172687	0.0820468847741716	nan	0.44519948240996293	nan	day=3 frac=0.78 target=29 active=29 req_per_min=1886 flash=False
+20:59:27Z	18.84612759495341	0.08236755298010644	nan	0.22802831587767391	nan	day=3 frac=0.86 target=18 active=18 req_per_min=1274 flash=False
+21:04:30Z	4.978220296082936	0.07191300899915004	nan	0.08783199923371687	nan	day=3 frac=0.94 target=5 active=5 req_per_min=393 flash=False
+21:09:34Z	4.600511167907546	0.07937500168706624	nan	0.10041268328184741	nan	day=4 frac=0.03 target=4 active=4 req_per_min=283 flash=False
+21:14:36Z	4.111710211250249	0.06799999902976608	nan	0.06662780297346821	nan	day=4 frac=0.11 target=4 active=4 req_per_min=272 flash=False
+21:19:39Z	4.1117354054035085	0.06796300574143041	nan	0.06618660377589622	nan	day=4 frac=0.19 target=4 active=4 req_per_min=235 flash=False
+21:24:42Z	9.556943440919987	0.05657048494399462	nan	0.09574151191312037	nan	day=4 frac=0.28 target=8 active=8 req_per_min=437 flash=False
+21:29:44Z	21.935791429872506	0.06773773435755137	nan	0.29880796444362845	nan	day=4 frac=0.36 target=21 active=21 req_per_min=1233 flash=False
+21:34:47Z	31.97957393197889	0.07502093494579799	nan	0.4866939828925154	nan	day=4 frac=0.44 target=32 active=32 req_per_min=1975 flash=False
+21:39:49Z	40.028906800232775	0.07648064516129027	nan	0.5594848501022051	nan	day=4 frac=0.53 target=38 active=38 req_per_min=2300 flash=False
+21:44:51Z	41.2930063415843	0.07580047480988848	nan	0.6133841498962868	nan	day=4 frac=0.61 target=40 active=40 req_per_min=2472 flash=False
+21:49:54Z	37.04816337743256	0.08046667755759473	nan	0.5483517265071062	nan	day=4 frac=0.70 target=37 active=37 req_per_min=2377 flash=False
+21:54:56Z	30.42391765914945	0.0749708470165515	nan	0.39389138964635284	nan	day=4 frac=0.78 target=29 active=29 req_per_min=1868 flash=False
+21:59:59Z	19.13481495079573	0.07101013248688401	nan	0.2943838927233784	nan	day=4 frac=0.86 target=18 active=18 req_per_min=1183 flash=False
+22:05:01Z	4.733800051265364	0.05490739975617046	nan	0.0636729940824121	nan	day=4 frac=0.95 target=5 active=5 req_per_min=412 flash=False
+22:10:03Z	5.400534374523947	0.049673672444422584	nan	0.0831194595784644	nan	day=5 frac=0.03 target=4 active=4 req_per_min=287 flash=False
+22:15:06Z	4.578123977340926	0.04985294117647059	nan	0.07081205070126881	nan	day=5 frac=0.11 target=4 active=4 req_per_min=266 flash=False
+22:20:08Z	4.333880073722395	0.04924672626443066	nan	0.056836934997444646	nan	day=5 frac=0.20 target=4 active=4 req_per_min=241 flash=False
+22:25:11Z	7.289616863722207	0.058937514724451356	nan	0.09037649649071348	nan	day=5 frac=0.30 target=8 active=8 req_per_min=465 flash=False
+22:30:14Z	15.290251980918198	0.061620388861273724	nan	0.2239781755151783	nan	day=5 frac=0.38 target=16 active=16 req_per_min=939 flash=False
+22:35:16Z	22.046686221859876	0.06949005072035094	nan	0.27213874790182857	nan	day=5 frac=0.46 target=22 active=22 req_per_min=1318 flash=False
+22:40:19Z	28.046613504540527	0.07294174727218325	nan	0.4074834702726525	nan	day=5 frac=0.55 target=25 active=25 req_per_min=1676 flash=False
+22:45:21Z	53.31407473922562	0.08329235855463185	nan	0.7027624695140373	nan	day=5 frac=0.63 target=51 active=51 req_per_min=3247 flash=True
+22:50:24Z	24.469372163065902	0.07611934015329734	nan	0.27935128366897344	nan	day=5 frac=0.71 target=23 active=23 req_per_min=1480 flash=False
+22:55:26Z	19.00188913534487	0.06581022539489673	nan	0.21837446542291714	nan	day=5 frac=0.80 target=18 active=18 req_per_min=1136 flash=False
+23:00:29Z	11.556445513467796	0.08557159079115825	nan	0.2597431427646941	nan	day=5 frac=0.88 target=11 active=11 req_per_min=749 flash=False
+23:05:32Z	4.289365485053895	0.08015192937113179	nan	0.06780814069108576	nan	day=5 frac=0.96 target=4 active=4 req_per_min=245 flash=False
+23:10:35Z	4.02261880501909	0.08210743801652898	nan	0.0852464803874571	nan	day=6 frac=0.05 target=4 active=4 req_per_min=254 flash=False
+23:15:38Z	4.17847814259332	0.07345583745641687	nan	0.07232542035276497	nan	day=6 frac=0.13 target=4 active=4 req_per_min=254 flash=False
+23:20:41Z	4.111608455722138	0.07174698703237689	nan	0.035421837369981654	nan	day=6 frac=0.22 target=4 active=4 req_per_min=248 flash=False
+23:25:45Z	8.97868158243191	0.08143677174454761	nan	0.18027674276486266	nan	day=6 frac=0.30 target=9 active=9 req_per_min=494 flash=False
+23:30:48Z	17.91292216060079	0.08444220430107525	nan	0.3582014692400466	nan	day=6 frac=0.38 target=16 active=16 req_per_min=936 flash=False
+23:35:50Z	44.49581542119319	0.0973557708746553	nan	0.5022709750000027	nan	day=6 frac=0.47 target=44 active=44 req_per_min=2728 flash=True
+23:40:53Z	26.671129224034452	0.09393887449934674	nan	0.4917962235219312	nan	day=6 frac=0.55 target=25 active=25 req_per_min=1715 flash=False
+23:45:57Z	25.226717356648688	0.0918009681226076	nan	0.333367518553818	nan	day=6 frac=0.63 target=25 active=25 req_per_min=1571 flash=False
+23:51:01Z	22.783094576906063	0.09166319148929317	nan	0.4675128740273675	nan	day=6 frac=0.72 target=23 active=23 req_per_min=1471 flash=False
+23:56:04Z	17.893454006400347	0.09114307931570766	nan	0.2744699319352629	nan	day=6 frac=0.80 target=17 active=17 req_per_min=1177 flash=False
+00:01:07Z	9.113140222883523	0.08520252305521733	nan	0.16880792127293082	nan	day=6 frac=0.88 target=10 active=10 req_per_min=704 flash=False
+00:06:10Z	4.222766491905581	0.07984664011890517	nan	0.08461550260187094	nan	day=6 frac=0.97 target=4 active=4 req_per_min=249 flash=False
+
+# run 1 (abstained) and run 2 (invalid: script edited while running) summaries
+abstained True confidence Low cpu 1 -> 1 mem 268435456 -> 268435456 reasons None
+abstained False confidence Medium cpu 1 -> 0.5 mem 268435456 -> 134217728 reasons None
+hack/lab-synthetic-users.sh: line 68: rometheus-url: command not found

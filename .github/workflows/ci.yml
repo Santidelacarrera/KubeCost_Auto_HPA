@@ -22,6 +22,10 @@ jobs:
           path: |
             engine-results.xml
             coverage.xml
+      - name: Benchmark and script checks
+        run: |
+          python -m pytest benchmarks -q
+          python -m py_compile scripts/*.py benchmarks/bench.py
   postgres:
     runs-on: ubuntu-latest
     services:
@@ -100,6 +104,20 @@ jobs:
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@latest
           "$(go env GOPATH)"/bin/govulncheck ./...
+  audit-collector:
+    # tools/audit-collector is its own module (minio-go): build, vet and scan it too.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with: {go-version-file: tools/audit-collector/go.mod}
+      - working-directory: tools/audit-collector
+        run: |
+          test -z "$(gofmt -l .)"
+          go vet ./...
+          go build ./...
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          "$(go env GOPATH)"/bin/govulncheck ./...
   envtest:
     # Reconciler, drainer and the real manager binary against a real kube-apiserver 1.33 + etcd.
     runs-on: ubuntu-latest
@@ -168,5 +186,14 @@ jobs:
           if helm template r deploy/helm/kubecost-auto-hpa --set kubecost.ulr=x >/dev/null 2>&1; then
             echo "schema accepted an unknown value"; exit 1
           fi
+      - name: Safe defaults (observe-only on, applier off) in the chart and in the Kustomize base
+        run: |
+          helm template r deploy/helm/kubecost-auto-hpa > /tmp/chart.yaml
+          grep -q -- "--observe-only=true" /tmp/chart.yaml || { echo "the chart no longer defaults to observe-only"; exit 1; }
+          if grep -q -- "--enable-recommendation-applier" /tmp/chart.yaml; then echo "the applier is on by default"; exit 1; fi
+          kustomize build operator/config/default > /tmp/base.yaml
+          grep -q -- "--observe-only" /tmp/base.yaml || { echo "the Kustomize base no longer starts in observe-only"; exit 1; }
+      - name: Chart lints with the production values
+        run: helm lint deploy/helm/kubecost-auto-hpa -f deploy/helm/kubecost-auto-hpa/values-production.yaml
       - run: kustomize build operator/config/overlays/local >/dev/null
       - run: kustomize build operator/config/overlays/e2e-kca >/dev/null

@@ -17,6 +17,8 @@ kubeconfig*
 *.kubeconfig
 *.key
 *.pem
+.lab/
+.cloud-evidence/
 .prod-bootstrap/
 *.db
 *.db-wal

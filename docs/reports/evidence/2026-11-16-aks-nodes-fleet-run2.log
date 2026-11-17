@@ -1,0 +1,24 @@
+WARNING: Merged "kubecost-p13" as current context in C:\Users\santi\.kube\config
+== cluster: v1.36.5
+aks-nodepool1-69806281-vmss000000   Ready   <none>   60s   v1.36.5   0
+aks-nodepool1-69806281-vmss000001   Ready   <none>   59s   v1.36.5   0
+PASS  a pod with a managed disk is running
+== the volume's node affinity, as AKS wrote it:
+topology.disk.csi.azure.com/zone = [""]
+PASS  rightsize nodes --plan ran
+   node 1-vmss000000 cpu=29% mem=12% pods=12 removable=False | pod kube-system/metrics-server-54645bd9cd-bdc4k is pinned (required node affinity (not evaluated))
+   node 1-vmss000001 cpu=40% mem=15% pods=10 removable=False | pod kube-system/metrics-server-5d58f7df8-mpvlf is pinned (required node affinity (not evaluated))
+   plan steps: [] blocked: ['no node is a candidate: see the reason on each node of the analysis']
+CHECK static-or-daemonset pods do not block: True
+CHECK the disk pod is not reported as 'without a known zone': True
+CHECK every blocked node has a reason: True
+PASS  system DaemonSet/static pods do not block a node
+PASS  the pod with an Azure disk is not reported as immovable
+PASS  rightsize fleet ran
+    kubecost-p13 reachable v1.36.5 azure nodes 2 zones ['0'] cpu 35%
+    _us-central1-a_kubecost-soak reachable v1.36.4-gke.2377000 gce nodes 1 zones ['us-central1-a'] cpu 92%
+    kubecost-lab UNREACHABLE None None nodes 0 zones None cpu 0%
+    totals {'Clusters': 3, 'Reachable': 2, 'Nodes': 3, 'CPURequestedCores': 3.09, 'CPUAllocatableCores': 5.73, 'MemRequestedGiB': 3.4962185621261597, 'MemAllocatableGiB': 17.191795349121094, 'RemovableCandidates': 0, 'PendingRecommendations': 0}
+PASS  fleet reports the AKS cluster with provider azure and its two nodes
+== 6 passed, 0 failed
+exit=0

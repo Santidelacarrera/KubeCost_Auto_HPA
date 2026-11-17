@@ -748,12 +748,22 @@ def test_14_5_input_validation_nan_inf_identifiers_1mib_binpack_and_headers():
         assert hdrs_uuid.get("Cache-Control") == "no-store"
 
         # 4. POST /v1/cluster/binpack > 1 MiB must return HTTP 413 Payload Too Large
-        oversized_body = b'{"nodes": "' + (b"x" * ((1 << 20) + 100)) + b'"}'
-        c_413, _, _ = _http_request(
-            f"{base_url}/v1/cluster/binpack",
-            method="POST",
-            body=oversized_body,
-        )
+        # The server refuses on the declared Content-Length before reading the body, and closes the
+        # connection. Sending the whole 1 MiB raced that close (BrokenPipe in CI), so declare the size
+        # and read the answer without streaming the body: same check, no race.
+        import http.client
+        from urllib.parse import urlsplit
+
+        parts = urlsplit(base_url)
+        conn = http.client.HTTPConnection(parts.hostname, parts.port, timeout=10)
+        try:
+            conn.putrequest("POST", "/v1/cluster/binpack")
+            conn.putheader("Content-Type", "application/json")
+            conn.putheader("Content-Length", str((1 << 20) + 100))
+            conn.endheaders()
+            c_413 = conn.getresponse().status
+        finally:
+            conn.close()
         assert c_413 == 413
     finally:
         srv.shutdown()

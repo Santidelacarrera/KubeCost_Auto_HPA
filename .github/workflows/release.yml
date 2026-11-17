@@ -67,7 +67,7 @@ jobs:
     steps:
       - uses: docker/login-action@v4
         with: {registry: ghcr.io, username: "${{ github.actor }}", password: "${{ secrets.GITHUB_TOKEN }}"}
-      - uses: sigstore/cosign-installer@v4.1.2
+      - uses: sigstore/cosign-installer@v4.1.3
         with: {cosign-release: v2.4.1}
       - name: Sign and verify the image by digest
         env:
@@ -101,7 +101,7 @@ jobs:
       - uses: azure/setup-helm@v5
       - uses: docker/login-action@v4
         with: {registry: ghcr.io, username: "${{ github.actor }}", password: "${{ secrets.GITHUB_TOKEN }}"}
-      - uses: sigstore/cosign-installer@v4.1.2
+      - uses: sigstore/cosign-installer@v4.1.3
         with: {cosign-release: v2.4.1}
       - name: Package, push and sign the chart
         run: |

@@ -14,8 +14,8 @@ release yet: images are already published from `main`, the Helm chart is publish
 
 | Step | Command | Needs | Status |
 |---|---|---|---|
-| Tag/version propagation, chart package, image references, OCI reference syntax, binary `--version` | `hack/release-dry-run.sh v0.1.0` | helm, go | **run and passing** where this was authored |
-| Install, upgrade, rollback, uninstall of the chart on a throwaway kind cluster with locally built images | `hack/helm-rehearsal.sh` | docker, kind, kubectl, helm | **written, not run** (no Docker daemon there) |
+| Tag/version propagation, chart package, image references, OCI reference syntax, binary `--version` | `hack/release-dry-run.sh vX.Y.Z` | helm, go | **run and passing** (v0.2.0, 2026-11-12) |
+| Install, upgrade, rollback, uninstall of the chart on a throwaway kind cluster with locally built images | `hack/helm-rehearsal.sh` | docker, kind, kubectl, helm | **run and passing** 2026-11-12 (kind v0.29.0, node v1.33.4; install, upgrade, rollback, uninstall) |
 | SBOM and image vulnerability scan | run the `supply-chain` workflow by hand (Actions tab) | GitHub | **run and verified** |
 | Workflow syntax | `actionlint` | actionlint | clean |
 

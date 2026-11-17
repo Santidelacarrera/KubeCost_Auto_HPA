@@ -73,7 +73,7 @@ Evidence: `evidence/2026-11-09-lab-e2e2.log`, `evidence/2026-11-09-lab-audit2.js
 | **Live KubeCost-contract test against a REAL OpenCost** (chart opencost 2.5.33, app 1.121.3; default pricing, so the numbers are not a bill): the client parsed a real allocation response | PASS |
 
 Notes on the OpenCost run: OpenCost serves `/allocation/compute`; `/model/allocation` (the path this client uses, as KubeCost does) answered 404 directly on the API port but 200 through the OpenCost UI service
-(port 9090), whose proxy exposes `/model/`. Point `--kubecost-url` at that service when using OpenCost. This is **OpenCost**, not Kubecost: Kubecost itself was not installed.
+(port 9090), whose proxy exposes `/model/`. Point `--kubecost-url` at that service when using OpenCost. This is **OpenCost**, not Kubecost (a real Kubecost was run later: result 11).
 Prometheus needed an extra scrape job for OpenCost's own metrics, otherwise the allocation is empty (`hack/lab/` notes in docs/TROUBLESHOOTING.md).
 A first attempt failed because my own lab workloads requested more memory than the node had (two pods Pending): the tool refused to plan without kube-state-metrics data and the StatefulSet rollout timed out and rolled back, which is the intended behaviour; the manifests were then shrunk.
 
@@ -166,3 +166,409 @@ The error ratio is `NaN` in both windows because the app produced no non-2xx ser
 
 What this does **not** show: any saving on a bill (the numbers above are allocation of requests at flag prices, and one node cannot release capacity), behaviour of a real application under load spikes, a weekly cycle, or tail latency beyond p95 on a trivial route.
 The first check of the script ("the app serves real traffic") failed in that log because of a quoting bug in the check itself (traffic was 35 rps in the next snapshot); it is fixed in the script.
+
+
+## Result 10: hardening on a real cluster (`hack/lab-hardening.sh`)
+
+Evidence: `evidence/2026-11-09-lab-hardening.log`. Lean minikube profile, Kubernetes 1.33.4, hand-made recommendations (no Prometheus).
+
+| Check | Result |
+|---|---|
+| **Helm upgrade from the previous chart** (git commit 534c64d, before all this work) to the current one, `helm rollback`, and upgrade again | PASS |
+| **Known limitation, verified:** `helm upgrade` does not install a CRD that is new in `crds/`; the new CRD has to be applied by hand (`kubectl apply -f deploy/helm/kubecost-auto-hpa/crds/`) and the operator restarted. Rollback keeps the CRD (Helm never deletes CRDs) | PASS |
+| **Separation of duties by the API server** (alice publishes, bob approves, by impersonation): forged `published-by` denied; alice approving her own denied; bob writing an approval in alice's name denied; bob's proper approval accepted; the operator's own status writes still pass (phase DryRun); `published-by` cannot be rewritten even by an admin; with the switch off alice can approve her own | PASS |
+| **60 approved recommendations at once** (observe-only): published and approved in 30 s, all 62 objects reach `DryRun`, the workload is never written, the DryRun metric counted them, no reconcile errors, operator 49 MiB | PASS |
+| **kube-apiserver stopped for about 40 s** while two changes were being observed: after it returned both finished `Verified`, each applied exactly once, no `Failed` | PASS |
+
+**Final run: 26 passed, 0 failed** (one run of the final code, 2026-11-10 UTC).
+
+Notes: the operator image used for the old-chart install is the current one (this checks chart upgrade mechanics, not an upgrade between operator versions).
+Earlier runs of the script, kept honest: three runs failed on script bugs (readiness label, `patch` vs `update` verb, pod selection; later a race where the API server still enforced the admission policy a few seconds after Helm removed it, now retried for up to 60 s).
+**One earlier run ended with both outage changes `RolledBack`** instead of `Verified`; that run did not record the reason. The likely cause, reproduced in a unit test, was that `Watch` counted the time it could not read the cluster against the 60 s rollout timeout used in the lab, so a rollout stalled by the outage looked like "rollout did not complete". That was fixed (`TestWatchDoesNotCountBlindTimeAgainstTheRolloutTimeout`) before the final run. Because the earlier failure was intermittent (the run before it ended `Verified`), one green run does not prove the fix; it is consistent with it.
+Not covered: an outage longer than the tolerance on a real cluster (unit-tested), more than two simultaneous observations during the outage, a multi-replica operator with leader election.
+
+
+## Result 11: a real Kubecost (`hack/lab-kubecost.sh`)
+
+Evidence: `evidence/2026-11-10-kubecost-live-contract.log`. Minikube profile `kubecost-real`, Kubernetes 1.33.4, chart `kubecost/cost-analyzer` **2.8.7** (free tier, its own Prometheus), plus a real OpenCost 1.121.3 on the same cluster. Default prices for a laptop VM: no number here is a bill.
+
+| Check | Result |
+|---|---|
+| Kubecost 2.9.7 (newest chart) installs standalone | **BLOCKED by the chart**: it refuses without a federated object store (S3-like); 2.9 only prepares the move to 3.0. 2.8.7 used instead |
+| Kubecost 2.8.7 installs and prices the workload in `/model/allocation` | PASS (after about 6 min) |
+| Live contract test, client as it was (`aggregate=controller`) | **FAIL: real defect found.** Kubecost returns only the `controller` property for that aggregation, so the workload was "not present" (fail closed); two same-named controllers in different namespaces would have been merged into one cost |
+| Fix: aggregate by `cluster,namespace,controllerKind,controller`; both real answers kept as test fixtures | done, unit-tested |
+| Contract after the fix against Kubecost (workload found, positive hourly cost 0.00684 USD/h) | PASS (sample at 12:34 UTC) |
+| Freshness/coverage check against Kubecost (`maxMetricAge` 5m, coverage >= 50% of the window) | **FAIL, and correctly so**: Kubecost published in batches (data ending 12:10, then 12:30) and then published nothing more: its ingestion started at 12:29:37 and had not finished at 13:45. The sample aged out, then the 1 h window no longer contained the workload. Cause of the stall not determined |
+| Same live test against the real OpenCost with the new aggregation | PASS (31.7 of 60 min covered, age 1 s) |
+
+What this proves: the client's request and parsing now match a real Kubecost 2.8.7 and a real OpenCost. What it does not: that the operator can run on Kubecost data with the default `maxMetricAge` of 5 minutes. On this install it would have frozen (fail closed), which is safe but useless. Before using Kubecost as the cost source, measure its refresh cadence on your installation and set `failurePolicy.maxMetricAge` above it, knowing that older cost data means slower reactions.
+
+
+## Result 12: a REAL managed cluster, GKE (`hack/gke-validate.sh`)
+
+Evidence: `evidence/2026-11-10-gke-validation.log` (account, project and user names redacted). GKE 1.36.4-gke.2377000, zonal us-central1-a, `e2-standard-2` nodes, GKE cluster autoscaler 1-3 nodes, created in the owner's account for this run and deleted after it. Node price: **list price** from the Cloud Billing Catalog API (E2 core 0.02181159 USD/h + 8 x E2 RAM 0.00292353 USD/GiB-h = 0.06701142 USD/h).
+
+| Check | Result |
+|---|---|
+| The pipeline's prerequisites and read-only analysis on GKE (`hack/cloud-validate.sh`: cluster, provider detection `gce://`, cAdvisor and kube-state-metrics series, plan, backtest, nodes, cost) | **9/9 PASS**. With production defaults (200 samples, 24 h) the planner correctly **abstained**: the cluster had 101 samples |
+| Recommendation from real GKE metrics, approval with the identity GKE reports, controlled apply, SLO on the app's real latency histogram | PASS: 500m/128Mi -> 250m/64Mi on 6 replicas |
+| Equivalent 5-minute windows before/after under real traffic (about 37 requests/s) | PASS: p95 4.75 ms before and after, no errors, no throttling, no restarts |
+| **Measured infrastructure saving** (point 3): node count sampled every 30 s in two equivalent 20-minute windows | **3 nodes before, 2 after** (the GKE autoscaler removed one about 15 min after the change). 1.0000 -> 0.6667 node-hours: **0.0670 USD/hour less at list price (-33 %)** |
+| Forced rollback (SLO threshold made absurdly tight) | **Run 1: FAIL, real defect.** The rollback started 1 s after the change, during the 6-replica rollout; every write conflicted with the Deployment controller's status updates, `retry.DefaultBackoff` (5 tries, ~50 ms) gave up, and the **degraded change stayed in place** (`rollback_failed` in the audit). Never seen on minikube with 2 replicas. **Fixed** (60 tries over ~12-18 s, each re-reading the object; regression test with a burst of 12 conflicts) |
+| Same scenario again on GKE with the fix (run 2: full `hack/lab-traffic.sh`) | **11/11 PASS**: SLO breached, change rolled back, previous requests back |
+| Backtest on this run's real history (point 4): 100 min, 70 train / 30 held out | CPU p95 +15 % (default): never exceeded, about 15 % waste; memory p99 +20 % (default): never exceeded, about 18 % waste; memory p90/p95 +5 % exceeded 1 % of the time. **Defaults kept** |
+
+What this is and is not:
+* It is the first run on a managed cloud cluster: the recommender, the policy, apply, observation, rollback and the read-only checks work on GKE, and a rightsizing change led the real cluster autoscaler to remove a real node.
+* The saving is **measured** (node count from the cluster) and **priced at list price**: not an invoice (no credits, discounts, free tier, disks or network). It is a 20-minute window on a trivial, deliberately over-provisioned app; it says nothing about how much a real workload would save.
+* The backtest used under two hours of constant synthetic traffic. It shows the defaults are safe on that series; it is **not** a basis for tuning them, so they were not changed. Tuning still needs weeks of real traffic with daily/weekly patterns.
+* Not covered: EKS, AKS, the opt-in applier and the Helm chart on GKE, Kubecost on GKE, a FOCUS export (billing export not set up; the owner will do it).
+* Clean-up: cluster deleted; no instances, disks, addresses or load balancers left. Fourteen APIs enabled with GKE stay enabled (the GKE API refused to be disabled right after the deletion, "service has resources"); enabled APIs without resources do not bill.
+
+## Result 13: seven-day soak on GKE (`hack/gke-soak.sh`) — IN PROGRESS, no results yet
+
+Started 2026-11-10T19:37:03Z: GKE zonal us-central1-a, `e2-standard-2`, autoscaler 1-3 nodes, cost allocation on; Prometheus 10 d retention on a 10 GiB disk; the app over-provisioned (4 x 500m) under a **synthetic** daily/weekly schedule (peak 12-21 UTC on weekdays, about 46 req/s measured at start; quiet nights and weekends). It is a schedule against a trivial app, not real users.
+Billing: Google's detailed export and its native FOCUS export (preview) to BigQuery were enabled on 2026-11-10 at about 20:00 UTC, so the first hour of the run is not in them.
+First look at the exports (2026-11-11 ~01:30 UTC): both tables exist, each with a single zero-cost `Adjustment` placeholder row; no usage yet. That row showed the account bills in **CLP** (rate 923.32 CLP/USD in the row), which the USD-only parser refuses: the report queries now convert per row with Google's rate and keep the CLP totals for the invoice.
+Plan: day 1 (2026-11-11) `approve` with production defaults (it may abstain or be refused by policy: that is a valid outcome); daily read-only checks; day 7 (2026-11-17) `report`, then the cluster is deleted. Until that report exists nothing here is a result.
+
+
+## Result 14: a REAL managed cluster, AKS (`hack/aks-validate.sh`)
+
+Two runs on 2026-11-10, Azure free account, AKS free tier, Kubernetes v1.36.5, `Standard_D2as_v4` nodes (2 vCPU, 8 GiB; Linux list price 0.096 USD/h in eastus from the Azure Retail Prices API), autoscaler 1-2 nodes. Each run created its resource group and deleted it at the end (verified with `az group list`). Evidence: docs/reports/evidence/2026-11-10-aks-validation.log (both runs, redacted).
+
+* **Both runs: 14 passed, 1 failed.** Passed: read-only checks 9/9 (`azure://` provider ids, cAdvisor, kube-state-metrics, plan, backtest, nodes, estimated cost report); recommend, approve, apply 500m/128Mi -> 250m/64Mi under real HTTP traffic (~37 req/s), after-window equal on rps, p95 latency (4.75 ms both), errors, throttling, restarts; the forced rollback driven by the real latency SLO worked and restored the previous requests. No code defect found on AKS.
+* **Failed: no node was removed, so no infrastructure saving was measured** (0.6667 node-hours per 20 min before and after; 0.0 USD). The autoscaler's own status said `scaleDown: NoCandidates`. Requests per node after the change (run 2): node A 1737m of ~1.9 CPU (91%), node B 625m (32%). AKS's own kube-system pods (two coredns, two metrics-server, coredns-autoscaler, konnectivity agents, CSI and CNI daemonsets) plus Prometheus fill most of one 2-vCPU node, so the 1000m the change freed was not enough to fit node B's pods onto node A. Capacity was one cause; result 17 found a second one (AKS's autoscaler profile defaults to `skip-nodes-with-system-pods=true`, and AKS places non-DaemonSet kube-system pods such as konnectivity-agent on any node) and, with that changed, measured a node removed.
+* Not covered by this result: the opt-in applier and the Helm chart (done since, result 15), Kubecost (result 16), an Azure FOCUS cost export, more than ~1.5 hours of history.
+* Side effect: `az aks create --generate-ssh-keys` created an SSH key pair in the operator's home directory. Azure also creates an empty `NetworkWatcherRG` (no billable resources).
+
+## Result 15: the opt-in applier and the Helm chart on a REAL managed cluster, AKS (`hack/aks-applier.sh`)
+
+Evidence: `evidence/2026-11-11-aks-applier-helm.log` (all four runs, redacted). 2026-11-11, Azure free account, AKS free tier, Kubernetes v1.36.5, one `Standard_D4as_v4` node (4 vCPU, 16 GiB: the free account's regional quota is 4 vCPU), images built from this checkout and pushed to a Basic Azure Container Registry attached to the cluster. Each run created its resource group and deleted it at the end (checked with `az group list`).
+
+* **Helm lifecycle (`hack/helm-lifecycle.sh`): PASS 4/4** on AKS: install (revision 1 accepted by the apiserver), upgrade (revision 2 adds exactly the dashboard ConfigMap), rollback to revision 1, uninstall (release objects removed, CRDs kept by design). The first attempt failed only because the script called `python3`, which does not exist on Windows; it now counts revisions without Python.
+* **Applier, run 4: 27 passed, 0 failed, all 8 scenarios in ONE run** (on minikube, result 8, scenarios 1-7 and 8 passed in two separate runs): publish changes nothing; a publisher cannot approve (Forbidden), an approver can; observe-only gives DryRun; applied and Verified (500m/256Mi -> 250m/128Mi) with the previous state recorded; an object without an honest `published-by` stamp is refused by the API server, and a correctly stamped one in another namespace is Denied by the operator (`own namespace`); the kill switch denies without a restart and lifting it lets the same object be applied; an operator restart mid-observation does not re-apply; a real container crash after the change is rolled back automatically, with the restart named and a Warning event.
+* **Runs 1-3 failed, and every failure was in the lab scripts, not in the operator or the chart.** That is stated because a reader could otherwise take a green fourth run as luck:
+  * run 1 (16 passed, 10 failed): the lab workload's CPU requests (2 x 1 CPU plus three copies) did not fit next to Prometheus and the operator on one 4-vCPU node, and the Prometheus port-forward dropped. Added `LAB_SMALL=1` (500m/256Mi requests; usage is ~0.2 CPU, so a decrease is still due) and `PF=1` (re-open the port-forward before each plan).
+  * run 2 (20 passed, 6 failed): scenario 5 still created its cross-namespace object without a `published-by` stamp. Since the hardening pass the chart's ValidatingAdmissionPolicy refuses that at creation, so the object never reached the operator; the lab script predated the policy (minikube runs of `lab-applier.sh` were before it). The scenario now checks that admission refusal and then tests the operator's own namespace check with an honestly stamped object approved by `rs-appr`.
+  * run 3 (22 passed, 5 failed): scenario 8 never injected the crash. `MSYS_NO_PATHCONV=1` (needed for `kubectl exec ... touch /tmp/crash` in Git Bash) also stops the KUBECONFIG path from being translated, and the AKS scripts use their own kubeconfig file, so `kubectl` reported `context "kubecost-applier" does not exist`; KUBECONFIG is now exported as a Windows path. Scenario 6 got a `Low`-confidence recommendation for its copy, which the policy (`minConfidence: Medium`) correctly refused after the kill switch was lifted; the lab now waits for a Medium or High recommendation. Scenario 8 also retries the injection until a restart is seen and dumps diagnostics if no rollback follows.
+* Not shown by this: anything about savings, real traffic patterns or long-running behaviour; one node only, so no multi-node scheduling on AKS for the applier.
+
+## Result 16: a real Kubecost on a REAL managed cluster, AKS: contract and refresh cadence (`hack/aks-kubecost.sh`)
+
+Evidence: `evidence/2026-11-11-aks-kubecost-cadence.log`. Two runs on 2026-11-11, each on a fresh AKS 1.36.5 cluster (one `Standard_D4as_v4`), chart `kubecost/cost-analyzer` **2.8.7**, free tier, its bundled Prometheus, no cloud integration configured. Workload `shop/payments-api`. Goal (docs/ROADMAP.md P0 item 3): measure how often Kubecost refreshes the data the operator reads, to choose `failurePolicy.maxMetricAge` from a measurement. Both resource groups were deleted at the end.
+
+| Check | Run 1 | Run 2 |
+|---|---|---|
+| Kubecost installs and prices the workload in `/model/allocation` | PASS (4 min) | PASS (4 min) |
+| Contract test right after that | FAIL, correctly: the client's coverage check refused 5 of 60 window minutes (fail closed) | same |
+| Data served for the workload, sampled every 5 min for 2 h | 2 batches (ends 7.5 min apart), then **nothing from ~45 min after the install** | **identical**: data ending 14:17:30, then 14:25:00, then 15 samples of `{"code":200,"data":[null]}` from 15:01 to 16:12 |
+| Age of the newest data while there was any | max 30.5 min | max 31.2 min |
+| Kubecost pods during the empty answers | not recorded | Running, **0 restarts**, node at 34% CPU requests |
+| Contract test again after 2 h | not run | FAIL: `no_data: workload not present in allocation data` (fail closed) |
+
+**What was measured: Kubecost 2.8.7 in this configuration stops publishing allocation data about 10 minutes after its first data, on a healthy managed cluster, answering HTTP 200 with an empty body.** This is the third time (also result 11, on minikube) and the first on a cluster where node size and pod restarts are ruled out. The cost-model log repeats, every 5 minutes, `error getting disks: compute.DisksClient#List ... InvalidSubscriptionId` (Kubecost's Azure provider has no subscription configured) and a spot-sizing error; whether that causes the stall was **not determined** (it would not explain the minikube stall, which had no Azure provider). Not tried: Kubecost with the Azure cloud integration configured, chart 2.9.x (needs an object store) or 3.x.
+
+What it means for the operator: no `maxMetricAge` can be chosen from this data, because there is no steady refresh to measure. The operator's client behaved as designed: it failed closed every time and never accepted stale or missing cost. **Do not use Kubecost 2.8.7 free tier, installed like this, as a live cost source**; use Prometheus-based pricing, or measure your own Kubecost installation first (`hack/aks-kubecost.sh` does that in about 2.5 hours).
+
+## Result 17: infrastructure saving MEASURED on AKS: one node removed after the change (`hack/aks-validate.sh`, retry of result 14)
+
+Evidence: `evidence/2026-11-11-aks-node-saving-retry.log` (redacted). 2026-11-11, Azure free account, AKS free tier, Kubernetes v1.36.5, `Standard_D2as_v4` nodes (list price 0.096 USD/h), cluster autoscaler 1-2 nodes with **`--cluster-autoscaler-profile skip-nodes-with-system-pods=false`** (now the script's default, `CA_PROFILE=""` keeps AKS's default), app at 2 replicas x 500m. The resource group was deleted at the end (`az group list` shows only `azure-signup-rg` and `NetworkWatcherRG`).
+
+Why result 14 removed no node: besides capacity, AKS's autoscaler profile defaults to `skip-nodes-with-system-pods=true`, so a node holding any kube-system pod that is not a DaemonSet is never a scale-down candidate, and AKS schedules such pods (konnectivity-agent replicas, coredns, metrics-server) on whichever node has room.
+
+* **Saving measured: PASS.** Before the change the app's requests needed 2 nodes (0.6667 node-hours per 20 min); after `500m/128Mi -> 250m/64Mi` the autoscaler removed one, and the 20-minute window after had 1 node (0.3333 node-hours). At list price: 0.064 -> 0.032 USD per 20 min, **0.096 USD/hour less, 50% of this cluster's node cost**. Measured from the node count and priced at list price; it is not an invoice (no discounts, credits, disks or network).
+* Read-only cloud-validate and backtest on this run's history: 9/9 and PASS.
+* **The inner traffic before/after comparison: 6 passed, 3 failed, and the 3 failures are a measurement gap, not a regression**: every after-window query returned `NaN` (requests/s, p95, restarts all `nan`), so "rps comparable", "p95 did not regress" and "no restarts" could not be evaluated and the script counts that as FAIL. The applier itself reported the change applied and healthy under the real-latency SLO, and result 14's two runs, on the same setup, measured the same change with p95 4.75 ms before and after. The likely cause is the Prometheus port-forward being lost while pods moved; not confirmed.
+* What it does not show: that this generalises. It is one run, two small nodes, a deliberately over-provisioned app, and a non-default autoscaler setting that an operator must choose consciously (it lets the autoscaler evict kube-system pods that are not DaemonSets).
+
+## Result 18: two cost sources side by side on AKS: Kubecost 2.8.7 with custom pricing, and OpenCost (`hack/aks-costsource.sh`)
+
+Evidence: `evidence/2026-11-11-aks-cost-sources.log` (redacted). 2026-11-11, one fresh AKS 1.36.5 cluster (`Standard_D4as_v4`), workload `shop/payments-api`, both sources sampled every 5 minutes for 2 hours for the newest data they serve for that workload, then the client's live contract test against each. Resource group deleted at the end (`az group list`: only `azure-signup-rg`, `NetworkWatcherRG`).
+
+| | Kubecost 2.8.7, `customPricesEnabled=true` | OpenCost (chart `opencost/opencost`, its own Prometheus) |
+|---|---|---|
+| Samples with data for the workload | **4 of 24**: data ending 18:45 and 18:55, then `{"code":200,"data":[null]}` from 19:04 to the end | **22 of 24** (one 502 while the pod started; one at 20:00:14, see below) |
+| Age of the newest data | max 4.1 min while there was any | **0 min** in every sample |
+| Pods | Running, 0 restarts for 123 min | Running |
+| Live contract test after 2 h | **FAIL** `no_data: workload not present` (fail closed) | **PASS** (coverage 41.5 min, age 0 s) |
+
+* **Kubecost 2.8.7 stalled again, identically**: its first data, then nothing about 10 minutes later, HTTP 200 with an empty body, healthy pods. This is the fourth reproduction (result 11 on minikube, result 16 twice). Custom pricing did **not** stop the Azure calls: the cost-model still logged `compute.DisksClient#List ... InvalidSubscriptionId` (63 errors in its last 400 log lines) and the spot-sizing error, so this run neither confirms nor rules out that error as the cause. What is established: Kubecost 2.8.7 free tier, installed from its chart with defaults (with or without custom pricing), does not keep serving allocation data on AKS.
+* **OpenCost served fresh data for the whole 2 hours and passed the contract.** It is the open-source cost model Kubecost is built on and answers the same `/model/allocation` API, so the operator reads it with no code change.
+* **A client defect found by this run and fixed**: the client asked for `window=1h`. Kubecost and OpenCost share one window parser (opencost `core/pkg/opencost/window.go`) that rounds a duration window forward to its unit, so `1h` is the **current clock hour**, not the last 60 minutes. The data shows it: OpenCost's cost for the workload grew within each hour and dropped back at 19:04 and 20:05, and the sample at 20:00:14 had no allocation for the workload at all. With the default `minCoverage 0.5` the operator would have refused every sample in the first half of every hour. The client now always sends whole minutes (`60m` = the last 60 minutes, ending at the next whole minute); unit and contract tests updated.
+* **The fix, verified live** (2026-11-12, OpenCost with its own Prometheus on the minikube lab, workload `lab/shop`, `.lab/opencost-window/`): at 00:10:35 UTC, ten minutes into the hour, `window=1h` returned the allocation from 00:00:00 to 00:10:34 (**10.57 minutes**, which the operator's coverage check would refuse) and `window=60m` returned 23:11:00 to 00:10:00 (**59 minutes**). The client's live contract test, which now sends `60m`, PASSED at that moment (minutes 59.0, age 46 s). Chosen on purpose: before half past the hour is exactly when the old request failed.
+* Not shown: Kubecost 2.9.x/3.x or with a real Azure integration, OpenCost pricing accuracy against an Azure invoice.
+
+**Recommendation now in the docs: use OpenCost (or Prometheus-based pricing) as the live cost source; do not use Kubecost 2.8.7 free tier installed from its chart defaults.**
+
+## Result 19: the recommender against simulated shoppers, a compressed week (`hack/lab-synthetic-users.sh`, minikube): 4 passed, 0 failed
+
+Evidence: `evidence/2026-11-12-synthetic-users.log` (redacted). 2026-11-11/12, the minikube lab, Deployment `lab/shop` (2 replicas, 1 CPU / 256 MiB requests, a real HTTP latency histogram) and `lab/users`, a generator of shopper sessions over several routes with a daily and a weekly cycle and random flash sales. One simulated day = 60 minutes, 7 days = 7 hours. Only that history was given to the recommender.
+
+* **Backtest (trained on the history before the last 2 simulated days, tested on those 2, unseen)**: CPU, the default p95 + 15% gives 0.42 cores, exceeded **0%** of the test samples, peak ratio 0.96 (the unseen peak was 96% of the recommendation). Memory, the same default gives 16.0 MiB, **exceeded 2.9%** of the test samples and the unseen peak was 1.35x the recommendation; p99 + 15% gave 0% exceeded, peak ratio 0.89. Takeaway: on this load the CPU default holds, the memory default is tight; memory has limits (the change keeps them), but a request below real use means the scheduler packs pods tighter than they need.
+* **Plan, apply and observe (run 3)**: the recommender (production minimums, 200 samples) gave Medium confidence, CPU 1 -> 0.5, memory 256 -> 128 MiB (limits kept). Applied with the SLO on the store's real latency (p95 > 250 ms or 5xx > 1% breaches) and observed for 60 minutes, one full simulated day: **kept, verified** (audit: `decision`, `applied`, `verified` after 1h0m). p95 over one simulated day **86 ms before, 75 ms after**; CPU throttled periods 0.96%; 0 restarts. 4 PASS, 0 FAIL.
+* **Two runs that do not count, and why**:
+  * Run 1 abstained (Low confidence): the production minimum history is 24 h, and the compressed week is 7 h. Correct behaviour. The script now uses one simulated day as the minimum window (`MIN_WINDOW`).
+  * Run 2 applied the same change, but its apply call was broken because I edited the script while bash was still reading it (bash reads scripts incrementally), so it ran **without the SLO arguments**. Not a valid result. The store was restored to 1 CPU / 256 MiB, the annotations removed, and run 3 ran from a frozen copy of the script.
+* **Gaps in this run**: the error ratio is `nan` before and after (the 5xx query returned no series; the generator saw no 5xx, but "no errors" is not measured by this run), and no flash sale fell inside the observation hour, so the change was not tested against a burst after it was applied (bursts were in the training history and the backtest).
+* What it is not: real users or real weeks. A compressed, generated week answers "does the recommender survive bursty, cyclic, multi-route load", not "are the defaults right for production". P0 item 1 stays open.
+
+## Result 20: the ninth-pass features on a real cluster (`.lab/multi/run.sh`, minikube): 10 passed, 0 failed after one defect fixed
+
+Evidence: `evidence/2026-11-12-p1-real-cluster.log`. 2026-11-12, the minikube lab (Kubernetes 1.36, its Prometheus), namespace `multi`, Deployment `web` with two containers: `app` (500m/256Mi, busy) and `proxy` (300m/128Mi, idle sidecar), 2 replicas, 15 minutes of history. Each step used the CLI built from this branch.
+
+| Check | Run 1 | Run 2 (after the fix) |
+|---|---|---|
+| `rightsize keygen` | PASS | PASS |
+| `plan --container app,proxy` gives ONE record (app 500m->250m, 256->128 MiB; proxy 300m->150m, 128->64 MiB; Medium) | PASS | PASS |
+| policy `requireSignedApproval`: an unsigned approval is refused | PASS | PASS |
+| `approve --sign-key` writes the signature annotation; apply accepted under the same policy | PASS | PASS |
+| both containers changed in ONE rollout | FAIL, a wrong check (see below) | **PASS**: one new ReplicaSet |
+| requests changed and kept through a 2-minute observation | PASS | PASS |
+| `audit-verify` on the real audit file | **FAIL: a real defect** | **PASS** |
+| an edited line is detected | PASS (line 2) | PASS (line 2) |
+| `report --format prometheus` | PASS | PASS |
+
+* **Defect found here and fixed (commit 2f4051a)**: every real `applied` event failed `audit-verify`. Its details hold the previous resources as a typed map of structs, whose JSON keys follow the struct order; a reader decodes into `map[string]any` and re-encodes them sorted, so the hash could never match. The unit test had used plain integers in the details. The chain now hashes each event in its decoded form, and the test uses the executor's real detail types.
+* Run 1's "one spec update" check was wrong, not the product: a Deployment's `metadata.generation` also increases on annotation writes (the approval and the applied markers), so it went 2 -> 4. Rollouts are now counted as new ReplicaSets: exactly one (`kubectl get rs` in the evidence).
+* Not covered: the operator's applier with a signed `status.approval` (the CLI path ran; the operator path is unit-tested), `--audit-url` against a real collector, `propose --open-pr` against GitHub, the FOCUS adapters on a real export with node rows. The first three: result 21.
+
+## Result 21: the three ninth-pass paths that had only unit tests, run for real: 11/11 on minikube, and two defects found and fixed
+
+Evidence: `evidence/2026-11-12-p1-verify.log` (`hack/lab-p1-verify.sh`, minikube lab) and `evidence/2026-11-12-gitops-open-pr.log` (GitHub). 2026-11-12, operator image and CLI built from this branch.
+
+| Check | Result |
+|---|---|
+| **Operator applier**, policy `requireSignedApproval` with one approver key: an **unsigned** `status.approval` (`approve --cr`) | **Denied**, reason `signed approval required: the approval carries no signature`; the workload untouched |
+| the same with a **signed** approval (`approve --cr --sign-key`) | signature in `status.approval.signature`, **Verified**, requests 500m/128Mi -> 350m/64Mi |
+| **`--audit-url`** to a real HTTP collector (`hack/lab/audit-collector.py`: bearer token, first POST refused with 503) during `approve` and `apply --execute` | all 4 events delivered after the retry; the collector's copy is **byte-for-byte the local chained file**; `audit-verify` passes on it (4 chained, no break); nothing reported undelivered |
+| **`propose --push --open-pr`** against GitHub (this repository, base `claude/bold-carson-5479vm`) | the branch was pushed and the PR opened with the commit's title and body (PRs #44 and #45, both closed on purpose, branches deleted) |
+
+* **Defect 1, found while writing the collector check, fixed**: with `--audit-file` and `--audit-url` together, the collector received the events **without** `prev`/`hash` (the HTTP sink sat next to the chain, not after it), so the shipped copy could not be verified, which defeats the point of shipping it. The chain now forwards each event after chaining it (unit test `TestAuditChainForwardsChainedEvents`); the check above is the verification.
+* **Defect 2, found by the first real `--open-pr` (PR #44), fixed**: the change re-encoded the whole file, which re-indented every list and also rewrote the other Deployment in the same file, so a reviewer saw a 30-line diff for a 1-line change. Propose now replaces only the changed values in the file text (keeping the file's quoting) and checks that the result parses to the edited tree; it re-encodes only when a key must be added. PR #45, from the fixed binary, is a **one-line diff** (unit test `TestProposeChangesOnlyTheChangedLines`).
+* Not covered: the operator's `--audit-url` (https only; needs a collector with a certificate the operator trusts), a WORM / object-lock bucket behind the collector, a signed approval forged by editing `status.approval` on the cluster (unit-tested).
+
+## Result 22: FOCUS node matching on a REAL Google export, against the live GKE soak cluster
+
+Evidence: `evidence/2026-11-12-gcp-focus-real-nodes.log` (redacted; the CSV itself is not kept: it holds project numbers). 2026-11-12. Google's native FOCUS export (BigQuery dataset `gcp_billing_immutable_*`), one full day, 2026-11-11 UTC: 2508 Usage rows, billed in CLP. `rightsize cost --billing-format focus` read it, and matched the rows against the live nodes of the GKE soak cluster (`kubectl get nodes`, read-only).
+
+* **Earlier statement corrected**: "the billing export had no data after 2026-10-31" (result 13 and COST.md) was true when written, but no longer is. Both the detailed export and the native FOCUS export have GKE rows for 2026-11-10 and 2026-11-11.
+* **Parsed as delivered**: every row was converted with its own `x_CurrencyConversionRate` (about 980 CLP/USD), with BigQuery's timestamp form.
+* **Node matching works on real rows**: the instance name is the last segment of `ResourceName` (`projects/<id>/instances/gke-kubecost-soak-default-pool-...`); `ResourceId` holds a numeric instance id.
+  * With `--focus-cost-column ListCost`: total 4.0430 USD. The two soak nodes got 2.0148 USD, split over namespaces plus idle. The rest is **unallocated**, 2.0283 USD: the GKE management fee 1.5129, networking 0.2653, Cloud Monitoring 0.2291, and disks plus an older cluster's nodes 0.0210.
+  * An independent recomputation from the CSV with exact fractions gives the same split, to rounding.
+* **A wrong statement in the product found and fixed**: the parser's note said Google's `BilledCost` is *before* the credits in `x_Credits`. On this real export it is *after* them: `ListCost` 5544.99 CLP, credits (PROMOTION) -5544.99 CLP, `BilledCost` 0 since 2026-11-10. An account on credits therefore bills 0 for every node.
+  * `--focus-cost-column ListCost` is now supported for that case (list price, stated as NOT the invoice).
+  * The note and COST.md are corrected, with a unit test.
+* Not shown: an account that pays (non-zero `BilledCost`), an Azure FOCUS export (needs the owner's Cost Management export), a whole month reconciled with the invoice (the day-7 soak report, then the monthly invoice).
+
+## Result 23: audit events into WORM storage over https with a private CA (`hack/lab-audit-worm.sh`, minikube): 11 passed, 0 failed
+
+Evidence: `evidence/2026-11-12-audit-worm.log` (redacted; the token, the CA key and the S3 keys are not in it). 2026-11-12.
+
+Setup:
+* An S3 server with Object Lock: MinIO built from its official source (`hack/lab/minio`, pinned to a commit of 2026-02-12, because the project no longer publishes images).
+* The reference collector `tools/audit-collector`: HTTPS with a certificate from a private CA, bearer token, each event stored as one object with a 24 h COMPLIANCE lock.
+* The operator, installed from the chart with `auditURL`, `auditTokenSecret` and the new `auditCASecret`.
+
+| Check | Result |
+|---|---|
+| the collector creates the bucket with Object Lock and serves in COMPLIANCE mode | PASS |
+| the operator gets `--audit-ca-file` from `auditCASecret` | PASS |
+| a client without the private CA | **refused by TLS verification** |
+| a wrong token | **401** |
+| the operator applies a change (Verified) and ships its `dry_run`/`decision`/`applied`/`verified` events over https into the bucket | PASS, no shipping error |
+| the CLI (`--audit-file` + `--audit-url` + `--audit-ca-file`) ships its chained trail to the same collector | PASS, nothing undelivered |
+| the CLI's events read back from the bucket are byte-for-byte the local file, and `audit-verify` passes on them | PASS (4 chained, no break) |
+| **deleting a stored event version with the store's ROOT credentials** | **refused**: `Object is WORM protected and cannot be overwritten`, COMPLIANCE until 2026-11-13T03:53:43Z |
+
+9 events in the bucket: the operator's and the CLI's, interleaved in arrival order.
+
+* **The first run of this script failed in its own setup**, not in the product: Git Bash rewrote `-subj "/CN=..."` into a Windows path, so no CA was made. The script now writes `//CN=` under Git Bash only.
+* **A lab-helper quirk, not a product defect**: the `plan` helper retries until the recommendation reaches Medium confidence, and publishes on every try. That left 3 extra Pending objects for worm1; each was a separate, never-approved recommendation, and nothing acted on them.
+* **What this does not prove**:
+  * WORM on a real cloud bucket (AWS S3 Object Lock, or GCS with a locked retention policy, which uses a different API).
+  * Retention longer than the lab's 24 h.
+  * The collector under load or in high availability: it is a single replica that answers 2xx only after storing, so a sender's retry covers its outages, up to the sender's queue of 1024 events.
+  * MinIO's emptyDir data does not outlive the namespace: a lab-only choice.
+
+## Result 24: weekday coverage on the real GKE soak history (`rightsize plan --window 168h`)
+
+Evidence: `evidence/2026-11-12-weekday-coverage.log` (redacted). The soak cluster has had data since Tuesday 2026-11-10 19:37 UTC. A 7-day plan run on Thursday 2026-11-12 at 12:39 UTC returned:
+
+* confidence **Medium**;
+* the risk "the window has data for less than half of the hours of Monday, Tuesday, Friday, Saturday, Sunday: weekly seasonality is not fully observed". These are exactly the days with no data, or only 4 hours of it.
+
+Before this check, a window of exactly 7 days raised no seasonality caveat, whatever its data covered.
+
+* **A defect found in the day-7 script**: `hack/gke-soak.sh report` passed `--window 7d` to `backtest`. Go durations have no `d` unit, so the day-7 backtest would have failed. It now passes `168h`.
+* **What this does not prove**: that the threshold, half of a weekday's hours, is the right one, or that a full week of real traffic has no weekday effect. The day-7 report on 2026-11-17 runs the same plan on a complete week.
+
+## Result 25: the audit path under load and through collector outages (`hack/lab-audit-load.sh`, localhost)
+
+Evidence: `evidence/2026-11-12-audit-load.log`. The path tested:
+
+* the real sender, `execute.Chain` + `HTTPSink` (driven by `operator/tools/auditload`);
+* the reference collector, `tools/audit-collector`, with HTTPS, a bearer token and a private CA;
+* MinIO built from the pinned source, with Object Lock in COMPLIANCE mode.
+
+Everything ran on one Windows laptop. For each scenario, the bucket's copy was read back and checked with `rightsize audit-verify`.
+
+| scenario | before (4 attempts, about 3.5 s) | after (in-order retry, up to 60 s) |
+|---|---|---|
+| steady 20 events/s for 30 s | 600/600 stored, chain passes | 600/600, passes |
+| burst of 1000 at once | 1000/1000, about 107 events/s | 1000/1000, about 106 events/s |
+| burst of 3000 at once | **1975 lost** (queue of 1024 full), reported by the sender; the bucket's copy still **passed** `audit-verify` (the loss was the tail) | **1973 lost**, reported; this time `audit-verify` found the gap (an event got in after the drops) |
+| collector down 3 s during 10 events/s | 0 lost | 0 lost |
+| collector down 15 s | **4 lost**; `audit-verify` on the bucket found the gap | **0 lost** |
+| collector down 75 s | (not run) | 14 lost: the stream ended at 30 s and `Close` gives each remaining event 4 s; `audit-verify` found the gap |
+| delete a stored event with the store's root credentials | refused (COMPLIANCE) | refused |
+
+**Changed because of this run:**
+
+* **Retries.** `HTTPSink` retries each event in order for up to 60 s (backoff 0.25 s doubling to 5 s) instead of 4 attempts over about 3.5 s. A collector outage shorter than a minute now delays events instead of losing them.
+* **Losses are visible while the operator runs.** It logs each lost event and exports `kubecost_audit_events_not_delivered_total` and `kubecost_audit_events_delivered_total`. Until now, a long-running operator reported losses only at shutdown. The CLI prints a warning for each one.
+* **Token required.** The collector refuses to serve without `--token-file` unless it listens on localhost only: anyone who reached it could otherwise fill the WORM bucket with events that can never be deleted.
+
+**What this does not prove:**
+
+* **The collector's throughput:** about 100 events/s, one collector serialising writes, local MinIO. That is not a figure for a cloud bucket.
+* **High availability:** it still runs as one replica.
+* **Tail loss:** a loss at the very end of a stream leaves a valid prefix. The bucket alone cannot show it; the sender's count, the metric, or a comparison with the local chained file does.
+
+## Result 26: the twelfth- and thirteenth-pass read-only features on REAL clusters (GKE soak cluster, 2026-11-16): three defects found and fixed
+
+Everything here only reads. Cluster: the GKE soak cluster of result 13 (1.36.4, five days of real Prometheus history), the local
+lab cluster, and a temporary AKS cluster (result 29).
+
+| What | Result | Evidence |
+|---|---|---|
+| Recommender insights on 120 h of real history (`rightsize plan --window 120h`) | The daily p95 of CPU was 0.0216, 0.0184, 0.0190, 0.0024, 0.0025 cores: the last two days are the weekend of the traffic schedule. The trend came out negative and was **not** read as growth; the percentile, not a forecast, drove the target. This is the "a straight line cannot tell a weekly cycle from a trend" caveat seen on real data, in the safe direction | `evidence/2026-11-16-gke-insights-120h.json` |
+| `rightsize nodes` with scheduling constraints, first run | **Two defects.** (1) kube-proxy on GKE is a static pod owned by its Node, not a DaemonSet: it blocked every node as "required node affinity". (2) The persistent disk's zone was not read, because GKE's CSI driver writes `topology.gke.io/zone`: the Prometheus pod was reported as immovable. Both fixed with a regression test; the re-run names real blockers (a pod with required node affinity, a `hostPath` volume) | `evidence/2026-11-16-gke-nodes-constraints.json` (after the fix) |
+| `rightsize nodes --plan` on AKS, region without availability zones | **A third defect**: Azure's disk driver writes its zone key with an EMPTY value there, and the pod with the disk was reported as immovable. Fixed with a test (an empty zone, or no placement restriction at all, means the volume attaches anywhere) | result 29 |
+| `rightsize fleet` over three contexts | The GKE cluster and the lab cluster were read; a context whose cluster no longer exists was reported as unreachable without failing the report; totals cover the reachable ones | `evidence/2026-11-16-fleet-real.json` |
+| `rightsize reconcile` on two REAL consecutive billing days of the soak cluster (an A/A control: nothing changed between them) | Google's detailed export, in CLP: 5538.96 and 5538.99 per day at list price, 0 invoiced on both (the account is on credits). Comparable; saving 0.00; **no saving was invented** | `evidence/2026-11-16-gcp-reconcile-aa-control.json`, `hack/gcp-focus-day.sh` |
+| `rightsize render` on those four outputs | One readable report, figures and levels copied | `evidence/2026-11-16-rendered-report.md` |
+
+Not shown by this: a real growing workload for the forecast; a real before/after pair for the reconciliation (the change of
+result 27 is too recent to be in the billing export).
+
+## Result 27: the GKE soak: the planned change applied on day 5.3, kept, and a node released (2026-11-16)
+
+The soak cluster had run since 2026-11-10 without its `approve` step, so it had no "after". The step was run as the script
+defines it: plan with the production defaults on the real history, approval stamped with the API server's identity, apply with
+an SLO on the real p95 latency, 30 minutes of observation.
+
+| Item | Value |
+|---|---|
+| Recommendation | CPU 500m to 250m, memory 128Mi to 64Mi per pod (4 pods); confidence Medium (the window misses most of Monday and Tuesday) |
+| Observation | **Verified, not rolled back.** During it the cluster autoscaler drained a node, which moved Prometheus and dropped the port-forward the SLO check used; the executor reported `observe_error`, tolerated it (2 minutes), and continued once the forward was restored |
+| Nodes | **2 before (mean 2.000 over 126.9 h), 1 after (mean 1.000 over the first 3.8 h)**, from `count(kube_node_info)` |
+| Cost at LIST price (0.06701142 USD per node-hour) | 0.1340 to 0.0670 USD/h: **0.0670 USD/h less (50%)** |
+| Health after the change (287 minutes) | 0 restarts, 0 CPU throttling, worst 5-minute p95 latency 4.75 ms |
+| Worst 5-minute p95 latency in the five days before | 4.75 ms |
+
+This is an **observed** saving at list price on a trivial test application with scheduled, generated traffic. It is not an
+invoice (the account is on credits, so the invoice is 0 before and after) and says nothing about a real service. The "after"
+window is hours, against five days before; the soak report will extend it. Evidence: `evidence/2026-11-16-gke-soak-apply.log`.
+
+## Result 28: the benchmark harness run for real (`hack/bench-local.sh`, minikube 1.33.4, 2026-11-16)
+
+The first real run of `benchmarks/`. Scenario `step-increase` (120 minutes; load triples at minute 40), the same manifests in
+two namespaces **at the same time on the same node**: one left alone, one rightsized by this product through the CLI at minute
+25. It is a run of the harness against its own baseline, not a comparison with any other product.
+
+Scenario: `step-increase`
+
+| Metric | none  (run 1, MEASURED) | kubecost-auto-hpa 73fd385 (run 1, MEASURED) |
+|---|---|---|
+| CPU requested and unused (%) | 87.1 | 78.9 |
+| Memory requested and unused (%) | 98.1 | 96.9 |
+| CPU wasted (core-hours) | 1.06 | 0.58 |
+| Memory wasted (GiB-hours) | 1.00 | 0.60 |
+| Node-hours | 2.03 | 2.03 |
+| Node cost at list price (USD) | not measured | not measured |
+| Reaction: first replica change after the event (s) | not measured | not measured |
+| Reaction: first request change after the event (s) | not measured | 43 |
+| Interventions on replicas | 0 | 0 |
+| Interventions on requests | 0 | 2 |
+| Availability of desired replicas (%) | 99.898 | 99.590 |
+| Container restarts | 0 | 0 |
+| OOM kills | not measured | not measured |
+| Worst p95 latency (s) | 0.0048 | 0.0048 |
+| Worst p99 latency (s) | 0.0050 | 0.0050 |
+| Worst 5xx ratio | not measured | not measured |
+| Tool's own CPU (cores, average) | not measured | not measured |
+| Tool's own memory (MiB, peak) | not measured | not measured |
+
+Reading it:
+
+* Requests were halved (CPU 300m to 150m, memory 256Mi to 128Mi per pod). Wasted CPU fell from 1.06 to 0.58 core-hours.
+* Latency did not change when the load tripled 15 minutes after the reduction (worst p95 4.8 ms in both).
+* Availability of desired replicas was 99.59% against 99.90%: the rollout of the change. Both include the start-up of the run.
+* Node-hours are equal: one laptop node, nothing to release. **No cost difference exists in this run.**
+* "Not measured" rows: no error-ratio series (the application has no 5xx counter in this shape), no OOM series, no tool
+  namespace given, no node price given.
+
+Limits: one run, not three; one node; a trivial application; a learning period of 22 minutes with relaxed minimums (the
+product's defaults ask for 24 hours) and `minConfidence: Low`; the Go test suite ran on the same machine during part of it.
+Result files: `benchmarks/results/local-step-increase-*.json`.
+
+## Result 29: node analysis and fleet report on a REAL AKS cluster (`hack/aks-nodes-fleet.sh`, 2026-11-16): 6 passed, 0 failed after one defect fixed
+
+A temporary AKS cluster (1.36.5, free tier, 2 x Standard_D2as_v4, eastus, no availability zones), created and deleted by the
+script. Read-only against the cluster, apart from one test pod with a managed disk.
+
+| Run | Result |
+|---|---|
+| Attempt in eastus2 with `--zones 1 2` | Not a product result: the free subscription has no availability zones there. Nothing was created |
+| Attempt with a script error | Not a product result: a comment swallowed a variable in the script. Nothing was created |
+| **Run 1** | **5 passed, 1 failed.** AKS writes the disk's zone key with an EMPTY value in a region without zones (`topology.disk.csi.azure.com/zone = [""]`), and the pod with the disk was reported as immovable. Defect in the product, fixed with a test. Evidence: `evidence/2026-11-16-aks-nodes-fleet-run1.log` |
+| **Run 2**, same script, fixed code | **6 passed, 0 failed.** The pod with the disk is movable; system DaemonSet pods do not block a node; each node names a real blocker (metrics-server has required node affinity, which is not evaluated); the plan is empty with its reason; `fleet` reports the AKS cluster (provider azure, 2 nodes) next to the GKE soak cluster, and reports the lab cluster, which was stopped by then, as unreachable. Evidence: `evidence/2026-11-16-aks-nodes-fleet-run2.log` |
+
+Not covered: a cluster with availability zones (the subscription has none), so the "pod stays inside its disk's zone" rule has
+only unit tests on Azure; a real drain to compare the plan with.
+
+## Result 30: a namespace report in one command on the REAL GKE cluster, and the soak ten hours after its change (2026-11-16)
+
+`rightsize survey --context <gke> --namespace lab --prometheus-url ... --window 144h` planned every container of every
+Deployment of the namespace with the settings a single `plan` would use, added the node analysis and printed one report.
+Read-only. Evidence: `evidence/2026-11-16-gke-survey-lab.md`.
+
+| Workload | What the report says |
+|---|---|
+| `shop` (already halved in result 27) | A further reduction, 250m to 125m and 64Mi to 32Mi, confidence Medium: the step cap halves once per change, so the report shows the next step, not the end state |
+| `loadgen` | **Increase**, 50m to 140m and 16Mi to 32Mi, confidence Low, signal `no-memory-limit`: the load generator was set up with too little. The survey found an under-provisioned workload nobody had asked about |
+| Nodes | One node left; not a candidate, with its reason |
+
+The soak, 613 minutes after the change of result 27 (it now includes Monday's morning peak of 121 requests/s):
+
+| Item | Value |
+|---|---|
+| Nodes | mean 1.000 over 9.2 h after (maximum 1), against 2.000 over 126.9 h before |
+| Restarts, CPU throttling | 0, 0 |
+| Worst 5-minute p95 latency | 4.75 ms (the same as in the five days before) |
+
+Still list price, a trivial application and generated traffic. The cluster was left running to accumulate days.
+
+## Result 31: licence enforcement on a real cluster (`hack/lab-license.sh`, minikube 1.33.4, 2026-11-16): 14 passed, 0 failed
+
+The operator image built from this checkout, installed with the chart and **configured to write** (observe-only off, applier
+on), started with `--enforce-license` under four licences. What the running operator decided is read from its own log and its
+`kubecost_license_info` metric. Evidence: `evidence/2026-11-16-lab-license.log`.
+
+| Licence in the Secret | What the operator did | Metric |
+|---|---|---|
+| none | Ran observe-only although configured to write; the applier was not started | `tier="starter", valid="false", enforced="true"` |
+| professional, signed by the vendor key | Not forced into observe-only; the applier started | `tier="professional", valid="true"` |
+| enterprise, signed by ANOTHER key (forged) | Observe-only; the log says the signature does not verify | `tier="starter", valid="false"` |
+| enterprise, signed by the vendor key | The applier started; nothing restricted | `tier="enterprise", valid="true"` |
+
+Also: the CLI verifies a good licence and refuses the forged one, and the operator, engine and Redis stayed healthy through the
+four restarts. No defect found.
+
+Not shown: that a professional licence forces an approval when the policy says `requireApproval: false` (unit-tested in
+`internal/license` and wired in the applier; not exercised with a real change here), the node limit against a real node count
+above it, and expiry while the operator keeps running (it is read at start-up only).
+

@@ -1,5 +1,13 @@
 # Certificación de Alta Concurrencia y Resistencia a Carga (500 Usuarios Concurrentes)
 
+<!-- status-notice -->
+> **Local test of the engine's HTTP API, not a certification (notice added 2026-11-15).** The figures below come from
+> `scripts/simulate_500_concurrent_users.py`: a script on one machine sending generated requests to the Python engine's HTTP
+> endpoints. No Kubernetes cluster, no operator, no real users and no production workload were involved, and nobody
+> independent certified anything. It shows that the engine's HTTP server answered that burst on that machine. It says nothing
+> about the product's behaviour in a cluster. The word "certification" in this document is wrong and is kept only so the
+> history is readable. Real-cluster evidence is in [LAB.md](LAB.md).
+
 Este informe certifica el comportamiento, estabilidad, rendimiento y ausencia de caídas de **KubeCost Auto-HPA** bajo una prueba de estrés masiva con **500 usuarios navegando y realizando operaciones de autoescalado concurrentemente en tiempo real**.
 
 ---

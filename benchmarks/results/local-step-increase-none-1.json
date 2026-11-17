@@ -1,0 +1,50 @@
+{
+  "schema": "kubecost-auto-hpa/benchmark-result/v1",
+  "kind": "MEASURED",
+  "tool": "none",
+  "tool_version": "",
+  "scenario": "step-increase",
+  "environment": {
+    "cluster": "kubecost-lab (minikube, one node, laptop)",
+    "kubernetes": "v1.33.4",
+    "provider": "local",
+    "node_type": "docker driver, 4 CPU, 5 GB",
+    "node_hourly_usd_list_price": 0.0
+  },
+  "window": {
+    "start": 1794799829.0,
+    "end": 1794807150.0,
+    "hours": 2.033611111111111
+  },
+  "run": "1",
+  "notes": "Both namespaces ran at the same time on the same node. Tool column: rightsize plan/approve/apply through the CLI at minute 25 with relaxed minimums (window 22m, 40 samples), policy minConfidence Low; product defaults ask for 24 h. plan: abstained False confidence Medium\r   CPU Decrease 0.3 -> 0.15\r   Memory Decrease 268435456 -> 134217728\r  apply exit 0: {   \"allowed\": true,   \"applied\": true,   \"degradedReasons\": null,   \"healthy\": true,   \"mode\": \"execute\",   \"reasons\": null,   \"rolledBack\": false } ",
+  "metrics": {
+    "cpu_requested_core_hours": 1.219999999999996,
+    "cpu_used_core_hours": 0.1568966281935296,
+    "cpu_wasted_core_hours": 1.0631033718064664,
+    "cpu_wasted_pct": 87.13962063987458,
+    "mem_requested_gib_hours": 1.0166666666666644,
+    "mem_used_gib_hours": 0.018992980321248375,
+    "mem_wasted_gib_hours": 0.997673686345416,
+    "mem_wasted_pct": 98.13183800118867,
+    "replica_changes": 0,
+    "request_changes": 0,
+    "max_replicas": 2.0,
+    "availability_pct": 99.89754098360656,
+    "restarts": 0.0,
+    "oom_kills": null,
+    "latency_p95_s": 0.004755901924420772,
+    "latency_p99_s": 0.004956150426501647,
+    "error_ratio_max": null,
+    "node_hours": 2.0333333333333288,
+    "node_cost_usd_at_list_price": null,
+    "tool_cpu_cores_avg": null,
+    "tool_memory_mib_max": null,
+    "seconds_to_first_replica_change": null,
+    "seconds_to_first_request_change": null
+  },
+  "missing_series": [
+    "error_ratio",
+    "oom_kills"
+  ]
+}

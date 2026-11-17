@@ -345,7 +345,7 @@ def generate_stripe_billing_invoice(
     share_percentage: float = 22.0,
     price_per_node_usd: float = 25.0,
 ) -> dict[str, Any]:
-    """Build a Stripe-ready commercial invoice payload from verified counterfactual savings."""
+    """Build a pricing PREVIEW shaped like an invoice from a savings figure the caller supplies. It charges nothing."""
     clean_client = validate_identifier(client_id, "client_id")
     clean_cluster = validate_identifier(cluster_id, "cluster_id")
     bill = calculate_commercial_billing(
@@ -362,6 +362,11 @@ def generate_stripe_billing_invoice(
     amount_cents = int(round(amount_usd * 100))
 
     return {
+        # A pricing preview, not an invoice: nothing is charged, no payment provider is contacted, and the savings figure is
+        # whatever the caller supplied. A real charge needs a billing integration and a saving reconciled against a bill.
+        "simulation": True,
+        "charge_created": False,
+        "savings_evidence": "supplied by the caller; not reconciled with a provider bill",
         "stripe_object": "invoice",
         "client_id": clean_client,
         "cluster_id": clean_cluster,

@@ -1,0 +1,247 @@
+# REAL GKE cluster (Google Kubernetes Engine 1.36.4-gke.2377000, zonal us-central1-a, e2-standard-2 nodes, cluster autoscaler 1..3), created for this run in the owner's account and deleted after it. 2026-11-10 UTC.
+# Node price: list price from the Cloud Billing Catalog API (E2 core 0.02181159 USD/h, E2 RAM 0.00292353 USD/GiB-h -> e2-standard-2 0.06701142 USD/h). Not an invoice.
+
+## hack/gke-validate.sh (run 1)
+== cluster: v1.36.4-gke.2377000, nodes 1, node price 0.06701142 USD/h (list)
+== 0. Prometheus and the over-provisioned app
+PASS  Prometheus installed
+PASS  all 6 replicas run (the autoscaler added nodes for their requests if needed)
+nodes now: 3; waiting 5 min for the node count to settle
+== 1. BEFORE window (20 min), requests 500m x 6
+node-hours before: 1.0000 (nodes seen: 3 )
+== 2. hack/lab-traffic.sh on GKE (recommend, approve, apply with real-latency SLO, before/after, forced rollback)
+== 0. deploy the app and the load, wait for history
+PASS  the app serves real traffic (requests per second > 5)
+== 1. BEFORE window (last 5 minutes), requests 500m/128Mi
+{"p95": 0.004749999999999999, "rps": 36.5652796833751, "err": NaN, "thr": 0.0, "cpu95": 0.02348167255180329, "rst": 0.0}
+PASS  the recommendation proposes a CPU decrease
+== 2. approve and apply, SLO driven by the REAL latency histogram (p95 > 250 ms breaches)
+requests: 500m/128Mi -> 250m/64Mi
+PASS  applied and healthy under real traffic
+PASS  the requests really changed
+== 3. AFTER window: wait 6 minutes so the 5-minute window is entirely after the change
+{"p95": 0.00475, "rps": 37.81754385964912, "err": NaN, "thr": 0.0, "cpu95": 0.023482521844306756, "rst": 0.0}
+metric                       before        after
+requests/s                 36.56528     37.81754
+p95 latency (s)             0.00475      0.00475
+error ratio                     nan          nan
+cpu throttled ratio         0.00000      0.00000
+cpu usage p95 (cores)       0.02348      0.02348
+restarts (5m)               0.00000      0.00000
+requested USD/hour          0.09600      0.04800   ESTIMATE (flag prices, requests x replicas)
+cost per 1k requests (before): 0.00072929 USD  ESTIMATE
+cost per 1k requests (after): 0.00035257 USD  ESTIMATE
+PASS  traffic is comparable (rps within 25 percent)
+PASS  p95 latency did not regress (<= max(1.5x, +5 ms))
+PASS  error ratio did not increase
+PASS  throttling did not increase by more than 2 points
+PASS  no restarts after the change
+== 4. a rollback driven by the REAL latency metric (threshold made absurdly tight on purpose)
+FAIL  the real-latency SLO query breached and the change was rolled back
+FAIL  the previous requests are back
+RESULT: 9 passed, 2 failed
+requests after the run: 125m x 6
+== 3. letting the GKE cluster autoscaler react (up to 25 min; scale-down needs ~10 min of a node being unneeded)
+nodes now: 2 (before: 3)
+== 4. AFTER window (20 min, same length)
+node-hours after: 0.6667 (nodes seen: 2 )
+node-hours in 20 min: before 1.0000, after 0.6667
+cost of those windows at LIST price: before 0.0670 USD, after 0.0447 USD
+measured change: 0.0223 USD per 20 min = 0.0670 USD/hour (33.3%)
+MEASURED from the cluster's node count, priced at list price: NOT an invoice (no discounts, credits, free tier, disks or network).
+PASS  the autoscaler removed at least one node after the change (infrastructure saving measured)
+== 5. read-only cloud-validate and backtest on this run's history
+- server version: v1.36.4-gke.2377000
+- nodes: 2; provider id example: gce://<project>/us-central1-a/gke-kubecost-validate-default-pool-e7d77ff4-5d7k; cloud detected: gcp
+PASS  the cluster answers
+PASS  Prometheus is reachable at http://localhost:9090
+PASS  cAdvisor CPU series exist for the container
+PASS  cAdvisor memory series exist
+PASS  kube-state-metrics series exist
+- samples of history (30d, scrape-interval dependent): 111
+PASS  plan produced a record
+- abstained: True | confidence: Low | samples: 101
+- CPU: Abstain current=0.125 recommended=0.125 reasons=['insufficient samples: cpu=101 memory=104, need 200']
+- Memory: Abstain current=3.35544e+07 recommended=3.35544e+07 reasons=['insufficient samples: cpu=101 memory=104, need 200']
+- risks: no recommendation: insufficient samples: cpu=101 memory=104, need 200
+PASS  backtest ran (read it: <repo>/.cloud-evidence/backtest-gke_<project>_us-central1-a_kubecost-validate.json)
+PASS  nodes report produced
+- removable candidates: None
+- stranded cpu/mem: 2.31 10.14 GiB
+PASS  ESTIMATED-basis cost report produced (a model, not a bill)
+- basis: estimated | source: flag --node-hourly-usd=0.06701142
+- total: 3.216528 | reconciled: True
+- unallocated: 0
+- notes: None
+RESULT: 9 passed, 0 failed. Evidence file: <repo>/.cloud-evidence/gke_<project>_us-central1-a_kubecost-validate-20261110T152900Z.md
+PASS  backtest ran on the real history of this run
+{
+  "cpu": {
+      {
+      },
+      {
+      },
+      {
+      },
+      {
+      },
+      {
+      },
+      {
+      },
+      {
+      },
+      {
+      },
+      {
+      },
+      {
+      },
+      {
+      },
+      {
+      },
+      {
+        "
+
+RESULT: 13 passed, 2 failed
+exit=1
+
+## run 1: the forced rollback that FAILED (defect: conflict retries exhausted)
+{
+  "allowed": true,
+  "applied": true,
+  "degradedReasons": [
+    "SLO breached"
+  ],
+  "healthy": false,
+  "mode": "execute",
+  "reasons": null,
+  "rolledBack": false
+}
+{"time":"2026-11-10T15:01:00.9431964Z","type":"degraded","actor":"<workstation-user>","recommendationId":"5ad173369b906af5","target":"lab/Deployment/shop","details":{"reasons":["SLO breached"]}}
+{"time":"2026-11-10T15:01:02.699427Z","type":"rollback_failed","actor":"<workstation-user>","recommendationId":"","target":"lab/Deployment/shop","details":{"error":"Operation cannot be fulfilled on deployments.apps \"shop\": the object has been modified; please apply your changes to the latest version and try again"}}
+
+## hack/lab-traffic.sh on GKE again, after the conflict-retry fix (run 2)
+== 0. deploy the app and the load, wait for history
+PASS  the app serves real traffic (requests per second > 5)
+== 1. BEFORE window (last 5 minutes), requests 500m/128Mi
+{"p95": 0.004749999999999999, "rps": 35.30495573968254, "err": NaN, "thr": 0.0, "cpu95": 0.02433436531379007, "rst": 0.0}
+PASS  the recommendation proposes a CPU decrease
+== 2. approve and apply, SLO driven by the REAL latency histogram (p95 > 250 ms breaches)
+{"allowed":true,"applied":true,"degradedReasons":null,"healthy":true,"mode":"execute","reasons":null,"rolledBack":false}
+requests: 500m/128Mi -> 250m/64Mi
+PASS  applied and healthy under real traffic
+PASS  the requests really changed
+== 3. AFTER window: wait 6 minutes so the 5-minute window is entirely after the change
+{"p95": 0.004750000000000001, "rps": 37.547368421052624, "err": NaN, "thr": 0.0, "cpu95": 0.026520432105274973, "rst": 0.0}
+metric                       before        after
+requests/s                 35.30496     37.54737
+p95 latency (s)             0.00475      0.00475
+error ratio                     nan          nan
+cpu throttled ratio         0.00000      0.00000
+cpu usage p95 (cores)       0.02433      0.02652
+restarts (5m)               0.00000      0.00000
+requested USD/hour          0.09600      0.04800   ESTIMATE (flag prices, requests x replicas)
+cost per 1k requests (before): 0.00075532 USD  ESTIMATE
+cost per 1k requests (after): 0.00035511 USD  ESTIMATE
+PASS  traffic is comparable (rps within 25 percent)
+PASS  p95 latency did not regress (<= max(1.5x, +5 ms))
+PASS  error ratio did not increase
+PASS  throttling did not increase by more than 2 points
+PASS  no restarts after the change
+== 4. a rollback driven by the REAL latency metric (threshold made absurdly tight on purpose)
+{"allowed":true,"applied":true,"degradedReasons":["SLObreached"],"healthy":false,"mode":"execute","reasons":null,"rolledBack":true}
+PASS  the real-latency SLO query breached and the change was rolled back
+PASS  the previous requests are back
+
+RESULT: 11 passed, 0 failed
+exit=0
+{"time":"2026-11-10T15:41:57.4232253Z","type":"applied","actor":"<workstation-user>","recommendationId":"964d6ca20964cb3d","target":"lab/Deployment/shop","details":{"approvedBy":"<owner>","cpu":0.125,"cpuPotentialMonthlyUSD":2.82875,"memory":33554432,"memoryPotentialMonthlyUSD":0.09125,"previous":{"app":{"cpuRequest":"250m","cpuLimit":"1","memRequest":"64Mi","memLimit":"256Mi"}}}}
+{"time":"2026-11-10T15:41:58.60304Z","type":"degraded","actor":"<workstation-user>","recommendationId":"964d6ca20964cb3d","target":"lab/Deployment/shop","details":{"reasons":["SLO breached"]}}
+{"time":"2026-11-10T15:41:59.5097765Z","type":"rolled_back","actor":"<workstation-user>","recommendationId":"964d6ca20964cb3d","target":"lab/Deployment/shop","details":{"reasons":["SLO breached"],"restored":{"app":{"cpuRequest":"250m","cpuLimit":"1","memRequest":"64Mi","memLimit":"256Mi"}},"verified":true}}
+
+## read-only hack/cloud-validate.sh report
+# Read-only validation of gke_<project>_us-central1-a_kubecost-validate
+
+Run at 20261110T152900Z UTC by <workstation-user>. Nothing was changed in the cluster.
+
+## Cluster
+- server version: v1.36.4-gke.2377000
+- nodes: 2; provider id example: gce://<project>/us-central1-a/gke-kubecost-validate-default-pool-e7d77ff4-5d7k; cloud detected: gcp
+PASS  the cluster answers
+
+## Prerequisites
+PASS  Prometheus is reachable at http://localhost:9090
+PASS  cAdvisor CPU series exist for the container
+PASS  cAdvisor memory series exist
+PASS  kube-state-metrics series exist
+- samples of history (30d, scrape-interval dependent): 111
+
+## plan (production defaults: 7 days, 24 h minimum, 200 samples)
+PASS  plan produced a record
+- abstained: True | confidence: Low | samples: 101
+- CPU: Abstain current=0.125 recommended=0.125 reasons=['insufficient samples: cpu=101 memory=104, need 200']
+- Memory: Abstain current=3.35544e+07 recommended=3.35544e+07 reasons=['insufficient samples: cpu=101 memory=104, need 200']
+- risks: no recommendation: insufficient samples: cpu=101 memory=104, need 200
+
+## backtest (14 days, last 24 h held out)
+PASS  backtest ran (read it: <repo>/.cloud-evidence/backtest-gke_<project>_us-central1-a_kubecost-validate.json)
+
+## nodes (candidate analysis, nothing is drained)
+PASS  nodes report produced
+- removable candidates: None
+- stranded cpu/mem: 2.31 10.14 GiB
+
+## cost
+PASS  ESTIMATED-basis cost report produced (a model, not a bill)
+- basis: estimated | source: flag --node-hourly-usd=0.06701142
+- total: 3.216528 | reconciled: True
+- unallocated: 0
+- notes: None
+
+RESULT: 9 passed, 0 failed. Evidence file: <repo>/.cloud-evidence/gke_<project>_us-central1-a_kubecost-validate-20261110T152900Z.md
+
+## backtest grid on this run's history (100 min: 70 train, 30 held out)
+cpu train 1349 test 578 testP95 0.004206036733345167 testMax 0.004324138076445969
+  p0.90 +5% rec=0.0044285 exceed=0.000 waste=0.050
+  p0.90 +10% rec=0.00463938 exceed=0.000 waste=0.093
+  p0.90 +15% rec=0.00485026 exceed=0.000 waste=0.133
+  p0.90 +20% rec=0.00506114 exceed=0.000 waste=0.169
+  p0.90 +30% rec=0.00548291 exceed=0.000 waste=0.233
+  p0.95 +5% rec=0.0045415 exceed=0.000 waste=0.074
+  p0.95 +10% rec=0.00475776 exceed=0.000 waste=0.116
+  p0.95 +15% rec=0.00497402 exceed=0.000 waste=0.154
+  p0.95 +20% rec=0.00519029 exceed=0.000 waste=0.190
+  p0.95 +30% rec=0.00562281 exceed=0.000 waste=0.252
+  p0.99 +5% rec=0.0048031 exceed=0.000 waste=0.124
+  p0.99 +10% rec=0.00503182 exceed=0.000 waste=0.164
+  p0.99 +15% rec=0.00526054 exceed=0.000 waste=0.200
+  p0.99 +20% rec=0.00548926 exceed=0.000 waste=0.234
+  p0.99 +30% rec=0.0059467 exceed=0.000 waste=0.293
+  p1.00 +5% rec=0.00544645 exceed=0.000 waste=0.228
+  p1.00 +10% rec=0.00570581 exceed=0.000 waste=0.263
+  p1.00 +15% rec=0.00596516 exceed=0.000 waste=0.295
+  p1.00 +20% rec=0.00622452 exceed=0.000 waste=0.324
+  p1.00 +30% rec=0.00674323 exceed=0.000 waste=0.376
+memory train 1377 test 596 testP95 4648960 testMax 4911104
+  p0.90 +5% rec=4.76959e+06 exceed=0.010 waste=0.025
+  p0.90 +10% rec=4.99671e+06 exceed=0.000 waste=0.070
+  p0.90 +15% rec=5.22383e+06 exceed=0.000 waste=0.110
+  p0.90 +20% rec=5.45096e+06 exceed=0.000 waste=0.147
+  p0.90 +30% rec=5.9052e+06 exceed=0.000 waste=0.213
+  p0.95 +5% rec=4.85216e+06 exceed=0.010 waste=0.042
+  p0.95 +10% rec=5.08322e+06 exceed=0.000 waste=0.085
+  p0.95 +15% rec=5.31427e+06 exceed=0.000 waste=0.125
+  p0.95 +20% rec=5.54533e+06 exceed=0.000 waste=0.162
+  p0.95 +30% rec=6.00744e+06 exceed=0.000 waste=0.226
+  p0.99 +5% rec=4.95882e+06 exceed=0.000 waste=0.062
+  p0.99 +10% rec=5.19496e+06 exceed=0.000 waste=0.105
+  p0.99 +15% rec=5.43109e+06 exceed=0.000 waste=0.144
+  p0.99 +20% rec=5.66723e+06 exceed=0.000 waste=0.180
+  p0.99 +30% rec=6.13949e+06 exceed=0.000 waste=0.243
+  p1.00 +5% rec=5.09645e+06 exceed=0.000 waste=0.088
+  p1.00 +10% rec=5.33914e+06 exceed=0.000 waste=0.129
+  p1.00 +15% rec=5.58182e+06 exceed=0.000 waste=0.167
+  p1.00 +20% rec=5.82451e+06 exceed=0.000 waste=0.202
+  p1.00 +30% rec=6.30989e+06 exceed=0.000 waste=0.263

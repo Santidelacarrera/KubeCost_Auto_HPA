@@ -1,21 +1,30 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
+	"errors"
 	"flag"
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	metricsclient "k8s.io/metrics/pkg/client/clientset/versioned"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	v1alpha1 "github.com/santidelacarrera/kubecost_auto_hpa/operator/api/v1alpha1"
@@ -24,11 +33,14 @@ import (
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/config"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/controller"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/engine"
+	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/execute"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/execution"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/httpx"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/kubecost"
+	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/license"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/metrics"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/ownership"
+	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/recommend/promsrc"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/resmetrics"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/stability"
 	"github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/webhook"
@@ -45,9 +57,12 @@ func main() {
 	var (
 		metricsAddr, probeAddr, webhookAddr, promURL, kubecostURL, engineURL, redisAddr, redisPass string
 		redisDB                                                                                    int
-		leaderElect, spotDrain                                                                     bool
+		leaderElect, spotDrain, observeOnly, applier                                               bool
 		cpuPrice, memPrice                                                                         float64
-		drainTimeout                                                                               time.Duration
+		drainTimeout, applierMaxObserve                                                            time.Duration
+		applierPolicy, auditURL, auditTokenFile, auditCAFile                                       string
+		licenseFile, licensePubKey                                                                 string
+		enforceLicense                                                                             bool
 	)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "Address of the metrics endpoint.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "Address of the probe endpoint.")
@@ -61,6 +76,16 @@ func main() {
 	flag.IntVar(&redisDB, "redis-db", 0, "Redis database.")
 	flag.Float64Var(&cpuPrice, "cpu-price-per-core-hour", 0.031, "Default CPU price (USD/core-hour).")
 	flag.Float64Var(&memPrice, "mem-price-per-gib-hour", 0.004, "Default memory price (USD/GiB-hour).")
+	flag.BoolVar(&observeOnly, "observe-only", false, "Compute and report every decision but write nothing to the cluster (global dry-run; also disables Spot draining).")
+	flag.BoolVar(&applier, "enable-recommendation-applier", false, "Run the controller that applies APPROVED WorkloadRecommendations under a policy ConfigMap. Off by default; honours --observe-only.")
+	flag.StringVar(&applierPolicy, "applier-policy-configmap", "", "namespace/name of the ConfigMap holding the applier policy (key policy.yaml). Required with the applier; without it nothing is applied.")
+	flag.DurationVar(&applierMaxObserve, "applier-max-observe", 15*time.Minute, "Upper bound for the post-change observation window.")
+	flag.StringVar(&auditURL, "audit-url", envOr("AUDIT_URL", ""), "Also POST every applier audit event as JSON to this append-only collector (https). Empty: Kubernetes Events only.")
+	flag.StringVar(&auditTokenFile, "audit-token-file", "", "File with a bearer token for --audit-url.")
+	flag.StringVar(&auditCAFile, "audit-ca-file", "", "PEM CA bundle trusted for --audit-url in addition to the system roots (a collector with a private CA).")
+	flag.StringVar(&licenseFile, "license-file", "", "Signed licence file (docs/COMMERCIAL.md). Verified offline; nothing is sent anywhere.")
+	flag.StringVar(&licensePubKey, "license-public-key-file", "", "Public key (PEM) that the licence must be signed with.")
+	flag.BoolVar(&enforceLicense, "enforce-license", false, "Apply the licence tier to the operating mode: starter = observe-only, professional = apply with human approval, enterprise = automation allowed. Off by default: the licence is then only reported. A missing, invalid or expired licence under enforcement means observe-only.")
 	flag.BoolVar(&spotDrain, "enable-spot-drain", false, "Cordon/drain Spot nodes with interruption signals.")
 	flag.DurationVar(&drainTimeout, "drain-timeout", 2*time.Minute, "Maximum time to drain a node.")
 	var promHTTP, kcHTTP, engHTTP, redisTLS httpx.Options
@@ -94,6 +119,30 @@ func main() {
 	registerBuildInfo()
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 	log := ctrl.Log.WithName("setup")
+	lic := resolveLicense(licenseFile, licensePubKey, enforceLicense, license.Requested{ObserveOnly: observeOnly, Applier: applier}, func() int {
+		// a direct, one-off count: the manager's cache does not exist yet. Unknown (0) is not checked against the limit.
+		c, err := kubernetes.NewForConfig(ctrl.GetConfigOrDie())
+		if err != nil {
+			return 0
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		nl, err := c.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+		if err != nil {
+			return 0
+		}
+		return len(nl.Items)
+	}, time.Now())
+	registerLicenseInfo(lic)
+	observeOnly, applier = lic.Effective.ObserveOnly, lic.Effective.Applier
+	log.Info("licence", "tier", lic.Tier, "enforced", lic.Enforced, "problem", lic.Problem)
+	for _, why := range lic.Effective.Reasons {
+		log.Info("licence enforcement: " + why)
+	}
+	if observeOnly {
+		log.Info("observe-only mode: decisions are reported, nothing is written to the cluster; Spot draining is disabled")
+		spotDrain = false
+	}
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
@@ -147,15 +196,16 @@ func main() {
 	}
 
 	if err := (&controller.KubeCostHPAReconciler{
-		Client:    mgr.GetClient(),
-		Resizer:   &actuator.Resizer{Client: cs},
-		Metrics:   prom,
-		Spend:     spend,
-		Engine:    eng,
-		Store:     store,
-		Recorder:  mgr.GetEventRecorderFor("kubecost-auto-hpa"),
-		Defaults:  config.Defaults{CPUPricePerCoreHour: cpuPrice, MemPricePerGiBHour: memPrice},
-		Stability: stability.NewController(stability.DefaultConfig()),
+		Client:      mgr.GetClient(),
+		ObserveOnly: observeOnly,
+		Resizer:     &actuator.Resizer{Client: cs},
+		Metrics:     prom,
+		Spend:       spend,
+		Engine:      eng,
+		Store:       store,
+		Recorder:    mgr.GetEventRecorderFor("kubecost-auto-hpa"),
+		Defaults:    config.Defaults{CPUPricePerCoreHour: cpuPrice, MemPricePerGiBHour: memPrice},
+		Stability:   stability.NewController(stability.DefaultConfig()),
 	}).SetupWithManager(mgr); err != nil {
 		log.Error(err, "unable to create KubeCostHPA controller")
 		os.Exit(1)
@@ -186,25 +236,92 @@ func main() {
 				os.Exit(1)
 			}
 			if err := (&controller.KubeCostAutoscalerReconciler{
-				Client:    mgr.GetClient(),
-				Scheme:    mgr.GetScheme(),
-				Cost:      kcClient,
-				Resources: &resmetrics.Client{Metrics: metricsCS, Discovery: cs.Discovery()},
-				Scaler:    &actuator.DeploymentScaler{Client: cs},
-				Fallback:  &ownership.Fallback{Client: mgr.GetClient(), Scheme: mgr.GetScheme()},
-				Recorder:  mgr.GetEventRecorderFor("kubecost-autoscaler"),
+				Client:      mgr.GetClient(),
+				ObserveOnly: observeOnly,
+				Scheme:      mgr.GetScheme(),
+				Cost:        kcClient,
+				Resources:   &resmetrics.Client{Metrics: metricsCS, Discovery: cs.Discovery()},
+				Scaler:      &actuator.DeploymentScaler{Client: cs},
+				Fallback:    &ownership.Fallback{Client: mgr.GetClient(), Scheme: mgr.GetScheme()},
+				Recorder:    mgr.GetEventRecorderFor("kubecost-autoscaler"),
 			}).SetupWithManager(mgr); err != nil {
 				log.Error(err, "unable to create KubeCostAutoscaler controller")
 				os.Exit(1)
 			}
 		}
 	}
+	if applier {
+		ns, name, ok := strings.Cut(applierPolicy, "/")
+		if !ok || ns == "" || name == "" {
+			log.Error(errors.New("--applier-policy-configmap must be namespace/name"), "the recommendation applier needs a policy ConfigMap")
+			os.Exit(1)
+		}
+		dyn, err := dynamic.NewForConfig(mgr.GetConfig())
+		if err != nil {
+			log.Error(err, "unable to create the dynamic client")
+			os.Exit(1)
+		}
+		var extra execute.Sink
+		if auditURL != "" {
+			if !strings.HasPrefix(auditURL, "https://") {
+				log.Error(errors.New("--audit-url must be https"), "refusing to ship audit events in clear text")
+				os.Exit(1)
+			}
+			tok := ""
+			if auditTokenFile != "" {
+				b, err := os.ReadFile(auditTokenFile)
+				if err != nil {
+					log.Error(err, "cannot read --audit-token-file")
+					os.Exit(1)
+				}
+				tok = strings.TrimSpace(string(b))
+			}
+			hc, err := execute.AuditHTTPClient(auditCAFile)
+			if err != nil {
+				log.Error(err, "cannot load --audit-ca-file")
+				os.Exit(1)
+			}
+			hs := execute.NewHTTPSink(auditURL, tok, hc)
+			// a long-running operator must not learn of lost audit events only at shutdown: log each, and export both counts
+			hs.OnDrop = func(reason string) {
+				log.Error(nil, "an audit event was NOT delivered to --audit-url", "reason", reason)
+			}
+			ctrlmetrics.Registry.MustRegister(
+				prometheus.NewCounterFunc(prometheus.CounterOpts{Name: "kubecost_audit_events_not_delivered_total",
+					Help: "Audit events given up by the --audit-url sender (queue full or retry budget exhausted)."}, func() float64 { return float64(hs.Dropped()) }),
+				prometheus.NewCounterFunc(prometheus.CounterOpts{Name: "kubecost_audit_events_delivered_total",
+					Help: "Audit events the --audit-url collector accepted."}, func() float64 { return float64(hs.Delivered()) }))
+			extra = hs
+			_ = mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
+				<-ctx.Done()
+				if err := hs.Close(); err != nil {
+					log.Error(err, "audit shipping")
+				}
+				return nil
+			}))
+		}
+		if err := (&controller.RecommendationApplier{
+			AuditExtra: extra,
+			Client:     mgr.GetClient(), APIReader: mgr.GetAPIReader(), KC: cs, Dyn: dyn, Recorder: mgr.GetEventRecorderFor("kubecost-recommendation-applier"),
+			PolicyNamespace: ns, PolicyName: name, ObserveOnly: observeOnly, MaxObserve: applierMaxObserve, MaxRollout: applierMaxObserve,
+			ForceApproval: lic.Effective.ForceApproval,
+			Prom:          &promsrc.Client{BaseURL: promURL, HTTP: mustClient("prometheus", promHTTP, 10*time.Second)},
+		}).SetupWithManager(mgr); err != nil {
+			log.Error(err, "unable to create the recommendation applier")
+			os.Exit(1)
+		}
+		log.Info("recommendation applier enabled", "policy", applierPolicy, "observeOnly", observeOnly)
+	}
 	_ = mgr.AddHealthzCheck("healthz", healthz.Ping)
 	_ = mgr.AddReadyzCheck("readyz", healthz.Ping)
 
 	if webhookAddr != "" {
 		mux := http.NewServeMux()
-		mux.Handle("/mutate-v1-pod", &webhook.PodMutator{DefaultExecutionMode: execution.ModeActive})
+		whMode := execution.ModeActive
+		if observeOnly { // observe-only covers every writer, the admission webhook included
+			whMode = execution.ModeObserve
+		}
+		mux.Handle("/mutate-v1-pod", &webhook.PodMutator{DefaultExecutionMode: whMode})
 		whSrv := &http.Server{Addr: webhookAddr, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 		go func() {
 			log.Info("starting pod mutating admission webhook server", "addr", webhookAddr)

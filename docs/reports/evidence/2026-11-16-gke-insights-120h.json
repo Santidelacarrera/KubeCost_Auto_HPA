@@ -1,0 +1,100 @@
+{
+  "ID": "32a831d04dd3c934",
+  "Cluster": "gke_project-543a26ad-5f2e-4083-840_us-central1-a_kubecost-soak",
+  "Namespace": "lab",
+  "Workload": "shop",
+  "Kind": "Deployment",
+  "Container": "app",
+  "WindowStart": "2026-11-11T03:27:37.6214047Z",
+  "WindowEnd": "2026-11-16T03:27:37.6214047Z",
+  "Samples": 5764,
+  "Confidence": "Medium",
+  "CPU": {
+    "Action": "Decrease",
+    "Current": 0.5,
+    "Recommended": 0.25,
+    "Limit": 1,
+    "Stats": {
+      "N": 5764,
+      "P50": 0.0021082060104370996,
+      "P90": 0.017913254418567903,
+      "P95": 0.019000428086321502,
+      "P99": 0.021595591341825635,
+      "Max": 0.024607096584537285,
+      "Mean": 0.0058843424293558095,
+      "StdDev": 0.007042670213614127,
+      "CV": 1.19684914638544
+    },
+    "Formula": "p95 x (1+0.15) = 0.0190 x 1.15 = 0.0300 cores (rounded up to 10m), clamped to [0.010,64.000]",
+    "Reasons": [
+      "reduction capped at 50% of the current request per step"
+    ],
+    "PotentialMonthlyUSD": 3.9806151749999996
+  },
+  "Memory": {
+    "Action": "Decrease",
+    "Current": 134217728,
+    "Recommended": 67108864,
+    "Limit": 268435456,
+    "Stats": {
+      "N": 5764,
+      "P50": 4263936,
+      "P90": 6782976,
+      "P95": 6840320,
+      "P99": 7147520,
+      "Max": 7393280,
+      "Mean": 4969217.59888966,
+      "StdDev": 1395683.8974903373,
+      "CV": 0.2808659250104471
+    },
+    "Formula": "p99 x (1+0.20) = 7147520 x 1.20 = 33554432 bytes, clamped to [33554432,274877906944]",
+    "Reasons": [
+      "reduction capped at 50% of the current request per step"
+    ],
+    "PotentialMonthlyUSD": 0.13338605625
+  },
+  "Risks": [
+    "the window (120h0m0s) is shorter than 7 days: weekly seasonality is not observed",
+    "memory reductions can cause OOMKilled; apply behind a canary and watch restarts"
+  ],
+  "Conditions": [
+    "explicit policy authorisation, previous state recorded, rollback condition defined (not provided by this package)"
+  ],
+  "Config": {
+    "MinSamples": 200,
+    "MinWindow": 86400000000000,
+    "MaxStale": 900000000000,
+    "Now": "2026-11-16T03:27:37.6214047Z",
+    "CPUPercentile": 0.95,
+    "MemPercentile": 0.99,
+    "CPUHeadroom": 0.15,
+    "MemHeadroom": 0.2,
+    "MinCPU": 0.01,
+    "MaxCPU": 64,
+    "MinMem": 33554432,
+    "MaxMem": 274877906944,
+    "ThrottleVeto": 0.05,
+    "MaxDecreaseFraction": 0.5,
+    "Tolerance": 0.1,
+    "CPUPricePerCoreHour": 0.02181159,
+    "MemPricePerGiBHour": 0.00292353
+  },
+  "GeneratedAt": "2026-11-16T03:27:37.6214047Z",
+  "Abstained": false,
+  "Insights": {
+    "CPUTrend": {
+      "DailyP95": [
+        0.02159613227602551,
+        0.018447357075982242,
+        0.018961155473652652,
+        0.0024441480335665004,
+        0.002515352089239848
+      ],
+      "SlopePerDay": -0.005040431687805274,
+      "GrowthPerWeek": -1.9126328866140978,
+      "Projected": 0,
+      "Horizon": 1209600000000000
+    },
+    "MemLimitUse": 0.0275421142578125
+  }
+}

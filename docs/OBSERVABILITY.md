@@ -46,3 +46,20 @@ These are targets to validate against real data. None has been measured.
 | 4 | KubeCost answers: p95 under 5 s | `histogram_quantile(0.95, ...kubecost_request_duration_seconds_bucket{outcome="ok"})` |
 | 5 | Recovery is fast: p95 under 5 minutes | `histogram_quantile(0.95, ...recovery_duration_seconds_bucket)` |
 | 6 | Workload SLO is not degraded: p99 latency and error rate no worse than the same workload under a native HPA by more than a margin to be set from the real benchmark | needs `docs/BENCHMARK_PROCEDURE.md`; **no value is claimed** |
+
+## Recommendation outcomes (ninth pass)
+
+The operator exports, computed at scrape time from the `WorkloadRecommendation` objects (so they survive restarts and agree with `kubectl get wrec`):
+
+| Metric | Meaning |
+|---|---|
+| `kubecost_recommendations{phase}` | objects per phase (Pending, DryRun, Applying, Verified, RolledBack, Denied, Failed), zeros included |
+| `kubecost_recommendation_acceptance_ratio` | applied / (applied + denied); absent until something was decided |
+| `kubecost_recommendation_rollback_ratio` | RolledBack / (Verified + RolledBack); absent until something finished |
+| `kubecost_recommendation_kept_request_reduction{resource="cpu_cores"\|"memory_bytes"}` | request reduction kept by verified decreases, per pod template (a spec change, not a measured bill) |
+| `kubecost_recommendation_kept_estimated_monthly_usd` | the ESTIMATE for the same changes (requests delta x supplied prices); not money |
+| `kubecost_recommendation_outcome_collect_success` | 0 when the objects could not be listed (the others are then absent, never zero) |
+
+CLI-only users (observe-only, the default) get the same from the audit trail: `rightsize report --audit-file a.jsonl --format prometheus` writes `kubecost_audit_*` gauges in the text
+exposition format for the node_exporter textfile collector or a Pushgateway. The chart's dashboard has a "Recommendation outcomes" row.
+

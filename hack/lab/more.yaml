@@ -1,0 +1,91 @@
+# More lab workloads for hack/lab-e2e2.sh. All over-provisioned busy loops (about 0.1 CPU used, asks 500m / 128Mi (small on purpose: a 5 GB lab node must schedule all of them)).
+# The VPA object only needs the VerticalPodAutoscaler CRD: no VPA controller runs, the tool just has to SEE the object.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata: {name: store, namespace: lab}
+spec:
+  serviceName: store
+  replicas: 2
+  selector: {matchLabels: {app: store}}
+  template:
+    metadata: {labels: {app: store}}
+    spec:
+      containers:
+      - name: app
+        image: busybox:1.36
+        command: ["sh", "-c", "while true; do i=0; while [ $i -lt 30000 ]; do i=$((i+1)); done; sleep 0.2; done"]
+        resources:
+          requests: {cpu: 500m, memory: 128Mi}
+          limits: {cpu: "1", memory: 256Mi}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: hpa-app, namespace: lab}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: hpa-app}}
+  template:
+    metadata: {labels: {app: hpa-app}}
+    spec:
+      containers:
+      - name: app
+        image: busybox:1.36
+        command: ["sh", "-c", "while true; do i=0; while [ $i -lt 30000 ]; do i=$((i+1)); done; sleep 0.2; done"]
+        resources:
+          requests: {cpu: 500m, memory: 128Mi}
+          limits: {cpu: "1", memory: 256Mi}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: {name: hpa-app, namespace: lab}
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: hpa-app}
+  minReplicas: 1
+  maxReplicas: 2
+  metrics:
+  - type: Resource
+    resource: {name: cpu, target: {type: Utilization, averageUtilization: 80}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: vpa-app, namespace: lab}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: vpa-app}}
+  template:
+    metadata: {labels: {app: vpa-app}}
+    spec:
+      containers:
+      - name: app
+        image: busybox:1.36
+        command: ["sh", "-c", "while true; do i=0; while [ $i -lt 30000 ]; do i=$((i+1)); done; sleep 0.2; done"]
+        resources:
+          requests: {cpu: 500m, memory: 128Mi}
+          limits: {cpu: "1", memory: 256Mi}
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata: {name: vpa-app, namespace: lab}
+spec:
+  targetRef: {apiVersion: apps/v1, kind: Deployment, name: vpa-app}
+  updatePolicy: {updateMode: "Auto"}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gitops-app
+  namespace: lab
+  annotations: {argocd.argoproj.io/tracking-id: "lab:apps/Deployment:lab/gitops-app"}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: gitops-app}}
+  template:
+    metadata: {labels: {app: gitops-app}}
+    spec:
+      containers:
+      - name: app
+        image: busybox:1.36
+        command: ["sh", "-c", "while true; do i=0; while [ $i -lt 30000 ]; do i=$((i+1)); done; sleep 0.2; done"]
+        resources:
+          requests: {cpu: 500m, memory: 128Mi}
+          limits: {cpu: "1", memory: 256Mi}

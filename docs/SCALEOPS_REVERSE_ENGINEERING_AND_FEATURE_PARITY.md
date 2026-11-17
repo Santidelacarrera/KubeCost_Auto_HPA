@@ -1,10 +1,17 @@
 # ScaleOps Reverse Engineering & Feature Parity Architecture
 
+<!-- status-notice -->
+> **The parity claim in this document is not supported (notice added 2026-11-15).** "100% feature parity" and "superiority"
+> were asserted from a reading of ScaleOps' public material, not from running ScaleOps. No comparison with ScaleOps has been
+> run ([BENCHMARKING.md](BENCHMARKING.md)). Several features this document lists as delivered are experimental, or exist only
+> as a schema field or as sample data in the console: see [STATUS.md](STATUS.md), which is the source of truth. This file is
+> kept as design notes; treat every status line in it as a goal.
+
 **Classification:** Technical Whitepaper & Competitive Engineering Analysis  
 **Methodology:** Reverse Engineer Anything (REA Framework – [`morluto/rea`](https://github.com/morluto/rea))  
 **Target Platform:** [ScaleOps](https://scaleops.com/) (Fully Automated Kubernetes Resource Management)  
 **Deliverable System:** KubeCost Auto-HPA (v0.1.0 Sovereign FinOps Platform)  
-**Status:** 100% Feature Parity Achieved with Air-Gapped Architectural Superiority  
+**Status:** design notes. The parity claim was never verified (see the notice above)  
 
 ---
 

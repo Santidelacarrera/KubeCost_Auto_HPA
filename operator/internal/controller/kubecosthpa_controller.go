@@ -57,15 +57,18 @@ const (
 // its pods in place.
 type KubeCostHPAReconciler struct {
 	client.Client
-	Resizer   *actuator.Resizer
-	Metrics   metrics.Source
-	Spend     metrics.SpendSource // optional
-	Engine    engine.Evaluator
-	Store     cache.Store
-	Recorder  record.EventRecorder
-	Defaults  config.Defaults
-	Stability *stability.Controller
-	Now       func() time.Time
+	// ObserveOnly is the operator-wide observe-only switch (--observe-only): every resource behaves as
+	// if spec.dryRun were set, whatever the spec says. It can only add safety, never remove it.
+	ObserveOnly bool
+	Resizer     *actuator.Resizer
+	Metrics     metrics.Source
+	Spend       metrics.SpendSource // optional
+	Engine      engine.Evaluator
+	Store       cache.Store
+	Recorder    record.EventRecorder
+	Defaults    config.Defaults
+	Stability   *stability.Controller
+	Now         func() time.Time
 }
 
 // storedDecision is the temporary scaling state kept in the cache.
@@ -206,7 +209,7 @@ func (r *KubeCostHPAReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	)
 
 	// --- converge existing/new pods to the desired values ---
-	if execMode.AllowsKubernetesWrites() && (hpa.Status.DesiredCPUMillicores != 0 || (hpa.Spec.Memory != nil && hpa.Status.DesiredMemoryMiB != 0)) {
+	if !r.dryRun(&hpa) && execMode.AllowsKubernetesWrites() && (hpa.Status.DesiredCPUMillicores != 0 || (hpa.Spec.Memory != nil && hpa.Status.DesiredMemoryMiB != 0)) {
 		r.converge(ctx, &hpa, pods, cname, actuator.Target{CPUMillis: desired, MemoryBytes: memBytes(hpa.Spec.Memory, desiredMem)})
 	}
 
@@ -395,7 +398,7 @@ func (r *KubeCostHPAReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		})
 		_ = arb
 		switch {
-		case hpa.Spec.DryRun:
+		case r.dryRun(&hpa):
 			hpa.Status.LastReason = "dry-run: would " + summary
 		case !execMode.AllowsKubernetesWrites():
 			hpa.Status.LastReason = strings.ToLower(string(execMode)) + ": would " + summary
@@ -620,7 +623,7 @@ func (r *KubeCostHPAReconciler) finalize(ctx context.Context, hpa *v1alpha1.Kube
 		return ctrl.Result{}, client.IgnoreNotFound(r.Update(ctx, hpa))
 	}
 	touched := hpa.Status.DesiredCPUMillicores != 0 || hpa.Status.DesiredMemoryMiB != 0
-	if !touched || hpa.Spec.DryRun {
+	if !touched || r.dryRun(hpa) {
 		return release()
 	}
 	lg := log.FromContext(ctx)
@@ -664,4 +667,10 @@ func (r *KubeCostHPAReconciler) finalize(ctx context.Context, hpa *v1alpha1.Kube
 	}
 	r.event(hpa, corev1.EventTypeNormal, "Restored", "pod resources restored to the Deployment template")
 	return release()
+}
+
+// dryRun reports whether nothing may be written for this resource: its own spec.dryRun or the
+// operator-wide observe-only mode.
+func (r *KubeCostHPAReconciler) dryRun(hpa *v1alpha1.KubeCostHPA) bool {
+	return r.ObserveOnly || hpa.Spec.DryRun
 }

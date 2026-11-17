@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -487,6 +488,18 @@ func TestLegacyHorizontalScalingYieldsToAKubeCostAutoscaler(t *testing.T) {
 	}
 	if c := meta.FindStatusCondition(e2.hpa(t).Status.Conditions, "ReplicaOwnership"); c == nil || c.Status != metav1.ConditionTrue {
 		t.Fatalf("%+v", c)
+	}
+}
+
+func TestObserveOnlyOperatorDoesNotTouchPodsEvenWithoutSpecDryRun(t *testing.T) {
+	e := newEnv(newHPA(), newDeployment(), newPod("api-1"))
+	e.r.ObserveOnly = true
+	e.r.Reconcile(context.Background(), req)
+	if e.podCPU(t, "api-1") != 1000 || e.hpa(t).Status.DesiredCPUMillicores != 0 {
+		t.Fatal("observe-only modified state")
+	}
+	if got := e.hpa(t).Status.LastReason; !strings.HasPrefix(got, "dry-run") {
+		t.Fatalf("expected a would-do reason, got %q", got)
 	}
 }
 

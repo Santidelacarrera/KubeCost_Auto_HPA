@@ -1,0 +1,84 @@
+# Real Kubecost 2.8.7 (chart kubecost/cost-analyzer 2.8.7, bundled Prometheus) and real OpenCost 1.121.3 on minikube profile kubecost-real, Kubernetes 1.33.4, 2026-11-10 UTC
+# Default prices for a laptop VM: these are NOT bills.
+
+## hack/lab-kubecost.sh (first complete run, before the client fix)
+== a workload to be priced
+PASS  the workload runs
+== Kubecost 2.8.7 (free tier; forecasting, Grafana and network costs off; 2.9.x refuses to install without a federated object store, it only prepares the move to 3.0 to fit the laptop VM)
+PASS  helm install of the real Kubecost chart succeeded
+Kubecost image: icr.io/kubecost/cost-model:2.8.7 icr.io/kubecost/frontend:2.8.7 icr.io/kubecost/cost-model:2.8.7 icr.io/kubecost/cost-model:2.8.7
+== waiting until Kubecost has priced the workload (it needs a few scrapes and an allocation build)
+PASS  Kubecost's /model/allocation prices the workload (after 6 min)
+== the client's live contract test against it
+=== RUN   TestLiveAllocationContract
+FAIL
+FAIL	github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/kubecost	4.861s
+FAIL
+FAIL  live contract test PASSES against a real Kubecost
+RESULT: 3 passed, 1 failed
+
+## live contract test before the fix (client asked aggregate=controller)
+=== RUN   TestLiveAllocationContract
+    live_test.go:59: the documented contract did not hold against this installation: kubecost no_data: workload not present in allocation data
+--- FAIL: TestLiveAllocationContract (0.12s)
+FAIL
+FAIL	github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/kubecost	4.861s
+FAIL
+
+## after the fix: polled every ~2 min (sample line = the contract held: workload found, positive hourly cost)
+12:16 kubecost:     live_test.go:61: sample: total=0.000570 hourly=0.006840 minutes=5.0 windowEnd=2026-11-10 12:10:00 +0000 UTC age=6m2s     live_test.go:72: sample failed freshness/coverage validation (max age 5m0s): kubecost stale: sample is 6m2s old (max 5m0s) --- FAIL: TestLiveAllocationContract (2.26s) 
+12:16 opencost:     live_test.go:59: the documented contract did not hold against this installation: kubecost transient: Get "http://localhost:19091/model/allocation?accumulate=true&aggregate=cluster%2Cnamespace%2CcontrollerKind%2Ccontroller&window=1h": dial tcp [::1]:19091: connectex: No connection could be made b
+12:18 kubecost:     live_test.go:61: sample: total=0.000570 hourly=0.006840 minutes=5.0 windowEnd=2026-11-10 12:10:00 +0000 UTC age=8m28s     live_test.go:72: sample failed freshness/coverage validation (max age 5m0s): kubecost stale: sample is 8m28s old (max 5m0s) --- FAIL: TestLiveAllocationContract (0.49s) 
+12:18 opencost:     live_test.go:61: sample: total=0.001550 hourly=0.006850 minutes=13.6 windowEnd=2026-11-10 12:18:34 +0000 UTC age=1s     live_test.go:72: sample failed freshness/coverage validation (max age 5m0s): kubecost stale: allocation covers 13.6 of 60.0 window minutes --- FAIL: TestLiveAllocationContract 
+12:20 kubecost:     live_test.go:61: sample: total=0.001710 hourly=0.006840 minutes=15.0 windowEnd=2026-11-10 12:20:00 +0000 UTC age=44s     live_test.go:72: sample failed freshness/coverage validation (max age 5m0s): kubecost stale: allocation covers 15.0 of 60.0 window minutes --- FAIL: TestLiveAllocationContract
+12:20 opencost:     live_test.go:61: sample: total=0.001710 hourly=0.006840 minutes=15.0 windowEnd=2026-11-10 12:20:00 +0000 UTC age=52s     live_test.go:72: sample failed freshness/coverage validation (max age 5m0s): kubecost stale: allocation covers 15.0 of 60.0 window minutes --- FAIL: TestLiveAllocationContract
+12:22 kubecost:     live_test.go:61: sample: total=0.001710 hourly=0.006840 minutes=15.0 windowEnd=2026-11-10 12:20:00 +0000 UTC age=2m59s     live_test.go:72: sample failed freshness/coverage validation (max age 5m0s): kubecost stale: allocation covers 15.0 of 60.0 window minutes --- FAIL: TestLiveAllocationContra
+12:23 opencost:     live_test.go:61: sample: total=0.002070 hourly=0.006850 minutes=18.1 windowEnd=2026-11-10 12:23:07 +0000 UTC age=1s     live_test.go:72: sample failed freshness/coverage validation (max age 5m0s): kubecost stale: allocation covers 18.1 of 60.0 window minutes --- FAIL: TestLiveAllocationContract 
+12:25 kubecost:     live_test.go:61: sample: total=0.001710 hourly=0.006840 minutes=15.0 windowEnd=2026-11-10 12:20:00 +0000 UTC age=5m16s     live_test.go:72: sample failed freshness/coverage validation (max age 5m0s): kubecost stale: sample is 5m16s old (max 5m0s) --- FAIL: TestLiveAllocationContract (0.10s) 
+12:25 opencost:     live_test.go:61: sample: total=0.002280 hourly=0.006840 minutes=20.0 windowEnd=2026-11-10 12:25:00 +0000 UTC age=23s     live_test.go:72: sample failed freshness/coverage validation (max age 5m0s): kubecost stale: allocation covers 20.0 of 60.0 window minutes --- FAIL: TestLiveAllocationContract
+12:27 kubecost:     live_test.go:61: sample: total=0.001710 hourly=0.006840 minutes=15.0 windowEnd=2026-11-10 12:20:00 +0000 UTC age=7m32s     live_test.go:72: sample failed freshness/coverage validation (max age 5m0s): kubecost stale: sample is 7m32s old (max 5m0s) --- FAIL: TestLiveAllocationContract (0.09s) 
+12:27 opencost:     live_test.go:61: sample: total=0.002580 hourly=0.006850 minutes=22.6 windowEnd=2026-11-10 12:27:35 +0000 UTC age=1s     live_test.go:72: sample failed freshness/coverage validation (max age 5m0s): kubecost stale: allocation covers 22.6 of 60.0 window minutes --- FAIL: TestLiveAllocationContract 
+12:29 kubecost:     live_test.go:61: sample: total=0.002850 hourly=0.006840 minutes=25.0 windowEnd=2026-11-10 12:30:00 +0000 UTC age=-17s     live_test.go:72: sample failed freshness/coverage validation (max age 5m0s): kubecost stale: allocation covers 25.0 of 60.0 window minutes --- FAIL: TestLiveAllocationContrac
+12:29 opencost:     live_test.go:61: sample: total=0.002840 hourly=0.006855 minutes=24.9 windowEnd=2026-11-10 12:29:51 +0000 UTC age=1s     live_test.go:72: sample failed freshness/coverage validation (max age 5m0s): kubecost stale: allocation covers 24.9 of 60.0 window minutes --- FAIL: TestLiveAllocationContract 
+12:31 kubecost:     live_test.go:61: sample: total=0.002850 hourly=0.006840 minutes=25.0 windowEnd=2026-11-10 12:30:00 +0000 UTC age=2m0s     live_test.go:72: sample failed freshness/coverage validation (max age 5m0s): kubecost stale: allocation covers 25.0 of 60.0 window minutes --- FAIL: TestLiveAllocationContrac
+12:32 opencost:     live_test.go:61: sample: total=0.003100 hourly=0.006856 minutes=27.1 windowEnd=2026-11-10 12:32:07 +0000 UTC age=1s     live_test.go:72: sample failed freshness/coverage validation (max age 5m0s): kubecost stale: allocation covers 27.1 of 60.0 window minutes --- FAIL: TestLiveAllocationContract 
+12:34 kubecost:     live_test.go:61: sample: total=0.002850 hourly=0.006840 minutes=25.0 windowEnd=2026-11-10 12:30:00 +0000 UTC age=4m16s     live_test.go:72: sample failed freshness/coverage validation (max age 5m0s): kubecost stale: allocation covers 25.0 of 60.0 window minutes --- FAIL: TestLiveAllocationContra
+12:34 opencost:     live_test.go:61: sample: total=0.003360 hourly=0.006855 minutes=29.4 windowEnd=2026-11-10 12:34:24 +0000 UTC age=1s     live_test.go:72: sample failed freshness/coverage validation (max age 5m0s): kubecost stale: allocation covers 29.4 of 60.0 window minutes --- FAIL: TestLiveAllocationContract 
+12:36 kubecost:     live_test.go:61: sample: total=0.002850 hourly=0.006840 minutes=25.0 windowEnd=2026-11-10 12:30:00 +0000 UTC age=6m32s     live_test.go:72: sample failed freshness/coverage validation (max age 5m0s): kubecost stale: sample is 6m32s old (max 5m0s) --- FAIL: TestLiveAllocationContract (0.10s) 
+12:36 opencost:     live_test.go:61: sample: total=0.003620 hourly=0.006857 minutes=31.7 windowEnd=2026-11-10 12:36:40 +0000 UTC age=1s --- PASS: TestLiveAllocationContract (0.17s) 
+12:38 kubecost:     live_test.go:61: sample: total=0.002850 hourly=0.006840 minutes=25.0 windowEnd=2026-11-10 12:30:00 +0000 UTC age=8m48s     live_test.go:72: sample failed freshness/coverage validation (max age 5m0s): kubecost stale: sample is 8m48s old (max 5m0s) --- FAIL: TestLiveAllocationContract (0.10s) 
+12:40 kubecost:     live_test.go:61: sample: total=0.002850 hourly=0.006840 minutes=25.0 windowEnd=2026-11-10 12:30:00 +0000 UTC age=10m58s     live_test.go:72: sample failed freshness/coverage validation (max age 5m0s): kubecost stale: sample is 10m58s old (max 5m0s) --- FAIL: TestLiveAllocationContract (0.10s) 
+12:43 kubecost:     live_test.go:61: sample: total=0.002850 hourly=0.006840 minutes=25.0 windowEnd=2026-11-10 12:30:00 +0000 UTC age=13m7s     live_test.go:72: sample failed freshness/coverage validation (max age 5m0s): kubecost stale: sample is 13m7s old (max 5m0s) --- FAIL: TestLiveAllocationContract (0.18s) 
+12:45 kubecost:     live_test.go:61: sample: total=0.002850 hourly=0.006840 minutes=25.0 windowEnd=2026-11-10 12:30:00 +0000 UTC age=15m14s     live_test.go:72: sample failed freshness/coverage validation (max age 5m0s): kubecost stale: sample is 15m14s old (max 5m0s) --- FAIL: TestLiveAllocationContract (0.10s) 
+12:47 kubecost:     live_test.go:61: sample: total=0.002850 hourly=0.006840 minutes=25.0 windowEnd=2026-11-10 12:30:00 +0000 UTC age=17m25s     live_test.go:72: sample failed freshness/coverage validation (max age 5m0s): kubecost stale: sample is 17m25s old (max 5m0s) --- FAIL: TestLiveAllocationContract (0.03s) 
+12:50 kubecost:     live_test.go:61: sample: total=0.002850 hourly=0.006840 minutes=25.0 windowEnd=2026-11-10 12:30:00 +0000 UTC age=20m6s     live_test.go:72: sample failed freshness/coverage validation (max age 5m0s): kubecost stale: sample is 20m6s old (max 5m0s) --- FAIL: TestLiveAllocationContract (0.06s) 
+12:52 kubecost:     live_test.go:61: sample: total=0.002850 hourly=0.006840 minutes=25.0 windowEnd=2026-11-10 12:30:00 +0000 UTC age=22m16s     live_test.go:72: sample failed freshness/coverage validation (max age 5m0s): kubecost stale: sample is 22m16s old (max 5m0s) --- FAIL: TestLiveAllocationContract (0.03s) 
+12:54 kubecost:     live_test.go:61: sample: total=0.002850 hourly=0.006840 minutes=25.0 windowEnd=2026-11-10 12:30:00 +0000 UTC age=24m27s     live_test.go:72: sample failed freshness/coverage validation (max age 5m0s): kubecost stale: sample is 24m27s old (max 5m0s) --- FAIL: TestLiveAllocationContract (0.12s) 
+12:56 kubecost:     live_test.go:61: sample: total=0.002850 hourly=0.006840 minutes=25.0 windowEnd=2026-11-10 12:30:00 +0000 UTC age=26m37s     live_test.go:72: sample failed freshness/coverage validation (max age 5m0s): kubecost stale: sample is 26m37s old (max 5m0s) --- FAIL: TestLiveAllocationContract (0.04s) 
+12:58 kubecost:     live_test.go:61: sample: total=0.002850 hourly=0.006840 minutes=25.0 windowEnd=2026-11-10 12:30:00 +0000 UTC age=28m46s     live_test.go:72: sample failed freshness/coverage validation (max age 5m0s): kubecost stale: sample is 28m46s old (max 5m0s) --- FAIL: TestLiveAllocationContract (0.04s) 
+13:00 kubecost:     live_test.go:61: sample: total=0.002850 hourly=0.006840 minutes=25.0 windowEnd=2026-11-10 12:30:00 +0000 UTC age=30m56s     live_test.go:72: sample failed freshness/coverage validation (max age 5m0s): kubecost stale: sample is 30m56s old (max 5m0s) --- FAIL: TestLiveAllocationContract (0.05s) 
+13:03 kubecost:     live_test.go:59: the documented contract did not hold against this installation: kubecost no_data: workload not present in allocation data --- FAIL: TestLiveAllocationContract (0.03s) 
+13:05 kubecost:     live_test.go:59: the documented contract did not hold against this installation: kubecost no_data: workload not present in allocation data --- FAIL: TestLiveAllocationContract (0.05s) 
+13:07 kubecost:     live_test.go:59: the documented contract did not hold against this installation: kubecost no_data: workload not present in allocation data --- FAIL: TestLiveAllocationContract (0.04s) 
+13:09 kubecost:     live_test.go:59: the documented contract did not hold against this installation: kubecost no_data: workload not present in allocation data --- FAIL: TestLiveAllocationContract (0.02s) 
+FINAL kubecost=0 opencost=1
+
+## Kubecost aggregator cycle (last derivation 12:29; ingestion started 12:29:37 and did not finish by 13:45)
+2026-11-10T12:17:53.642545548Z INF Ingestion finished
+2026-11-10T12:18:11.417248392Z INF Derivation finished
+2026-11-10T12:18:32.936966618Z INF Copy finished
+2026-11-10T12:18:33.483667499Z INF Ingestion starting
+2026-11-10T12:28:49.002389309Z INF Ingestion finished
+2026-11-10T12:29:07.764932051Z INF Derivation finished
+2026-11-10T12:29:36.952832316Z INF Copy finished
+2026-11-10T12:29:37.415730774Z INF Ingestion starting
+checked at 13:45 UTC
+kube-system   etcd-kubecost-real                            1/1     Running   0          106m
+kube-system   kube-apiserver-kubecost-real                  1/1     Running   0          106m
+kube-system   kube-controller-manager-kubecost-real         1/1     Running   0          106m
+kube-system   kube-scheduler-kubecost-real                  1/1     Running   0          106m
+kubecost      kubecost-cost-analyzer-55cf87595b-sl4zs       4/4     Running   0          104m
+kubecost      kubecost-prometheus-server-5d9785f7cd-dw985   1/1     Running   0          104m
+opencost      opencost-7554cc8569-7hfrt                     2/2     Running   0          90m
+shop          payments-api-548c6d98f4-nvc7w                 1/1     Running   0          106m
+shop          payments-api-548c6d98f4-w4t7m                 1/1     Running   0          106m

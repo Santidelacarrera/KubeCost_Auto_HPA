@@ -1,0 +1,31 @@
+# Lab workload: deliberately over-provisioned (asks 1 CPU / 1Gi, uses ~0.1 CPU / ~2MiB).
+# Creating /tmp/crash inside a container makes it exit, which is the lab's way to inject a real container restart.
+apiVersion: v1
+kind: Namespace
+metadata: {name: lab}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: api, namespace: lab}
+spec:
+  replicas: 2
+  selector: {matchLabels: {app: api}}
+  template:
+    metadata: {labels: {app: api}}
+    spec:
+      containers:
+      - name: app
+        image: busybox:1.36
+        command:
+        - sh
+        - -c
+        - |
+          while true; do
+            i=0; while [ $i -lt 30000 ]; do i=$((i+1)); done
+            [ -f /tmp/crash ] && exit 1
+            sleep 0.2
+          done
+        readinessProbe: {exec: {command: ["true"]}, periodSeconds: 5}
+        resources:
+          requests: {cpu: "1", memory: 1Gi}
+          limits: {cpu: "2", memory: 1Gi}

@@ -65,9 +65,12 @@ type KubeCostAutoscalerReconciler struct {
 	Resources resmetrics.Reader
 	Scaler    actuator.ReplicaScaler
 	Fallback  *ownership.Fallback
-	Recorder  record.EventRecorder
-	Now       func() time.Time
-	Jitter    func() float64
+	// ObserveOnly is the operator-wide observe-only switch (--observe-only): decisions are computed
+	// and reported but nothing is written, whatever each spec says.
+	ObserveOnly bool
+	Recorder    record.EventRecorder
+	Now         func() time.Time
+	Jitter      func() float64
 
 	mu        sync.Mutex
 	costCache map[types.NamespacedName]cachedCost
@@ -133,6 +136,9 @@ func (r *KubeCostAutoscalerReconciler) reconcile(ctx context.Context, req ctrl.R
 		run.cond(v1alpha1.ConditionScalingActive, false, "InvalidSpec", "the spec is invalid; no scaling is performed")
 		st.ScalingOwner = v1alpha1.OwnerNone
 		return ctrl.Result{}, r.persist(ctx, &a, st)
+	}
+	if r.ObserveOnly {
+		s.DryRun, s.ObserveOnly = true, true
 	}
 	if a.Annotations[v1alpha1.AnnotationPause] == "true" {
 		s.DryRun, s.Paused = true, true
@@ -589,6 +595,9 @@ func (rs *runState) apply(ctx context.Context, dec policy.Decision, current int3
 	}
 	if rs.s.DryRun {
 		prefix := "dry-run"
+		if rs.s.ObserveOnly {
+			prefix = "observe-only"
+		}
 		if rs.s.Paused {
 			prefix = "paused"
 		}
@@ -648,6 +657,8 @@ func (rs *runState) setHealthConditions(derr, cerr error, dec policy.Decision, s
 		// condition already set by apply()
 	case rs.s.Paused:
 		rs.cond(v1alpha1.ConditionScalingActive, false, "Paused", "paused by the "+v1alpha1.AnnotationPause+" annotation: decisions are reported but nothing is written")
+	case rs.s.ObserveOnly:
+		rs.cond(v1alpha1.ConditionScalingActive, false, "ObserveOnly", "operator is in observe-only mode (--observe-only): decisions are reported but nothing is written")
 	case rs.s.DryRun:
 		rs.cond(v1alpha1.ConditionScalingActive, false, "DryRun", "dry-run: decisions are reported but not applied")
 	default:

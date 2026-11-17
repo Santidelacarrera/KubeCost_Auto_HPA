@@ -152,7 +152,7 @@ weights* (`spotMultiplier`, `onDemandMultiplier`), never capacity.
 per-replica figure is a blend of two sizes: the sample is marked `stable=false` and treated as **unavailable** for
 cost decisions (fail closed). The estimate also assumes homogeneous replicas; it is *an estimate, not a bill*.
 
-**API contract used** — `GET {base}/model/allocation?window=<w>&aggregate=controller&accumulate=true`:
+**API contract used** — `GET {base}/model/allocation?window=<w>&aggregate=cluster,namespace,controllerKind,controller&accumulate=true`:
 
 ```json
 {"code":200,"status":"success","data":[{"<key>":{
@@ -165,6 +165,14 @@ cost decisions (fail closed). The estimate also assumes homogeneous replicas; it
   against a live KubeCost installation**, and `docs.kubecost.com` was not reachable when this was written.
   Note that the OpenAPI file types `properties` as `map<string,string>` although the source emits arrays/objects
   (`services`, `labels`); the client therefore decodes `properties` leniently and reads only string fields.
+* **Checked against a live Kubecost 2.8.7 on 2026-11-10** (`hack/lab-kubecost.sh`, minikube, default prices). That check found a
+  real defect, now fixed: asked for `aggregate=controller`, Kubecost returns only the `controller` property (no namespace,
+  kind or cluster). The workload was then "not present" (fail closed), and two same-named controllers in different
+  namespaces would have been merged into one cost. The client now aggregates by `cluster,namespace,controllerKind,controller`.
+  Both real answers are kept as fixtures (`internal/kubecost/testdata/kubecost_2.8.7_*.json`). Kubecost 2.9.x could not be
+  tested: its chart refuses to install without a federated object store (it only prepares the move to 3.0).
+  On that lab install Kubecost published data in batches and then stopped publishing (docs/LAB.md result 11), so with the
+  default `maxMetricAge` (5m) the operator would freeze on stale cost data. Measure your Kubecost's refresh cadence first.
 * The workload is matched on `properties.namespace`, `properties.controller` (+ `controllerKind` when present,
   + `cluster` when configured). Several matches → `ambiguous` (fail closed). The aggregate *key* format is not relied on.
 * Every field used is a nullable pointer upstream; `null`, missing, negative, non-numeric, zero-`minutes` values are

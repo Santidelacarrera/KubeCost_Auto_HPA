@@ -227,21 +227,9 @@ type KubeCostAutoscalerSpec struct {
 	FailurePolicy FailurePolicy `json:"failurePolicy,omitempty"`
 	// +kubebuilder:default={}
 	InfrastructurePolicy InfrastructurePolicy `json:"infrastructurePolicy,omitempty"`
-
-	// Predictive enables ScaleOps-grade AI proactive forecasting ahead of demand.
-	// +optional
-	Predictive *PredictivePolicy `json:"predictive,omitempty"`
-
-	// OOMProtection prevents container exit code 137 terminations by dynamically ballooning limits.
-	// +optional
-	OOMProtection *OOMProtectionPolicy `json:"oomProtection,omitempty"`
-
-	// NodeBinPacking enables cluster-wide pod relocation to allow Karpenter or Cluster Autoscaler to terminate nodes.
-	// +optional
-	NodeBinPacking *NodeBinPackingPolicy `json:"nodeBinPacking,omitempty"`
 }
 
-// PredictivePolicy configures proactive scaling ahead of traffic surges.
+// PredictivePolicy configures proactive scaling ahead of traffic surges (KubeCostHPA).
 type PredictivePolicy struct {
 	// Enabled turns on predictive forecasting.
 	// +kubebuilder:default=false
@@ -256,7 +244,7 @@ type PredictivePolicy struct {
 	TargetRPSPerPod int32 `json:"targetRPSPerPod,omitempty"`
 }
 
-// OOMProtectionPolicy prevents container exit code 137 terminations by dynamically ballooning limits.
+// OOMProtectionPolicy raises the memory limit in place before a container is OOM-killed (KubeCostHPA).
 type OOMProtectionPolicy struct {
 	// Enabled activates active memory velocity monitoring and limit inflation.
 	// +kubebuilder:default=true
@@ -272,16 +260,6 @@ type OOMProtectionPolicy struct {
 	// MaxLimitMiB is the hard ceiling for emergency memory inflation.
 	// +kubebuilder:default=16384
 	MaxLimitMiB int64 `json:"maxLimitMiB,omitempty"`
-}
-
-// NodeBinPackingPolicy enables cluster-wide pod relocation to allow Karpenter or Cluster Autoscaler to terminate nodes.
-type NodeBinPackingPolicy struct {
-	// Enabled activates node fragmentation scanning and drain candidate tagging.
-	// +kubebuilder:default=false
-	Enabled bool `json:"enabled"`
-	// ConsolidationThresholdPercent is the node utilization ceiling below which a node becomes a drain candidate.
-	// +kubebuilder:default=35
-	ConsolidationThresholdPercent int32 `json:"consolidationThresholdPercent,omitempty"`
 }
 
 // Recommendation is one persisted entry of the stabilisation history.

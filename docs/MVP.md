@@ -1,30 +1,66 @@
-# Alcance verificable del MVP empresarial
+# The path to an MVP
 
-El MVP permite observar clústeres, analizar muestras, generar recomendaciones, planificar consolidación, revisar aprobaciones e importar costos, manteniendo al operador Kubernetes como responsable de las escrituras ya soportadas.
+Written 2026-11-16. Feature status is in [STATUS.md](STATUS.md); this page answers one question: what is the smallest thing a
+first customer could use and pay attention to, and how far is it.
 
-## Flujo local
+## The MVP
 
-```powershell
-$env:PYTHONPATH='engine'
-$env:ENGINE_TOKEN='<token local generado por el operador>'
-$env:ENGINE_TOKEN_TENANT_ID='mi-organizacion'
-$env:SAAS_DB_PATH='.local-validation/control-plane.db'
-# Crear previamente .local-validation y proteger los permisos de este directorio.
-python -m kubecost_engine.server
-```
+**An observe-only rightsizing and cost report for GKE and AKS, with an assisted apply for teams that want it.**
 
-Abrir `http://127.0.0.1:8000/app.html`; usar la misma organización y credencial. El navegador conserva la credencial solo en memoria. Para uso remoto se exige HTTPS en la consola. No publicar el modo de desarrollo sin autenticación.
+A platform team installs one Helm chart, changes nothing in their cluster, and after a week gets: which workloads ask for more
+than they use and by how much, why each recommendation says what it says, which nodes could go, and what that is worth at
+their prices. If they trust it, they approve changes one at a time and the product applies them, watches them and rolls back.
 
-## Contratos nuevos
+This is narrower than the earlier pitch on purpose. It leaves out automatic scaling of replicas, predictive scaling, Spot
+handling, node consolidation and any savings guarantee: none of those is needed for a first customer to get value, and each
+needs evidence that does not exist yet.
 
-`GET /v1/openapi.json` documenta la extensión empresarial; no representa todavía un contrato exhaustivo de todas las rutas históricas. Las claves de usuario requieren `enterprise:read`/`enterprise:write`, y las aprobaciones `consolidation:approve`. Los administradores de organización siguen sujetos a su tenant.
+## What the MVP needs, and where each item stands
 
-Las recomendaciones reciben `cluster_id`, `workload`, `current` y `samples`. Cada muestra incluye `timestamp`, `cpu_millicores`, `memory_mib` y opcionalmente `oom_killed`. Las predicciones reciben muestras `{timestamp,demand}`, horizonte y periodo estacional opcional. Los datos deben provenir de una fuente observada; estos endpoints no recolectan Prometheus automáticamente.
+| # | Need | State |
+|---|---|---|
+| 1 | Install with one command, safe by default | **Done.** Helm chart and Kustomize base start in observe-only; verified on the lab and AKS |
+| 2 | Recommendations a person can check | **Done.** Formula, statistics, vetoes, risks, insights in every record |
+| 3 | Run on GKE and AKS | **Done for the CLI path** on both. Chart and applier: AKS and lab only, **not GKE** |
+| 4 | Apply with approval and automatic rollback | **Done.** Exercised on GKE and AKS. On 2026-11-16 a change planned on five days of real history was applied and kept on GKE, and the autoscaler released one of two nodes |
+| 5 | A cost view the customer can reconcile | **Partly.** Allocation works against OpenCost; reconciliation works on real Google billing days; **no real before/after pair, no Azure export** |
+| 6 | A view over several clusters | **Done, minimal.** `rightsize fleet` (read-only report) |
+| 7 | Something a person can read | **Done, minimal.** `rightsize render` turns the outputs of `plan`, `nodes`, `fleet` and `reconcile` into one Markdown report (an example from the real GKE cluster is in `docs/reports/evidence/2026-11-16-rendered-report.md`). The web console is still a demo with sample data |
+| 8 | Defaults a customer can trust | **Not done.** Never checked on weeks of real traffic. This is the item that most limits the MVP |
+| 9 | A way to tell a paying tier from a free one | **Done.** Signed licence files, opt-in enforcement, run on a real cluster (LAB result 31) |
+| 10 | Published release | **Done.** v0.2.0 |
 
-Las importaciones requieren `provider` (`gcp`, `azure`, `focus`) y `records`, con `record_id` estable. FOCUS requiere BilledCost, EffectiveCost, BillingCurrency, ChargePeriodStart y ChargePeriodEnd. Se preservan resource_id y dimensiones de asignación suministradas. Azure usa CostInBillingCurrency y periodos explícitos; GCP usa cost, credits, currency, usage_start_time y usage_end_time. Esta es una interfaz normalizada de importación, no un lector universal de cada variante de exportación cloud.
+## What is left, in the order to do it
 
-Una factura requiere identidad, hash SHA-256 del documento, moneda, periodo y total. Un match confirma igualdad contable con los registros importados; no autentica el documento ni demuestra ahorro atribuible.
+Things the project can do alone:
 
-## Fuera del MVP validado
+1. ~~Publish a release~~ **done**: v0.2.0.
+2. ~~A report people can read~~ **done on 2026-11-16**: `rightsize render`. And `rightsize survey --namespace <ns>` runs `plan` for every
+   workload of a namespace and renders the result: the weekly report is one line (run on the real GKE cluster, LAB result 30).
+3. **The chart and the applier on GKE**, after the soak ends, so both providers have the same coverage.
+4. ~~Run the licence enforcement in a cluster~~ done (LAB result 31). Left: the benchmark harness on GKE or AKS.
+5. ~~Remove the dead weight~~ **done in v0.2.0**: the unused Go packages, the `features.*` values and the three ignored CRD
+   fields are gone. Left: the engine's sample endpoints, which the demo console still calls.
 
-Consolidación autónoma de extremo a extremo, equivalencia completa con kube-scheduler, eliminación de VM, facturación real, SSO/usuarios, retención automática, HA de la API y validación empresarial externa. Ningún botón de la consola afirma ejecutar estas funciones.
+Things that need someone else:
+
+6. **One design partner with a real cluster.** Two weeks in observe-only gives the real history that items 8 and 5 need:
+   backtest the defaults, validate the growth forecast, and get a first before/after billing pair. Nothing substitutes for
+   this, and it is the single most valuable next step.
+7. **An account that is not on credits**, or a partner's export, to reconcile one saving with an invoice.
+8. **An Azure Cost Management FOCUS export**, to validate the Azure adapter.
+9. **Vendor accounts** (CAST AI, ScaleOps) if a competitive benchmark is wanted. It is not needed for the MVP.
+
+## What the MVP must not promise
+
+A savings percentage, a guarantee, parity with any other product, AWS, unattended automation, or compliance attestations.
+What it can promise is in the last paragraph of [COMMERCIAL.md](COMMERCIAL.md).
+
+## Maturity after the MVP list
+
+Items 1 to 5 keep the product at Beta with a usable MVP. Items 6 to 8 are what turn it into a Release Candidate.
+
+
+## Enterprise API extension
+
+The additional Python control-plane workflows have separate status and evidence in [MVP_ENTERPRISE_API.md](MVP_ENTERPRISE_API.md), [FOLLOWUP_IMPLEMENTATION.md](FOLLOWUP_IMPLEMENTATION.md) and [MAINTENANCE_IMPLEMENTATION.md](MAINTENANCE_IMPLEMENTATION.md). Kubernetes CLI/applier licensing and Python API licensing are separate implementations. Their validation scopes must not be combined.

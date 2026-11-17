@@ -1,0 +1,479 @@
+# AKS validation, 2026-11-10 (hack/aks-validate.sh). Two runs; cluster and resource group deleted after each.
+# Redacted: subscription id -> <subscription>, user path -> <repo>.
+## run 1
+WARNING: Merged "kubecost-validate" as current context in <home>\.kube\config
+== AKS v1.36.5
+== cluster: v1.36.5, nodes 1, node price 0.096 USD/h (list)
+== 0. Prometheus and the over-provisioned app
+PASS  Prometheus installed
+PASS  all 4 replicas run (the autoscaler added nodes for their requests if needed)
+nodes now: 2; waiting 5 min for the node count to settle
+== 1. BEFORE window (20 min), requests 500m x 4
+node-hours before: 0.6667 (nodes seen: 2 )
+== 2. hack/lab-traffic.sh on GKE (recommend, approve, apply with real-latency SLO, before/after, forced rollback)
+== 0. deploy the app and the load, wait for history
+PASS  the app serves real traffic (requests per second > 5)
+== 1. BEFORE window (last 5 minutes), requests 500m/128Mi
+{"p95": 0.00475, "rps": 37.198008107705164, "err": NaN, "thr": 0.0, "cpu95": 0.012507432450471895, "rst": 0.0}
+PASS  the recommendation proposes a CPU decrease
+== 2. approve and apply, SLO driven by the REAL latency histogram (p95 > 250 ms breaches)
+requests: 500m/128Mi -> 250m/64Mi
+PASS  applied and healthy under real traffic
+PASS  the requests really changed
+== 3. AFTER window: wait 6 minutes so the 5-minute window is entirely after the change
+{"p95": 0.004750000000000001, "rps": 37.87017543859649, "err": NaN, "thr": 0.0, "cpu95": 0.012489777105309744, "rst": 0.0}
+metric                       before        after
+requests/s                 37.19801     37.87018
+p95 latency (s)             0.00475      0.00475
+error ratio                     nan          nan
+cpu throttled ratio         0.00000      0.00000
+cpu usage p95 (cores)       0.01251      0.01249
+restarts (5m)               0.00000      0.00000
+requested USD/hour          0.06400      0.03200   ESTIMATE (flag prices, requests x replicas)
+cost per 1k requests (before): 0.00047792 USD  ESTIMATE
+cost per 1k requests (after): 0.00023472 USD  ESTIMATE
+PASS  traffic is comparable (rps within 25 percent)
+PASS  p95 latency did not regress (<= max(1.5x, +5 ms))
+PASS  error ratio did not increase
+PASS  throttling did not increase by more than 2 points
+PASS  no restarts after the change
+== 4. a rollback driven by the REAL latency metric (threshold made absurdly tight on purpose)
+PASS  the real-latency SLO query breached and the change was rolled back
+PASS  the previous requests are back
+RESULT: 11 passed, 0 failed
+requests after the run: 250m x 4
+== 3. letting the GKE cluster autoscaler react (up to 25 min; scale-down needs ~10 min of a node being unneeded)
+nodes now: 2 (before: 2)
+== 4. AFTER window (20 min, same length)
+node-hours after: 0.6667 (nodes seen: 2 )
+node-hours in 20 min: before 0.6667, after 0.6667
+cost of those windows at LIST price: before 0.0640 USD, after 0.0640 USD
+measured change: 0.0000 USD per 20 min = 0.0000 USD/hour (0.0%)
+MEASURED from the cluster's node count, priced at list price: NOT an invoice (no discounts, credits, free tier, disks or network).
+FAIL  the autoscaler removed at least one node after the change (infrastructure saving measured)
+== 5. read-only cloud-validate and backtest on this run's history
+- server version: v1.36.5
+- nodes: 2; provider id example: azure:///subscriptions/<subscription>/resourceGroups/mc_kubecost-validate-rg_kubecost-validate_eastus/providers/Microsoft.Compute/virtualMachineScaleSets/aks-nodepool1-75677522-vmss/virtualMachines/0; cloud detected: azure
+PASS  the cluster answers
+PASS  Prometheus is reachable at http://localhost:9092
+PASS  cAdvisor CPU series exist for the container
+PASS  cAdvisor memory series exist
+PASS  kube-state-metrics series exist
+- samples of history (30d, scrape-interval dependent): 190
+PASS  plan produced a record
+- abstained: True | confidence: Low | samples: 79
+- CPU: Abstain current=0.25 recommended=0.25 reasons=['insufficient samples: cpu=79 memory=82, need 200']
+- Memory: Abstain current=6.71089e+07 recommended=6.71089e+07 reasons=['insufficient samples: cpu=79 memory=82, need 200']
+- risks: no recommendation: insufficient samples: cpu=79 memory=82, need 200
+PASS  backtest ran (read it: <repo>/.cloud-evidence/backtest-kubecost-validate.json)
+PASS  nodes report produced
+- removable candidates: None
+- stranded cpu/mem: 1.44 9.29 GiB
+PASS  ESTIMATED-basis cost report produced (a model, not a bill)
+- basis: estimated | source: flag --node-hourly-usd=0.096
+- total: 4.608000 | reconciled: True
+- unallocated: 0
+- notes: None
+RESULT: 9 passed, 0 failed. Evidence file: <repo>/.cloud-evidence/kubecost-validate-20261110T215347Z.md
+PASS  backtest ran on the real history of this run
+{
+  "cpu": {
+    "TrainSamples": 1117,
+    "TestSamples": 478,
+    "TestP95": 0.0035858579531515378,
+    "TestMax": 0.003660762966556943,
+    "Rows": [
+      {
+        "Percentile": 0.9,
+        "Headroom": 0.05,
+        "Recommended": 0.0037979774542250136,
+        "ExceedFraction": 0,
+        "PeakRatio": 0.9638716950477344,
+        "Waste": 0.055850647780309
+      },
+      {
+        "Percentile": 0.9,
+        "Headroom": 0.1,
+        "Recommended": 0.003978833523473824,
+        "ExceedFraction": 0,
+        "PeakRatio": 0.9200593452728373,
+        "Waste": 0.09876652742665872
+      },
+      {
+        "Percentile": 0.9,
+        "Headroom": 0.15,
+        "Recommended": 0.004159689592722633,
+        "ExceedFraction": 0,
+        "PeakRatio": 0.8800567650435838,
+        "Waste": 0.13795059145158636
+      },
+      {
+        "Percentile": 0.9,
+        "Headroom": 0.2,
+        "Recommended": 0.004340545661971444,
+        "ExceedFraction": 0,
+        "PeakRatio": 0.8433877331667676,
+        "Waste": 0.17386931680777037
+      },
+      {
+        "Percentile": 0.9,
+        "Headroom": 0.3,
+        "Recommended": 0.004702257800469065,
+        "ExceedFraction": 0,
+        "PeakRatio": 0.7785117536924009,
+        "Waste": 0.2374178308994804
+      },
+      {
+        "Percentile": 0.95,
+        "Headroom": 0.05,
+        "Recommended": 0.003856274936107348,
+        "ExceedFraction": 0,
+        "PeakRatio": 0.9493003033264632,
+        "Waste": 0.07012388572812141
+      },
+      {
+        "Percentile": 0.95,
+        "Headroom": 0.1,
+        "Recommended": 0.004039907075921984,
+        "ExceedFraction": 0,
+        "PeakRatio": 0.9061502895388968,
+        "Waste": 0.1123909818313886
+      },
+      {
+        "Percentile": 0.95,
+        "Headroom": 0.15,
+        "Recommended": 0.004223539215736619,
+        "ExceedFraction": 0,
+        "PeakRatio": 0.8667524508632927,
+        "Waste": 0.15098267827350204
+      },
+      {
+        "Percentile": 0.95,
+        "Headroom": 0.2,
+        "Recommended": 0.004407171355551255,
+        "ExceedFraction": 0,
+        "PeakRatio": 0.8306377654106554,
+        "Waste": 0.18635840001210618
+      },
+      {
+        "Percentile": 0.95,
+        "Headroom": 0.3,
+        "Recommended": 0.004774435635180526,
+        "ExceedFraction": 0,
+        "PeakRatio": 0.7667425526867588,
+        "Waste": 0.24894621539579032
+      },
+      {
+        "Percentile": 0.99,
+        "Headroom": 0.05,
+        "Recommended": 0.010265615758943865,
+        "ExceedFraction": 0,
+        "PeakRatio": 0.3566043238436547,
+        "Waste": 0.6506923659180037
+      },
+      {
+        "Percentile": 0.99,
+        "Headroom": 0.1,
+        "Recommended": 0.010754454604607859,
+        "ExceedFraction": 0,
+        "PeakRatio": 0.3403950363962158,
+        "Waste": 0.6665699856490035
+      },
+      {
+        "Percentile": 0.99,
+        "Headroom": 0.15,
+        "Recommended": 0.01124329345027185,
+        "ExceedFraction": 0,
+        "PeakRatio": 0.32559525220507607,
+        "Was
+
+RESULT: 14 passed, 1 failed
+## run 2
+WARNING: Merged "kubecost-validate" as current context in <home>\.kube\config
+== AKS v1.36.5
+== cluster: v1.36.5, nodes 1, node price 0.096 USD/h (list)
+== 0. Prometheus and the over-provisioned app
+PASS  Prometheus installed
+PASS  all 4 replicas run (the autoscaler added nodes for their requests if needed)
+nodes now: 2; waiting 5 min for the node count to settle
+== 1. BEFORE window (20 min), requests 500m x 4
+node-hours before: 0.6667 (nodes seen: 2 )
+== 2. hack/lab-traffic.sh on GKE (recommend, approve, apply with real-latency SLO, before/after, forced rollback)
+== 0. deploy the app and the load, wait for history
+PASS  the app serves real traffic (requests per second > 5)
+== 1. BEFORE window (last 5 minutes), requests 500m/128Mi
+{"p95": 0.004749999999999999, "rps": 37.50401472347535, "err": NaN, "thr": 0.0, "cpu95": 0.01545092565470571, "rst": 0.0}
+PASS  the recommendation proposes a CPU decrease
+== 2. approve and apply, SLO driven by the REAL latency histogram (p95 > 250 ms breaches)
+requests: 500m/128Mi -> 250m/64Mi
+PASS  applied and healthy under real traffic
+PASS  the requests really changed
+== 3. AFTER window: wait 6 minutes so the 5-minute window is entirely after the change
+{"p95": 0.004750000000000001, "rps": 37.73684210526315, "err": NaN, "thr": 0.0, "cpu95": 0.015662778940501394, "rst": 0.0}
+metric                       before        after
+requests/s                 37.50401     37.73684
+p95 latency (s)             0.00475      0.00475
+error ratio                     nan          nan
+cpu throttled ratio         0.00000      0.00000
+cpu usage p95 (cores)       0.01545      0.01566
+restarts (5m)               0.00000      0.00000
+requested USD/hour          0.06400      0.03200   ESTIMATE (flag prices, requests x replicas)
+cost per 1k requests (before): 0.00047402 USD  ESTIMATE
+cost per 1k requests (after): 0.00023555 USD  ESTIMATE
+PASS  traffic is comparable (rps within 25 percent)
+PASS  p95 latency did not regress (<= max(1.5x, +5 ms))
+PASS  error ratio did not increase
+PASS  throttling did not increase by more than 2 points
+PASS  no restarts after the change
+== 4. a rollback driven by the REAL latency metric (threshold made absurdly tight on purpose)
+PASS  the real-latency SLO query breached and the change was rolled back
+PASS  the previous requests are back
+RESULT: 11 passed, 0 failed
+requests after the run: 250m x 4
+== 3. letting the GKE cluster autoscaler react (up to 25 min; scale-down needs ~10 min of a node being unneeded)
+nodes now: 2 (before: 2)
+no node removed; diagnostics in <repo>/.lab/aks/autoscaler-diag.txt
+Name:               aks-nodepool1-74622515-vmss000000
+  cpu                1737m (91%)   10642m (560%)
+  memory             1434Mi (24%)  11444512Ki (193%)
+Name:               aks-nodepool1-74622515-vmss000001
+  cpu                625m (32%)   3590m (188%)
+  memory             630Mi (10%)  9916Mi (171%)
+== pods per node
+== 4. AFTER window (20 min, same length)
+node-hours after: 0.6667 (nodes seen: 2 )
+node-hours in 20 min: before 0.6667, after 0.6667
+cost of those windows at LIST price: before 0.0640 USD, after 0.0640 USD
+measured change: 0.0000 USD per 20 min = 0.0000 USD/hour (0.0%)
+MEASURED from the cluster's node count, priced at list price: NOT an invoice (no discounts, credits, free tier, disks or network).
+FAIL  the autoscaler removed at least one node after the change (infrastructure saving measured)
+== 5. read-only cloud-validate and backtest on this run's history
+- server version: v1.36.5
+- nodes: 2; provider id example: azure:///subscriptions/<subscription>/resourceGroups/mc_kubecost-validate-rg_kubecost-validate_eastus/providers/Microsoft.Compute/virtualMachineScaleSets/aks-nodepool1-74622515-vmss/virtualMachines/0; cloud detected: azure
+PASS  the cluster answers
+PASS  Prometheus is reachable at http://localhost:9092
+PASS  cAdvisor CPU series exist for the container
+PASS  cAdvisor memory series exist
+PASS  kube-state-metrics series exist
+- samples of history (30d, scrape-interval dependent): 209
+PASS  plan produced a record
+- abstained: True | confidence: Low | samples: 76
+- CPU: Abstain current=0.25 recommended=0.25 reasons=['insufficient samples: cpu=76 memory=77, need 200']
+- Memory: Abstain current=6.71089e+07 recommended=6.71089e+07 reasons=['insufficient samples: cpu=76 memory=77, need 200']
+- risks: no recommendation: insufficient samples: cpu=76 memory=77, need 200
+PASS  backtest ran (read it: <repo>/.cloud-evidence/backtest-kubecost-validate.json)
+PASS  nodes report produced
+- removable candidates: None
+- stranded cpu/mem: 1.44 9.29 GiB
+PASS  ESTIMATED-basis cost report produced (a model, not a bill)
+- basis: estimated | source: flag --node-hourly-usd=0.096
+- total: 4.608000 | reconciled: True
+- unallocated: 0
+- notes: None
+RESULT: 9 passed, 0 failed. Evidence file: <repo>/.cloud-evidence/kubecost-validate-20261110T233617Z.md
+PASS  backtest ran on the real history of this run
+{
+  "cpu": {
+    "TrainSamples": 1085,
+    "TestSamples": 466,
+    "TestP95": 0.00428854585802053,
+    "TestMax": 0.004415136488439807,
+    "Rows": [
+      {
+        "Percentile": 0.9,
+        "Headroom": 0.05,
+        "Recommended": 0.004406115158555251,
+        "ExceedFraction": 0.002145922746781116,
+        "PeakRatio": 1.0020474566732644,
+        "Waste": 0.026683211015590305
+      },
+      {
+        "Percentile": 0.9,
+        "Headroom": 0.1,
+        "Recommended": 0.004615930166105502,
+        "ExceedFraction": 0,
+        "PeakRatio": 0.9564998450062978,
+        "Waste": 0.07092488324215451
+      },
+      {
+        "Percentile": 0.9,
+        "Headroom": 0.15,
+        "Recommended": 0.004825745173655751,
+        "ExceedFraction": 0,
+        "PeakRatio": 0.9149128952234156,
+        "Waste": 0.11131945353597368
+      },
+      {
+        "Percentile": 0.9,
+        "Headroom": 0.2,
+        "Recommended": 0.005035560181206001,
+        "ExceedFraction": 0,
+        "PeakRatio": 0.8767915245891065,
+        "Waste": 0.14834780963864155
+      },
+      {
+        "Percentile": 0.9,
+        "Headroom": 0.3,
+        "Recommended": 0.005455190196306502,
+        "ExceedFraction": 0,
+        "PeakRatio": 0.8093460226976367,
+        "Waste": 0.21385951658951535
+      },
+      {
+        "Percentile": 0.95,
+        "Headroom": 0.05,
+        "Recommended": 0.004471822064687114,
+        "ExceedFraction": 0,
+        "PeakRatio": 0.9873238301016182,
+        "Waste": 0.040984682309672164
+      },
+      {
+        "Percentile": 0.95,
+        "Headroom": 0.1,
+        "Recommended": 0.004684765972529358,
+        "ExceedFraction": 0,
+        "PeakRatio": 0.942445474187908,
+        "Waste": 0.08457628765923267
+      },
+      {
+        "Percentile": 0.95,
+        "Headroom": 0.15,
+        "Recommended": 0.0048977098803716,
+        "ExceedFraction": 0,
+        "PeakRatio": 0.9014695840058253,
+        "Waste": 0.1243773186305702
+      },
+      {
+        "Percentile": 0.95,
+        "Headroom": 0.2,
+        "Recommended": 0.005110653788213844,
+        "ExceedFraction": 0,
+        "PeakRatio": 0.863908351338916,
+        "Waste": 0.1608615970209631
+      },
+      {
+        "Percentile": 0.95,
+        "Headroom": 0.3,
+        "Recommended": 0.005536541603898331,
+        "ExceedFraction": 0,
+        "PeakRatio": 0.7974538627743838,
+        "Waste": 0.22541070494242754
+      },
+      {
+        "Percentile": 0.99,
+        "Headroom": 0.05,
+        "Recommended": 0.004564761593889955,
+        "ExceedFraction": 0,
+        "PeakRatio": 0.9672217042724806,
+        "Waste": 0.0605104407290726
+      },
+      {
+        "Percentile": 0.99,
+        "Headroom": 0.1,
+        "Recommended": 0.004782131193599001,
+        "ExceedFraction": 0,
+        "PeakRatio": 0.923257081351004,
+        "Waste": 0.10321451160502389
+      },
+      {
+        "Percentile": 0.99,
+        "Headroom": 0.15,
+        "Recommended": 0.004999500793308046,
+        "ExceedFraction": 0,
+        "PeakRatio": 0.88311546911835
+
+RESULT: 14 passed, 1 failed
+## run 2 autoscaler diagnostics
+== allocated requests per node
+Name:               aks-nodepool1-74622515-vmss000000
+  cpu                1737m (91%)   10642m (560%)
+  memory             1434Mi (24%)  11444512Ki (193%)
+Name:               aks-nodepool1-74622515-vmss000001
+  cpu                625m (32%)   3590m (188%)
+  memory             630Mi (10%)  9916Mi (171%)
+== pods per node
+aks-nodepool1-74622515-vmss000000 kube-system/azure-cns-4jksl
+aks-nodepool1-74622515-vmss000000 kube-system/azure-ip-masq-agent-j8zs9
+aks-nodepool1-74622515-vmss000000 kube-system/cloud-node-manager-p4w7b
+aks-nodepool1-74622515-vmss000000 kube-system/coredns-5bf45f87d-d974m
+aks-nodepool1-74622515-vmss000000 kube-system/coredns-5bf45f87d-l99vr
+aks-nodepool1-74622515-vmss000000 kube-system/coredns-autoscaler-7467554f77-2pdfv
+aks-nodepool1-74622515-vmss000000 kube-system/csi-azuredisk-node-kgj2b
+aks-nodepool1-74622515-vmss000000 kube-system/csi-azurefile-node-2v8q8
+aks-nodepool1-74622515-vmss000000 kube-system/konnectivity-agent-autoscaler-5b658f6697-czjv2
+aks-nodepool1-74622515-vmss000000 kube-system/kube-proxy-jtcjg
+aks-nodepool1-74622515-vmss000000 kube-system/metrics-server-dff79fd46-dp95h
+aks-nodepool1-74622515-vmss000000 kube-system/metrics-server-dff79fd46-vztrw
+aks-nodepool1-74622515-vmss000000 lab/loadgen-84888f9c56-d8b58
+aks-nodepool1-74622515-vmss000000 lab/loadgen-84888f9c56-d99tl
+aks-nodepool1-74622515-vmss000000 lab/shop-77dfc4b5d-g7jjt
+aks-nodepool1-74622515-vmss000000 lab/shop-77dfc4b5d-m5gkz
+aks-nodepool1-74622515-vmss000000 lab/shop-77dfc4b5d-xxclx
+aks-nodepool1-74622515-vmss000000 monitoring/prom-kube-state-metrics-6c998f8569-cpvwj
+aks-nodepool1-74622515-vmss000000 monitoring/prom-prometheus-server-bbf79c88f-5fflp
+aks-nodepool1-74622515-vmss000001 kube-system/azure-cns-p74rn
+aks-nodepool1-74622515-vmss000001 kube-system/azure-ip-masq-agent-mzl8c
+aks-nodepool1-74622515-vmss000001 kube-system/cloud-node-manager-nrwh8
+aks-nodepool1-74622515-vmss000001 kube-system/csi-azuredisk-node-95nsf
+aks-nodepool1-74622515-vmss000001 kube-system/csi-azurefile-node-tlwrl
+aks-nodepool1-74622515-vmss000001 kube-system/konnectivity-agent-dd5c494f9-5vpm6
+aks-nodepool1-74622515-vmss000001 kube-system/konnectivity-agent-dd5c494f9-qdp7p
+aks-nodepool1-74622515-vmss000001 kube-system/kube-proxy-pnprv
+aks-nodepool1-74622515-vmss000001 lab/shop-77dfc4b5d-j6w9b
+== cluster-autoscaler-status (if the provider publishes it)
+autoscalerStatus: Running
+clusterWide:
+  health:
+    lastProbeTime: "2026-11-10T23:15:33Z"
+    lastTransitionTime: "2026-11-10T22:07:22Z"
+    nodeCounts:
+      longUnregistered: 0
+      registered:
+        notStarted: 0
+        ready: 2
+        total: 2
+        unready:
+          resourceUnready: 0
+          total: 0
+      unregistered: 0
+    status: Healthy
+  scaleDown:
+    lastProbeTime: "2026-11-10T23:15:33Z"
+    lastTransitionTime: "2026-11-10T22:47:46Z"
+    status: NoCandidates
+  scaleUp:
+    lastProbeTime: "2026-11-10T23:15:33Z"
+    lastTransitionTime: "2026-11-10T22:12:18Z"
+    status: NoActivity
+nodeGroups:
+- health:
+    cloudProviderTarget: 2
+    lastProbeTime: "2026-11-10T23:15:33Z"
+    lastTransitionTime: "2026-11-10T22:07:22Z"
+    maxSize: 2
+    minSize: 1
+    nodeCounts:
+      longUnregistered: 0
+      registered:
+        notStarted: 0
+        ready: 2
+        total: 2
+        unready:
+          resourceUnready: 0
+          total: 0
+      unregistered: 0
+    status: Healthy
+  name: aks-nodepool1-74622515-vmss
+  scaleDown:
+    lastProbeTime: "2026-11-10T23:15:33Z"
+    lastTransitionTime: "2026-11-10T22:47:46Z"
+    status: NoCandidates
+  scaleUp:
+    backoffInfo: {}
+    lastProbeTime: "2026-11-10T23:15:33Z"
+    lastTransitionTime: "2026-11-10T22:12:18Z"
+    status: NoActivity
+time: 2026-11-10 23:15:33.258069091 +0000 UTC
+
+== autoscaler events
+No resources found

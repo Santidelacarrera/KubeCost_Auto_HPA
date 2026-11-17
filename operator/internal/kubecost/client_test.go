@@ -58,8 +58,8 @@ func TestValidResponseNormalisesToHourly(t *testing.T) {
 	if s.HourlyCost.String() != "5.000000" || s.TotalCost.String() != "2.500000" || s.Minutes != 30 {
 		t.Fatalf("%+v", s)
 	}
-	if gotPath != "/model/allocation" || !strings.Contains(gotQuery, "aggregate=controller") ||
-		!strings.Contains(gotQuery, "accumulate=true") || !strings.Contains(gotQuery, "window=1h") {
+	if gotPath != "/model/allocation" || !strings.Contains(gotQuery, "aggregate=cluster%2Cnamespace%2CcontrollerKind%2Ccontroller") ||
+		!strings.Contains(gotQuery, "accumulate=true") || !strings.Contains(gotQuery, "window=60m") {
 		t.Fatalf("request: %s?%s", gotPath, gotQuery)
 	}
 	if !s.WindowEnd.Equal(t0) || s.Age(t0.Add(90*time.Second)) != 90*time.Second {
@@ -281,7 +281,7 @@ func TestSampleValidate(t *testing.T) {
 }
 
 func TestFormatWindow(t *testing.T) {
-	for in, want := range map[time.Duration]string{time.Hour: "1h", 15 * time.Minute: "15m", 90 * time.Second: "90s", 36 * time.Hour: "36h"} {
+	for in, want := range map[time.Duration]string{time.Hour: "60m", 15 * time.Minute: "15m", 90 * time.Second: "2m", 36 * time.Hour: "2160m", time.Second: "1m"} {
 		if got := formatWindow(in); got != want {
 			t.Errorf("%v: %s", in, got)
 		}

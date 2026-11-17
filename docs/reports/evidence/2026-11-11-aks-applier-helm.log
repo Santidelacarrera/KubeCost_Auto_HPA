@@ -1,0 +1,217 @@
+# AKS 1.36.5, 1 x Standard_D4as_v4, Azure free account. hack/aks-applier.sh: hack/helm-lifecycle.sh then hack/lab-applier.sh (8 scenarios).
+# Four runs on 2026-11-11. Runs 1-3 failed on defects of the LAB SCRIPTS (explained in docs/LAB.md result 15); run 4 is the clean one.
+
+################ run 1
+== 0. images and install (applier ON for namespace lab only, observe-only ON)
+PASS  the CRD is installed
+PASS  the operator runs the applier
+PASS  the operator is in observe-only mode
+== 1. publish: creating the object changes nothing, and nobody has approved yet
+PASS  a WorkloadRecommendation exists
+PASS  it is Pending (waiting for approval)
+PASS  the workload is untouched
+== 2. approval needs its own permission: a publisher cannot approve, an approver can (RBAC by impersonation)
+PASS  the publisher is refused (Forbidden) when approving
+PASS  and the phase is still Pending
+== 3. observe-only: an approval produces a DryRun, never a write
+PASS  the approver succeeds and the identity is the server's
+PASS  phase DryRun (observe-only)
+PASS  the workload is still untouched
+== 4. observe-only OFF: the same approved object is applied, observed and verified
+FAIL  phase Verified
+requests: 1/1Gi -> 1/1Gi
+FAIL  the workload really changed
+FAIL  the previous state is on the workload
+PASS  the object carries the approver and times
+== 5. namespace isolation: an object in another namespace cannot act on lab
+FAIL  the cross-namespace object is Denied
+FAIL  with the reason: own namespace
+== 6. the kill switch in the policy ConfigMap acts without a restart, and lifting it lets the same object proceed
+PASS  with the kill switch on: Denied
+PASS  and nothing was written
+PASS  after lifting the switch the same object is applied and Verified (policy re-read, no restart)
+== 7. restart the operator while a change is being observed: it resumes, it does not re-apply
+FAIL  after the operator restart the change is Verified
+FAIL  it was applied exactly once (last-applied-at is unchanged)
+== 8. a crash after the change: automatic rollback by the controller (last, because it leaves restarts in the window)
+FAIL  phase RolledBack
+PASS  the previous requests are back
+FAIL  the reason names the restart
+FAIL  a Warning event was recorded on the object
+== diagnostics (final phase of every object; last approve error, if any)
+== cleanup
+RESULT: 16 passed, 10 failed
+ok:   install: revision 1 accepted by the apiserver
+ok:   upgrade: revision 2 adds exactly the dashboard ConfigMap
+ok:   rollback to revision 1 (revision 3 in history): dashboard removed
+ok:   uninstall: release objects removed; CRDs kept by design
+helm lifecycle passed
+
+################ run 2
+== 0. images and install (applier ON for namespace lab only, observe-only ON)
+PASS  the CRD is installed
+PASS  the operator runs the applier
+PASS  the operator is in observe-only mode
+== 1. publish: creating the object changes nothing, and nobody has approved yet
+PASS  a WorkloadRecommendation exists
+PASS  it is Pending (waiting for approval)
+PASS  the workload is untouched
+== 2. approval needs its own permission: a publisher cannot approve, an approver can (RBAC by impersonation)
+PASS  the publisher is refused (Forbidden) when approving
+PASS  and the phase is still Pending
+== 3. observe-only: an approval produces a DryRun, never a write
+PASS  the approver succeeds and the identity is the server's
+PASS  phase DryRun (observe-only)
+PASS  the workload is still untouched
+== 4. observe-only OFF: the same approved object is applied, observed and verified
+PASS  phase Verified
+requests: 500m/256Mi -> 250m/128Mi
+PASS  the workload really changed
+PASS  the previous state is on the workload
+PASS  the object carries the approver and times
+== 5. namespace isolation: an object in another namespace cannot act on lab
+FAIL  the cross-namespace object is Denied
+FAIL  with the reason: own namespace
+== 6. the kill switch in the policy ConfigMap acts without a restart, and lifting it lets the same object proceed
+PASS  with the kill switch on: Denied
+PASS  and nothing was written
+PASS  after lifting the switch the same object is applied and Verified (policy re-read, no restart)
+== 7. restart the operator while a change is being observed: it resumes, it does not re-apply
+PASS  after the operator restart the change is Verified
+PASS  it was applied exactly once (last-applied-at is unchanged)
+== 8. a crash after the change: automatic rollback by the controller (last, because it leaves restarts in the window)
+FAIL  phase RolledBack
+FAIL  the previous requests are back
+FAIL  the reason names the restart
+FAIL  a Warning event was recorded on the object
+== diagnostics (final phase of every object; last approve error, if any)
+== cleanup
+RESULT: 20 passed, 6 failed
+ok:   install: revision 1 accepted by the apiserver
+ok:   upgrade: revision 2 adds exactly the dashboard ConfigMap
+ok:   rollback to revision 1 (revision 3 in history): dashboard removed
+ok:   uninstall: release objects removed; CRDs kept by design
+helm lifecycle passed
+
+################ run 3
+== 0. images and install (applier ON for namespace lab only, observe-only ON)
+PASS  the CRD is installed
+PASS  the operator runs the applier
+PASS  the operator is in observe-only mode
+== 1. publish: creating the object changes nothing, and nobody has approved yet
+PASS  a WorkloadRecommendation exists
+PASS  it is Pending (waiting for approval)
+PASS  the workload is untouched
+== 2. approval needs its own permission: a publisher cannot approve, an approver can (RBAC by impersonation)
+PASS  the publisher is refused (Forbidden) when approving
+PASS  and the phase is still Pending
+== 3. observe-only: an approval produces a DryRun, never a write
+PASS  the approver succeeds and the identity is the server's
+PASS  phase DryRun (observe-only)
+PASS  the workload is still untouched
+== 4. observe-only OFF: the same approved object is applied, observed and verified
+PASS  phase Verified
+requests: 500m/256Mi -> 250m/128Mi
+PASS  the workload really changed
+PASS  the previous state is on the workload
+PASS  the object carries the approver and times
+== 5. namespace isolation: an object in another namespace cannot act on lab
+PASS  an object without an honest published-by stamp is refused by the API server
+PASS  the cross-namespace object is Denied
+PASS  with the reason: own namespace
+== 6. the kill switch in the policy ConfigMap acts without a restart, and lifting it lets the same object proceed
+PASS  with the kill switch on: Denied
+PASS  and nothing was written
+FAIL  after lifting the switch the same object is applied and Verified (policy re-read, no restart)
+== 7. restart the operator while a change is being observed: it resumes, it does not re-apply
+PASS  after the operator restart the change is Verified
+PASS  it was applied exactly once (last-applied-at is unchanged)
+== 8. a crash after the change: automatic rollback by the controller (last, because it leaves restarts in the window)
+== final phase Verified: applied and healthy for the whole observation window 
+FAIL  phase RolledBack
+FAIL  the previous requests are back
+FAIL  the reason names the restart
+FAIL  a Warning event was recorded on the object
+== diagnostics (final phase of every object; last approve error, if any)
+== cleanup
+RESULT: 22 passed, 5 failed
+ok:   install: revision 1 accepted by the apiserver
+ok:   upgrade: revision 2 adds exactly the dashboard ConfigMap
+ok:   rollback to revision 1 (revision 3 in history): dashboard removed
+ok:   uninstall: release objects removed; CRDs kept by design
+helm lifecycle passed
+
+################ run 3 diagnostics (scenario 5 and 8)
+The workloadrecommendations "cross" is invalid: : ValidatingAdmissionPolicy 'applier-kubecost-auto-hpa-rec-published-by' with binding 'applier-kubecost-auto-hpa-rec-published-by' denied request: autoscaling.kubecost.io/published-by must be present and equal to the authenticated user (rightsize plan --publish sets it)
+workloadrecommendation.autoscaling.kubecost.io/cross created
+Error from server (Forbidden): workloadrecommendations.autoscaling.kubecost.io "cross" is forbidden: User "system:serviceaccount:lab:rs-appr" cannot patch resource "workloadrecommendations/status" in API group "autoscaling.kubecost.io" in the namespace "other"
+07:10:09Z phase=Applying restarts=[0 0 ]
+error: context "kubecost-applier" does not exist
+error: context "kubecost-applier" does not exist
+07:10:17Z phase=Applying restarts=[0 0 ]
+error: context "kubecost-applier" does not exist
+error: context "kubecost-applier" does not exist
+07:10:26Z phase=Applying restarts=[0 0 ]
+error: context "kubecost-applier" does not exist
+
+################ run 4 (clean)
+AAD role propagation done[############################################]  100.0000%
+WARNING: Merged "kubecost-applier" as current context in <repo>\.lab\aks-applier\kubeconfig
+== AKS v1.36.5, 1 x Standard_D4as_v4
+== Helm lifecycle (install, upgrade, rollback, uninstall; apiserver acceptance)
+ok:   install: revision 1 accepted by the apiserver
+ok:   upgrade: revision 2 adds exactly the dashboard ConfigMap
+ok:   rollback to revision 1 (revision 3 in history): dashboard removed
+ok:   uninstall: release objects removed; CRDs kept by design
+helm lifecycle passed
+== Prometheus, the lab workload and its history
+Warning: resource namespaces/lab is missing the kubectl.kubernetes.io/last-applied-configuration annotation which is required by kubectl apply. kubectl apply should only be used on resources created declaratively by either kubectl create --save-config or kubectl apply. The missing annotation will be patched automatically.
+waiting 15 min of history for the lab workload
+== applier scenarios (hack/lab-applier.sh)
+== 0. images and install (applier ON for namespace lab only, observe-only ON)
+PASS  the CRD is installed
+PASS  the operator runs the applier
+PASS  the operator is in observe-only mode
+== 1. publish: creating the object changes nothing, and nobody has approved yet
+PASS  a WorkloadRecommendation exists
+PASS  it is Pending (waiting for approval)
+PASS  the workload is untouched
+== 2. approval needs its own permission: a publisher cannot approve, an approver can (RBAC by impersonation)
+PASS  the publisher is refused (Forbidden) when approving
+PASS  and the phase is still Pending
+== 3. observe-only: an approval produces a DryRun, never a write
+PASS  the approver succeeds and the identity is the server's
+PASS  phase DryRun (observe-only)
+PASS  the workload is still untouched
+== 4. observe-only OFF: the same approved object is applied, observed and verified
+PASS  phase Verified
+requests: 500m/256Mi -> 250m/128Mi
+PASS  the workload really changed
+PASS  the previous state is on the workload
+PASS  the object carries the approver and times
+== 5. namespace isolation: an object in another namespace cannot act on lab
+PASS  an object without an honest published-by stamp is refused by the API server
+PASS  the cross-namespace object is Denied
+PASS  with the reason: own namespace
+== 6. the kill switch in the policy ConfigMap acts without a restart, and lifting it lets the same object proceed
+PASS  with the kill switch on: Denied
+PASS  and nothing was written
+PASS  after lifting the switch the same object is applied and Verified (policy re-read, no restart)
+== 7. restart the operator while a change is being observed: it resumes, it does not re-apply
+PASS  after the operator restart the change is Verified
+PASS  it was applied exactly once (last-applied-at is unchanged)
+== 8. a crash after the change: automatic rollback by the controller (last, because it leaves restarts in the window)
+PASS  phase RolledBack
+PASS  the previous requests are back
+PASS  the reason names the restart
+PASS  a Warning event was recorded on the object
+== diagnostics (final phase of every object; last approve error, if any)
+api-150ba120f550e761 phase=Verified msg=applied and healthy for the whole observation window reasons=
+api2-0f0e8664ff309ff2 phase=Verified msg=applied and healthy for the whole observation window reasons=
+api3-f9ff70247f1f9b1c phase=Verified msg=applied and healthy for the whole observation window reasons=
+api4-9a6188d6002be708 phase=RolledBack msg=degraded after the change and restored reasons=["1 container restart(s) (max 0)"]
+== cleanup
+
+RESULT: 27 passed, 0 failed
+
+helm lifecycle exit 0, applier exit 0

@@ -175,7 +175,7 @@ Interpretation:
 | `FAIL ... connection refused` / timeout | The URL is not reachable from this machine. | Fix the port-forward or network path; not a product result. |
 | `FAIL: the documented contract did not hold` | The real response differs from `operator/internal/kubecost/testdata/README.md`. | Do not pilot. Save the response with secrets removed and compare field by field. |
 | `FAIL ... HTTP 401/403` | Token rejected or missing permission. | Check the token scope. Do not retry in a loop. |
-| `FAIL: a running workload must have a positive hourly cost` | Cost is zero or missing for a running workload. | Check aggregation (`aggregate=controller`) and the cluster name. |
+| `FAIL: a running workload must have a positive hourly cost` | Cost is zero or missing for a running workload. | Check aggregation (`aggregate=cluster,namespace,controllerKind,controller`) and the cluster name. |
 | `FAIL: sample failed freshness/coverage validation` | Data is older than `KUBECOST_LIVE_MAX_AGE` or covers less than half the window. | Expected freeze behaviour; decide whether the staging lag is acceptable. |
 | `PASS` | The contract holds for this installation, version and workload. | Record it. It does not validate other versions. |
 
