@@ -2,6 +2,62 @@
 import time
 import uuid
 import os
+import logging
+import threading
+
+logger = logging.getLogger(__name__)
+
+
+class RetentionWorker:
+    """Server-owned worker; scans persisted tenants even when ingestion is idle."""
+
+    def __init__(self, cp, days, interval_seconds=3600):
+        if type(days) is not int or not 1 <= days <= 3650:
+            raise ValueError("retention days must be in [1,3650]")
+        if type(interval_seconds) is not int or not 1 <= interval_seconds <= 86400:
+            raise ValueError("retention interval must be in [1,86400]")
+        self.cp, self.days, self.interval = cp, days, interval_seconds
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, name="telemetry-retention", daemon=True)
+
+    def start(self):
+        self._thread.start()
+
+    def stop(self):
+        self._stop.set()
+        if self._thread.ident is not None:
+            self._thread.join()
+
+    def run_once(self):
+        results = []
+        for tenant in self.cp._store.telemetry_tenants():
+            if self._stop.is_set():
+                break
+            try:
+                days = self.days
+                if os.environ.get("REQUIRE_LICENSE") == "true":
+                    from .enterprise import EnterpriseService
+                    days = min(days, EnterpriseService(self.cp).active_plan(tenant)["retention_days"])
+                results.append(retain(self.cp, tenant, days, "system:scheduled-retention", dry_run=False))
+            except Exception:
+                # Isolate tenant failures; never silently interpret an invalid license as permission to delete.
+                logger.exception("Scheduled retention failed for tenant %s", tenant)
+        return results
+
+    def _run(self):
+        while not self._stop.is_set():
+            try:
+                self.run_once()
+            except Exception:
+                logger.exception("Scheduled retention scan failed")
+            self._stop.wait(self.interval)
+
+
+def configured_worker(cp):
+    configured = os.environ.get("TELEMETRY_RETENTION_DAYS", "")
+    if not configured:
+        return None
+    return RetentionWorker(cp, int(configured), int(os.environ.get("TELEMETRY_RETENTION_INTERVAL_SECONDS", "3600")))
 
 
 def sweep_if_due(cp, tenant):

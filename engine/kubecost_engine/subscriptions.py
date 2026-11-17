@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Protocol
 import time
+import hashlib
+import json
 
 from .finops import money
 from .security import validate_identifier
@@ -28,20 +30,25 @@ class LocalSandboxProvider:
         }
 
 
-def transition(store, tenant, payload, plans, now=None):
+def transition(store, tenant, payload, plans, now=None, provider=None):
     now = time.time() if now is None else now
     action = payload["action"]
     if action not in ("activate", "renew", "cancel"):
         raise ValueError("action must be activate, renew or cancel")
     event_id = validate_identifier(payload["event_id"], "event_id")
+    request_fields = {key: payload.get(key) for key in ("action", "plan", "amount", "currency", "term_days")}
+    request_hash = hashlib.sha256(json.dumps(request_fields, sort_keys=True, allow_nan=False).encode()).hexdigest()
     existing = store.list_objects(tenant, "subscription")
     state = (
         existing[0]
         if existing
         else {"id": "subscription", "status": "inactive", "history": [], "version": 0}
     )
-    if any(e["event_id"] == event_id for e in state["history"]):
-        return {**state, "duplicate_ignored": True}
+    for previous in state["history"]:
+        if previous["event_id"] == event_id:
+            if previous.get("request_sha256") != request_hash:
+                raise ValueError("idempotency key reused with a different or unverifiable request")
+            return {**state, "duplicate_ignored": True}
     if (
         action == "activate"
         and state["status"] == "active"
@@ -55,6 +62,7 @@ def transition(store, tenant, payload, plans, now=None):
         "action": action,
         "timestamp": now,
         "environment": "local_sandbox",
+        "request_sha256": request_hash,
     }
     if action == "cancel":
         state["status"] = "cancelled"
@@ -77,7 +85,13 @@ def transition(store, tenant, payload, plans, now=None):
             or not currency.isupper()
         ):
             raise ValueError("invalid currency")
-        payment = LocalSandboxProvider().charge(tenant, str(amount), currency, event_id)
+        payment = (provider or LocalSandboxProvider()).charge(tenant, str(amount), currency, event_id)
+        if not isinstance(payment, dict) or payment.get("live_transaction") is not False:
+            raise ValueError("sandbox provider must explicitly forbid live transactions")
+        if payment.get("status") != "simulated_success":
+            raise ValueError("sandbox payment did not succeed; subscription unchanged")
+        if payment.get("organization") != tenant or payment.get("currency") != currency or money(payment.get("amount")) != amount:
+            raise ValueError("sandbox payment does not match the requested organization or amount")
         event["payment"] = payment
         state.update(
             plan=plan,

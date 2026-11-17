@@ -356,6 +356,11 @@ class SQLiteSaaSStore:
             rows = self._conn.execute("SELECT DISTINCT " + ",".join(expressions) + " FROM telemetry_events WHERE client_id=?", (tenant,)).fetchall()
         return [{field: row[field] for field in fields} for row in rows]
 
+    def telemetry_tenants(self):
+        with self._lock:
+            rows = self._conn.execute("SELECT DISTINCT client_id FROM telemetry_events ORDER BY client_id").fetchall()
+        return [row["client_id"] for row in rows]
+
     def prune_telemetry(self, tenant, cutoff, dry_run=True):
         with self._lock, self._conn:
             count = self._conn.execute("SELECT COUNT(*) AS n FROM telemetry_events WHERE client_id=? AND timestamp<?", (tenant, cutoff)).fetchone()["n"]

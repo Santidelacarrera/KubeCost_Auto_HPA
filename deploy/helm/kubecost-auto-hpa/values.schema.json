@@ -81,14 +81,52 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "enabled": {"type": "boolean"},
-            "enforceSeparationOfDuties": {"type": "boolean"},
-            "namespaces": {"type": "array", "items": {"type": "string", "minLength": 1}},
-            "maxObserve": {"type": "string", "pattern": "^[0-9]+(s|m|h)$"},
-            "auditURL": {"type": "string", "pattern": "^(https://.+)?$"},
-            "auditTokenSecret": {"type": "object", "properties": {"name": {"type": "string"}, "key": {"type": "string"}}},
-            "auditCASecret": {"type": "object", "properties": {"name": {"type": "string"}, "key": {"type": "string"}}},
-            "policy": {"type": "string"}
+            "enabled": {
+              "type": "boolean"
+            },
+            "enforceSeparationOfDuties": {
+              "type": "boolean"
+            },
+            "namespaces": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "maxObserve": {
+              "type": "string",
+              "pattern": "^[0-9]+(s|m|h)$"
+            },
+            "auditURL": {
+              "type": "string",
+              "pattern": "^(https://.+)?$"
+            },
+            "auditTokenSecret": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "key": {
+                  "type": "string"
+                }
+              }
+            },
+            "auditCASecret": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "key": {
+                  "type": "string"
+                }
+              }
+            },
+            "policy": {
+              "type": "string"
+            }
           }
         },
         "enableSpotDrain": {
@@ -225,6 +263,30 @@
             "key"
           ],
           "additionalProperties": false
+        },
+        "retention": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "enabled",
+            "days",
+            "intervalSeconds"
+          ],
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "days": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 3650
+            },
+            "intervalSeconds": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 86400
+            }
+          }
         }
       },
       "additionalProperties": false
