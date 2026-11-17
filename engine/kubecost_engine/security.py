@@ -275,7 +275,8 @@ def _verify_tenant_access(
 
     # Rule 2: If authenticated context is bound to a specific tenant (API key or tenant-scoped ENGINE_TOKEN)
     if clean_auth:
-        if auth_ctx is None or not auth_ctx.is_admin:
+        # Tenant administrator scopes never turn a tenant-bound credential into a global identity.
+        if clean_auth:
             if clean_hdr and clean_hdr != clean_auth:
                 raise AuthorizationError(
                     "Tenant isolation violation: X-Tenant-ID header does not match authenticated credential tenant"

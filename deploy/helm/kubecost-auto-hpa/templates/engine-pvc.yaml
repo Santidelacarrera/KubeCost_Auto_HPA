@@ -1,0 +1,16 @@
+{{- if .Values.engine.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "kch.name" . }}-engine
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  accessModes: [ReadWriteOnce]
+  {{- if .Values.engine.persistence.storageClass }}
+  storageClassName: {{ .Values.engine.persistence.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.engine.persistence.size | quote }}
+{{- end }}

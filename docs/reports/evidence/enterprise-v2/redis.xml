@@ -1,0 +1,1 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="0" skipped="0" tests="1" time="0.390" timestamp="2026-11-16T16:45:03.201317-03:00" hostname="Pc-santiagodlC"><testcase classname="validation.test_redis_service" name="test_real_redis_atomic_limit_across_instances" time="0.031" /></testsuite></testsuites>

@@ -1,3 +1,6 @@
+{{- if gt (int .Values.engine.replicas) 1 }}
+{{- fail "Control-plane runtime requires engine.replicas=1; multi-replica caches are not supported" }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -5,19 +8,30 @@ metadata:
   labels: {{- include "kch.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.engine.replicas }}
+  strategy: {type: Recreate}
   selector:
     matchLabels: {{- include "kch.selector" (dict "ctx" . "component" "engine") | nindent 6 }}
   template:
     metadata:
       labels: {{- include "kch.selector" (dict "ctx" . "component" "engine") | nindent 8 }}
     spec:
-      securityContext: {runAsNonRoot: true, runAsUser: 65532, seccompProfile: {type: RuntimeDefault}}
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 65532, fsGroup: 65532, seccompProfile: {type: RuntimeDefault}}
       containers:
       - name: engine
         image: "{{ .Values.engine.image.repository }}:{{ .Values.engine.image.tag | default .Chart.AppVersion }}"
         imagePullPolicy: {{ .Values.engine.image.pullPolicy }}
-        {{- if or .Values.auth.engine.secretName .Values.tls.engine.secretName .Values.telemetry.enabled }}
         env:
+        - {name: ENABLE_AUTOMATED_CONSOLIDATION, value: "false"}
+        {{- if .Values.engine.postgres.secretName }}
+        - name: POSTGRES_DSN
+          valueFrom: {secretKeyRef: {name: {{ .Values.engine.postgres.secretName }}, key: {{ .Values.engine.postgres.key }}}}
+        - {name: STANDALONE_SINGLE_REPLICA, value: "true"}
+        {{- end }}
+        {{- if .Values.engine.persistence.enabled }}
+        - {name: SAAS_DB_PATH, value: /data/control-plane.db}
+        - {name: STANDALONE_SINGLE_REPLICA, value: "true"}
+        {{- end }}
         {{- if .Values.auth.engine.secretName }}
         - name: ENGINE_TOKEN
           valueFrom: {secretKeyRef: {name: {{ .Values.auth.engine.secretName }}, key: {{ .Values.auth.engine.key }}}}
@@ -45,7 +59,6 @@ spec:
           value: {{ .Values.telemetry.tenantId | quote }}
         {{- end }}
         {{- end }}
-        {{- end }}
         ports: [{name: http, containerPort: 8000}]
         {{- if .Values.tls.engine.clientSecretName }}
         # kubelet has no client certificate, so under mTLS probe the TCP port only
@@ -58,9 +71,22 @@ spec:
         {{- end }}
         resources: {{- toYaml .Values.engine.resources | nindent 10 }}
         securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+        {{- if or .Values.tls.engine.secretName .Values.engine.persistence.enabled }}
+        volumeMounts:
         {{- if .Values.tls.engine.secretName }}
-        volumeMounts: [{name: tls, mountPath: /tls, readOnly: true}]
-      volumes: [{name: tls, secret: {secretName: {{ .Values.tls.engine.secretName }}}}]
+        - {name: tls, mountPath: /tls, readOnly: true}
+        {{- end }}
+        {{- if .Values.engine.persistence.enabled }}
+        - {name: data, mountPath: /data}
+        {{- end }}
+      volumes:
+        {{- if .Values.tls.engine.secretName }}
+      - {name: tls, secret: {secretName: {{ .Values.tls.engine.secretName }}}}
+        {{- end }}
+        {{- if .Values.engine.persistence.enabled }}
+      - name: data
+        persistentVolumeClaim: {claimName: {{ include "kch.name" . }}-engine}
+        {{- end }}
         {{- end }}
 ---
 apiVersion: v1

@@ -119,3 +119,8 @@ A Release Candidate needs all of these, and none exists yet:
 3. One saving reconciled with a provider invoice.
 4. The automated mode (no human approval) exercised under real load.
 5. An operator with several replicas riding out an API-server outage.
+
+
+## Enterprise API extension
+
+The additional Python control-plane workflows have separate status and evidence in [STATUS_ENTERPRISE_API.md](STATUS_ENTERPRISE_API.md), [FOLLOWUP_IMPLEMENTATION.md](FOLLOWUP_IMPLEMENTATION.md) and [MAINTENANCE_IMPLEMENTATION.md](MAINTENANCE_IMPLEMENTATION.md). Kubernetes CLI/applier licensing and Python API licensing are separate implementations. Their validation scopes must not be combined.

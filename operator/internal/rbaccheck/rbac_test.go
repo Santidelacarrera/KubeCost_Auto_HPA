@@ -168,7 +168,7 @@ func render(t *testing.T, args ...string) string {
 }
 
 func TestHelmClusterRoleMatchesTheGeneratedRole(t *testing.T) {
-	roles := clusterRoles(t, render(t))
+	roles := clusterRoles(t, render(t, "--set", "operator.enableSpotDrain=true"))
 	if len(roles) != 1 {
 		t.Fatalf("want one ClusterRole in the chart, got %d", len(roles))
 	}

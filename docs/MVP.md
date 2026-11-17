@@ -59,3 +59,8 @@ What it can promise is in the last paragraph of [COMMERCIAL.md](COMMERCIAL.md).
 ## Maturity after the MVP list
 
 Items 1 to 5 keep the product at Beta with a usable MVP. Items 6 to 8 are what turn it into a Release Candidate.
+
+
+## Enterprise API extension
+
+The additional Python control-plane workflows have separate status and evidence in [MVP_ENTERPRISE_API.md](MVP_ENTERPRISE_API.md), [FOLLOWUP_IMPLEMENTATION.md](FOLLOWUP_IMPLEMENTATION.md) and [MAINTENANCE_IMPLEMENTATION.md](MAINTENANCE_IMPLEMENTATION.md). Kubernetes CLI/applier licensing and Python API licensing are separate implementations. Their validation scopes must not be combined.

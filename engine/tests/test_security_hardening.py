@@ -366,13 +366,13 @@ def test_14_2_multitenant_bola_idor_all_10_vectors_blocked(monkeypatch):
                 }
             ).encode(),
         )
-        assert code_rec_a == 200
+        assert code_rec_a == 400  # No executor: refuse instead of inventing success
         _, _, dash_b_raw = _http_request(
             f"{base_url}/v1/ui/cast-dashboard?client_id=tenant-b",
             headers=headers_b,
         )
         dash_b = json.loads(dash_b_raw.decode())
-        assert dash_b["pain_number_cards"]["realized_1click_savings_usd"] == 0.0
+        assert dash_b["pain_number_cards"]["realized_1click_savings_usd"] is None
 
         # Vector 6: Tenant A cannot access cluster topology, security, or simulation of Tenant B's cluster
         for cluster_route in (

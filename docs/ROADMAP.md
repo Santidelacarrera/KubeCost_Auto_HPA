@@ -53,3 +53,8 @@ Status of every feature: docs/STATUS.md. In order:
 | 11 | Multi-cluster read-only view | Enterprise tier | 9 |
 | 12 | Replace the demo console with one that reads the cluster | The console is sample data | 11 |
 | 13 | Third-party security review | No external audit exists | Budget |
+
+
+## Enterprise API extension
+
+The additional Python control-plane workflows have separate status and evidence in [ROADMAP_ENTERPRISE_API.md](ROADMAP_ENTERPRISE_API.md), [FOLLOWUP_IMPLEMENTATION.md](FOLLOWUP_IMPLEMENTATION.md) and [MAINTENANCE_IMPLEMENTATION.md](MAINTENANCE_IMPLEMENTATION.md). Kubernetes CLI/applier licensing and Python API licensing are separate implementations. Their validation scopes must not be combined.

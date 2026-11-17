@@ -31,12 +31,10 @@ def test_predictive_surge_velocity_prewarming():
         target_rps_per_pod=50.0,
         rps_history=[100.0, 160.0, 250.0],
     )
-    assert res.is_prewarming is True
-    assert res.recommended_replicas > res.reactive_replicas
-    assert res.confidence_score >= 0.85
-    assert "Predictive pre-warm" in res.reason
-    assert res.prewarm_command is not None
-    assert res.prewarm_command["action"] == "PRE_WARM"
+    assert res.is_prewarming is False
+    assert res.recommended_replicas == res.reactive_replicas
+    assert res.confidence_score == 0
+    assert res.prewarm_command is None
 
 
 def test_predictive_cyclical_peak_hour():

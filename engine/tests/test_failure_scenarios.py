@@ -235,15 +235,13 @@ def test_scenario_15_16_18_19_20_drift_slo_multitenant_errors_and_traffic_drop()
     assert audit.is_verified_saving is False
 
 
-def test_fase_10_cast_dashboard_and_1click_execution():
+def test_dashboard_never_invents_savings_or_execution():
     cp = SaaSControlPlane()
     dash = cp.get_cast_dashboard()
-    assert "pain_number_cards" in dash
-    assert dash["pain_number_cards"]["current_monthly_spend_usd"] > dash["pain_number_cards"]["projected_optimized_spend_usd"]
-    assert len(dash["namespace_bar_chart"]) >= 4
-    assert len(dash["actionable_recommendations"]) >= 4
-
-    exec_res = cp.execute_ui_recommendation({"recommendation_id": "rec-resize-payment-01", "workload": "payment-service"})
-    assert exec_res["status"] == "executed"
-    dash_after = cp.get_cast_dashboard()
-    assert dash_after["pain_number_cards"]["realized_1click_savings_usd"] >= 1420.0
+    assert dash["pain_number_cards"]["current_monthly_spend_usd"] is None
+    assert dash["namespace_bar_chart"] == []
+    assert dash["actionable_recommendations"] == []
+    import pytest
+    with pytest.raises(ValueError, match="no verified Kubernetes executor"):
+        cp.execute_ui_recommendation({"recommendation_id": "rec-resize-payment-01", "workload": "payment-service"})
+    assert cp.get_audit_decisions("default-tenant") == []

@@ -22,7 +22,7 @@ import time
 from typing import Any, Dict, List, Optional
 import uuid
 
-from .persistence import SQLiteSaaSStore
+from .postgres import create_store
 from .security import AuthorizationError, InputValidationError, validate_identifier
 
 _SHARED_DEFAULT_CLUSTER_NAMES = frozenset(
@@ -47,7 +47,7 @@ class AgentRegistration:
     cloud_provider: str = "aws"
     registered_at: float = field(default_factory=time.time)
     last_heartbeat_at: float = field(default_factory=time.time)
-    execution_mode: str = "ACTIVE"
+    execution_mode: str = "OBSERVE_ONLY"
     status: str = "ONLINE"
 
 
@@ -109,8 +109,10 @@ class SaaSControlPlane:
     """Thread-safe multi-tenant SaaS Control Plane state and business logic."""
 
     def __init__(self, db_path: Optional[str] = None) -> None:
-        self._lock = threading.Lock()
-        self._store = SQLiteSaaSStore(db_path=db_path)
+        self._lock = threading.RLock()
+        self._store = create_store(db_path=db_path)
+        if hasattr(self._store, "acquire_control_plane"):
+            self._store.acquire_control_plane()
         # Keyed by client_id for strict tenant isolation
         self._agents: Dict[str, Dict[str, AgentRegistration]] = {}
         self._telemetry: Dict[str, List[NormalizedTelemetryRecord]] = {}
@@ -126,6 +128,37 @@ class SaaSControlPlane:
         self._command_owners: Dict[str, str] = {}
         self._event_owners: Dict[str, str] = {}
         self._decision_owners: Dict[str, str] = {}
+        recovery = self._store.recovery_records()
+        for tenant, state in recovery["runtime"]:
+            self._agents[tenant] = {k: AgentRegistration(**v) for k, v in state["agents"].items()}
+            self._policies[tenant] = state["policies"]
+            for cluster in self._agents[tenant]:
+                self._bind_or_verify_cluster_owner(tenant, cluster, register=True)
+        for raw in recovery["telemetry"]:
+            # Older raw payloads remain in the database; only normalized records can be restored.
+            if "cpu_usage_cores" not in raw:
+                continue
+            record = NormalizedTelemetryRecord(**raw)
+            self._telemetry.setdefault(record.client_id, []).append(record)
+            self._seen_event_ids.setdefault(record.client_id, set()).add(record.event_id)
+            self._event_owners[record.event_id] = record.client_id
+            self._bind_or_verify_cluster_owner(record.client_id, record.cluster_id, register=True)
+        for raw in recovery["commands"]:
+            command = PreWarmCommand(**raw)
+            self._commands.setdefault(command.client_id, {})[command.command_id] = command
+            self._command_owners[command.command_id] = command.client_id
+            if command.status != "PENDING":
+                self._executed_command_ids.setdefault(command.client_id, set()).add(command.command_id)
+        for raw in recovery["audit"]:
+            tenant = raw["client_id"]
+            self._audit_logs.setdefault(tenant, []).append(raw)
+            self._decision_owners[raw["decision_id"]] = tenant
+
+    def _persist_runtime(self, tenant):
+        state = {"agents": {k: asdict(v) for k, v in self._agents.get(tenant, {}).items()}, "policies": self._policies.get(tenant, {})}
+        previous = self._store.list_objects(tenant, "runtime")
+        self._store.put_object(tenant, "runtime", "state", state, previous[0]["version"] if previous else 0)
+
 
     def register_tenant_token(self, client_id: str, token: str) -> None:
         with self._lock:
@@ -198,10 +231,12 @@ class SaaSControlPlane:
             cloud_provider=validate_identifier(str(payload.get("cloud_provider", "aws")), "cloud_provider"),
             registered_at=now,
             last_heartbeat_at=now,
-            execution_mode=validate_identifier(str(payload.get("execution_mode", "ACTIVE")), "execution_mode"),
+            execution_mode=validate_identifier(str(payload.get("execution_mode", "OBSERVE_ONLY")), "execution_mode"),
             status="ONLINE",
         )
         with self._lock:
+            from .enterprise import EnterpriseService
+            EnterpriseService(self).enforce_license(client_id, new_cluster=cluster_id not in self._agents.get(client_id, {}))
             self._bind_or_verify_cluster_owner(client_id, cluster_id, register=True)
             self._agents.setdefault(client_id, {})[cluster_id] = reg
             self._policies.setdefault(client_id, {}).setdefault(
@@ -217,12 +252,13 @@ class SaaSControlPlane:
                     "min_replicas": 2,
                     "max_replicas": 50,
                     "enable_prewarm": True,
-                    "enable_spot_drain": True,
+                    "enable_spot_drain": False,
                     "pricing_model": "VALUE_SHARED",
                     "value_shared_fee_pct": 0.22,
                     "fixed_price_per_node_month_usd": 25.0,
                 },
             )
+            self._persist_runtime(client_id)
         return asdict(reg)
 
     def heartbeat(self, payload: Dict[str, Any], tenant_header: Optional[str] = None) -> Dict[str, Any]:
@@ -238,6 +274,8 @@ class SaaSControlPlane:
             self._bind_or_verify_cluster_owner(client_id, cluster_id, register=True)
             reg = self._agents.get(client_id, {}).get(cluster_id)
             if not reg:
+                from .enterprise import EnterpriseService
+                EnterpriseService(self).enforce_license(client_id, new_cluster=True)
                 reg = AgentRegistration(
                     client_id=client_id,
                     cluster_id=cluster_id,
@@ -258,6 +296,7 @@ class SaaSControlPlane:
                         str(payload["execution_mode"]), "execution_mode"
                     )
 
+            self._persist_runtime(client_id)
             pending_cmds = [
                 asdict(c)
                 for c in self._commands.get(client_id, {}).values()
@@ -315,19 +354,6 @@ class SaaSControlPlane:
             self._event_owners[event_id] = client_id
 
             seen = self._seen_event_ids.setdefault(client_id, set())
-            if event_id in seen or not self._store.save_telemetry_event(
-                client_id, event_id, cluster_id, timestamp, payload
-            ):
-                seen.add(event_id)
-                return {
-                    "status": "duplicate_ignored",
-                    "event_id": event_id,
-                    "client_id": client_id,
-                    "cluster_id": cluster_id,
-                    "deduplicated": True,
-                }
-            seen.add(event_id)
-
             error_rate = float(payload.get("error_rate", metrics.get("error_rate", 0.0)))
             if not math.isfinite(error_rate):
                 raise InputValidationError("error_rate must be finite")
@@ -379,10 +405,22 @@ class SaaSControlPlane:
                 )[:32],
                 current_replicas=replicas,
             )
+            for value in (rec.successful_requests, rec.spot_instance_risk, rec.p50_latency_ms, rec.p95_latency_ms):
+                if not math.isfinite(value) or value < 0:
+                    raise InputValidationError("telemetry metrics must be finite and non-negative")
+            from .enterprise import EnterpriseService
+            EnterpriseService(self).enforce_inventory(client_id, rec)
+            if event_id in seen or not self._store.save_telemetry_event(client_id, event_id, cluster_id, timestamp, asdict(rec)):
+                seen.add(event_id)
+                return {"status": "duplicate_ignored", "event_id": event_id, "client_id": client_id, "cluster_id": cluster_id, "deduplicated": True}
+            seen.add(event_id)
             bucket = self._telemetry.setdefault(client_id, [])
             bucket.append(rec)
             if len(bucket) > 5000:
                 del bucket[: len(bucket) - 5000]
+
+        from .maintenance import sweep_if_due
+        sweep_if_due(self, client_id)
 
         return {
             "status": "ingested",
@@ -432,14 +470,14 @@ class SaaSControlPlane:
                 "policy_version": "2026-11-01.default",
                 "client_id": clean_client,
                 "cluster_id": clean_cluster,
-                "execution_mode": "ACTIVE",
+                "execution_mode": "OBSERVE_ONLY",
                 "slo_p99_ms": 200.0,
                 "max_increase_percent": 100.0,
                 "max_decrease_percent": 20.0,
                 "min_replicas": 2,
                 "max_replicas": 50,
                 "enable_prewarm": True,
-                "enable_spot_drain": True,
+                "enable_spot_drain": False,
             }
 
     def update_policy(self, payload: Dict[str, Any], tenant_header: Optional[str] = None) -> Dict[str, Any]:
@@ -454,6 +492,11 @@ class SaaSControlPlane:
         max_rep = int(payload.get("max_replicas", 50))
         if min_rep < 1 or max_rep < min_rep or max_rep > 10000:
             raise InputValidationError("invalid replica bounds in policy")
+        for flag in ("enable_prewarm", "enable_spot_drain"):
+            if flag in payload and type(payload[flag]) is not bool:
+                raise InputValidationError(f"{flag} must be a boolean")
+        if "execution_mode" in payload and payload["execution_mode"] not in ("OBSERVE_ONLY", "ASSISTED", "AUTOMATED", "Observe", "Canary", "Active"):
+            raise InputValidationError("unsupported execution_mode")
 
         with self._lock:
             self._bind_or_verify_cluster_owner(clean_client, clean_cluster, register=True)
@@ -471,16 +514,17 @@ class SaaSControlPlane:
                     "client_id": clean_client,
                     "cluster_id": clean_cluster,
                     "execution_mode": validate_identifier(
-                        str(payload.get("execution_mode", pol.get("execution_mode", "ACTIVE"))),
+                        str(payload.get("execution_mode", pol.get("execution_mode", "OBSERVE_ONLY"))),
                         "execution_mode",
                     ),
                     "slo_p99_ms": slo,
                     "min_replicas": min_rep,
                     "max_replicas": max_rep,
-                    "enable_prewarm": bool(payload.get("enable_prewarm", True)),
-                    "enable_spot_drain": bool(payload.get("enable_spot_drain", True)),
+                    "enable_prewarm": payload.get("enable_prewarm", pol.get("enable_prewarm", True)),
+                    "enable_spot_drain": payload.get("enable_spot_drain", pol.get("enable_spot_drain", False)),
                 }
             )
+            self._persist_runtime(clean_client)
             return dict(pol)
 
     def issue_prewarm_command(
@@ -533,6 +577,11 @@ class SaaSControlPlane:
                     "Tenant isolation violation: command_id belongs to another organization"
                 )
             self._command_owners[command_id] = client_id
+            existing = self._commands.get(client_id, {}).get(command_id)
+            if existing is not None:
+                if (existing.cluster_id, existing.workload, existing.requested_resources, existing.recommended_replicas) != (cmd.cluster_id, cmd.workload, cmd.requested_resources, cmd.recommended_replicas):
+                    raise InputValidationError("command_id already exists with different content")
+                return asdict(existing)
             self._commands.setdefault(client_id, {})[command_id] = cmd
             self._store.upsert_prewarm_command(
                 client_id, command_id, cluster_id, cmd.status, cmd.expires_at, asdict(cmd)
@@ -553,6 +602,7 @@ class SaaSControlPlane:
                     continue
                 if cmd.status == "PENDING" and cmd.expires_at <= now:
                     cmd.status = "EXPIRED"
+                    self._store.upsert_prewarm_command(clean_client, cmd.command_id, cmd.cluster_id, cmd.status, cmd.expires_at, asdict(cmd))
                 if cmd.status == "PENDING":
                     out.append(asdict(cmd))
         return out
@@ -597,6 +647,7 @@ class SaaSControlPlane:
                 cmd.ack_status = "REJECTED_EXPIRED"
                 cmd.ack_reason = f"Command expired at {cmd.expires_at} (current={now})"
                 cmd.ack_timestamp = float(now)
+                self._store.upsert_prewarm_command(client_id, cmd.command_id, cmd.cluster_id, cmd.status, cmd.expires_at, asdict(cmd))
                 return {
                     "command_id": command_id,
                     "client_id": client_id,
@@ -609,6 +660,7 @@ class SaaSControlPlane:
             cmd.ack_status = agent_status
             cmd.ack_reason = agent_reason
             cmd.ack_timestamp = float(now)
+            self._store.upsert_prewarm_command(client_id, cmd.command_id, cmd.cluster_id, cmd.status, cmd.expires_at, asdict(cmd))
 
             return {
                 "command_id": command_id,
@@ -644,7 +696,7 @@ class SaaSControlPlane:
                 str(payload.get("decision_type", "VERTICAL_RESIZE")), "decision_type"
             ),
             "execution_mode": validate_identifier(
-                str(payload.get("execution_mode", "ACTIVE")), "execution_mode"
+                str(payload.get("execution_mode", "OBSERVE_ONLY")), "execution_mode"
             ),
             "before_state": payload.get("before_state", {}),
             "after_state": payload.get("after_state", {}),
@@ -702,121 +754,22 @@ class SaaSControlPlane:
         clean_cluster = validate_identifier(cluster_id or "eks-prod-us-east-1", "cluster_id")
         with self._lock:
             self._bind_or_verify_cluster_owner(clean_client, clean_cluster, register=False)
-            executed_recs = set(self._executed_ui_recs_by_tenant.get(clean_client, set()))
-
-        recommendations = [
-            {
-                "recommendation_id": "rec-resize-payment-01",
-                "workload": "payment-service",
-                "namespace": "payments",
-                "action_type": "IN_PLACE_RESIZE",
-                "action_label": "In-Place Resize (pods/resize)",
-                "current_config": "4 pods × 2000m CPU / 4Gi Mem",
-                "recommended_config": "4 pods × 950m CPU / 2.5Gi Mem",
-                "monthly_savings_usd": 1420.00,
-                "slo_impact": "Zero restart • p99 48ms / 150ms SLO",
-                "status": "EXECUTED" if "rec-resize-payment-01" in executed_recs else "READY",
-            },
-            {
-                "recommendation_id": "rec-spot-drain-node88",
-                "workload": "ip-10-0-12-88.ec2.internal",
-                "namespace": "production",
-                "action_type": "SPOT_DRAIN",
-                "action_label": "Spot Drain & Bin-Pack",
-                "current_config": "m6i.2xlarge On-Demand (21% CPU util)",
-                "recommended_config": "Cordon + Evict 3 pods -> Spot c6i.2xlarge",
-                "monthly_savings_usd": 2180.00,
-                "slo_impact": "PDB respected • 0 dropped requests",
-                "status": "EXECUTED" if "rec-spot-drain-node88" in executed_recs else "READY",
-            },
-            {
-                "recommendation_id": "rec-resize-checkout-02",
-                "workload": "checkout-api",
-                "namespace": "checkout",
-                "action_type": "IN_PLACE_RESIZE",
-                "action_label": "In-Place Resize (pods/resize)",
-                "current_config": "6 pods × 1800m CPU / 4Gi Mem",
-                "recommended_config": "6 pods × 1100m CPU / 2.5Gi Mem",
-                "monthly_savings_usd": 1690.00,
-                "slo_impact": "Zero restart • p99 68ms / 120ms SLO",
-                "status": "EXECUTED" if "rec-resize-checkout-02" in executed_recs else "READY",
-            },
-            {
-                "recommendation_id": "rec-spot-drain-analytics",
-                "workload": "analytics-ingestor",
-                "namespace": "analytics",
-                "action_type": "SPOT_DRAIN",
-                "action_label": "Spot Drain & Bin-Pack",
-                "current_config": "8 pods on On-Demand c6i.4xlarge",
-                "recommended_config": "Migrate stateless workers to Spot pool",
-                "monthly_savings_usd": 3270.00,
-                "slo_impact": "Rebalance-aware • 99.98% availability",
-                "status": "EXECUTED" if "rec-spot-drain-analytics" in executed_recs else "READY",
-            },
-        ]
-
-        realized_bonus = sum(
-            r["monthly_savings_usd"] for r in recommendations if r["status"] == "EXECUTED"
-        )
-        current_spend = 18450.00
-        projected_spend = 9890.00
-        net_savings = round(current_spend - projected_spend, 2)
-        value_shared_fee = round(net_savings * 0.22, 2)
-
+            records = [asdict(r) for r in self._telemetry.get(clean_client, []) if r.cluster_id == clean_cluster]
+        latest = {}
+        for row in sorted(records, key=lambda r: r["timestamp"]):
+            latest[(row["namespace"], row["workload_name"], row["pod_name"], row["container_name"])] = row
+        groups = {}
+        for row in latest.values():
+            group = groups.setdefault(row["namespace"], {"namespace": row["namespace"], "cpu_used_cores": 0, "memory_used_gib": 0})
+            group["cpu_used_cores"] += row["cpu_usage_cores"]
+            group["memory_used_gib"] += row["mem_usage_bytes"] / 1024**3
+        recommendations = [r for r in self._store.list_objects(clean_client, "rightsizing") if r["cluster_id"] == clean_cluster]
         return {
-            "client_id": clean_client,
-            "cluster_id": clean_cluster,
-            "typography_policy": "Inter, Geist Sans, system-ui, sans-serif",
-            "pain_number_cards": {
-                "current_monthly_spend_usd": current_spend,
-                "projected_optimized_spend_usd": projected_spend,
-                "net_monthly_savings_usd": net_savings,
-                "net_savings_pct": round((net_savings / current_spend) * 100.0, 1),
-                "realized_1click_savings_usd": round(realized_bonus, 2),
-                "value_shared_fee_pct": 22.0,
-                "value_shared_fee_usd": value_shared_fee,
-                "customer_retained_savings_usd": round(net_savings - value_shared_fee, 2),
-                "fixed_per_node_monthly_fee_usd": 450.00,
-            },
-            "namespace_bar_chart": [
-                {
-                    "namespace": "production",
-                    "cpu_allocated_cores": 64.0,
-                    "cpu_used_cores": 26.5,
-                    "cpu_waste_cores": 37.5,
-                    "memory_allocated_gib": 256.0,
-                    "memory_used_gib": 118.0,
-                    "monthly_waste_usd": 2840.00,
-                },
-                {
-                    "namespace": "payments",
-                    "cpu_allocated_cores": 48.0,
-                    "cpu_used_cores": 19.2,
-                    "cpu_waste_cores": 28.8,
-                    "memory_allocated_gib": 192.0,
-                    "memory_used_gib": 88.0,
-                    "monthly_waste_usd": 1960.00,
-                },
-                {
-                    "namespace": "checkout",
-                    "cpu_allocated_cores": 40.0,
-                    "cpu_used_cores": 18.0,
-                    "cpu_waste_cores": 22.0,
-                    "memory_allocated_gib": 160.0,
-                    "memory_used_gib": 74.0,
-                    "monthly_waste_usd": 1690.00,
-                },
-                {
-                    "namespace": "analytics",
-                    "cpu_allocated_cores": 56.0,
-                    "cpu_used_cores": 17.5,
-                    "cpu_waste_cores": 38.5,
-                    "memory_allocated_gib": 224.0,
-                    "memory_used_gib": 82.0,
-                    "monthly_waste_usd": 2070.00,
-                },
-            ],
-            "actionable_recommendations": recommendations,
+            "client_id": clean_client, "cluster_id": clean_cluster,
+            "data_source": "ingested_telemetry", "has_data": bool(records),
+            "latest_observation": max((r["timestamp"] for r in records), default=None),
+            "pain_number_cards": {"current_monthly_spend_usd": None, "projected_optimized_spend_usd": None, "net_monthly_savings_usd": None, "realized_1click_savings_usd": None},
+            "namespace_bar_chart": list(groups.values()), "actionable_recommendations": recommendations,
         }
 
     def execute_ui_recommendation(
@@ -860,28 +813,7 @@ class SaaSControlPlane:
 
         with self._lock:
             self._bind_or_verify_cluster_owner(clean_client, clean_cluster, register=False)
-            self._executed_ui_recs_by_tenant.setdefault(clean_client, set()).add(clean_rec_id)
-
-        self.record_audit_decision(
-            {
-                "client_id": clean_client,
-                "cluster_id": clean_cluster,
-                "workload": clean_workload,
-                "decision_type": clean_action,
-                "execution_mode": "ACTIVE",
-                "reason": f"1-click UI execution of {clean_rec_id}",
-            },
-            tenant_header=clean_client,
-        )
-        return {
-            "status": "executed",
-            "client_id": clean_client,
-            "cluster_id": clean_cluster,
-            "recommendation_id": clean_rec_id,
-            "workload": clean_workload,
-            "action_type": clean_action,
-            "timestamp": int(time.time()),
-        }
+        raise InputValidationError("Direct UI execution is unavailable: no verified Kubernetes executor is connected to this recommendation. Use the operator workflow; no action or savings recorded.")
 
 
 _GLOBAL_CONTROL_PLANE = SaaSControlPlane()

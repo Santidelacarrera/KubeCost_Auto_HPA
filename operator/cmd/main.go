@@ -86,7 +86,7 @@ func main() {
 	flag.StringVar(&licenseFile, "license-file", "", "Signed licence file (docs/COMMERCIAL.md). Verified offline; nothing is sent anywhere.")
 	flag.StringVar(&licensePubKey, "license-public-key-file", "", "Public key (PEM) that the licence must be signed with.")
 	flag.BoolVar(&enforceLicense, "enforce-license", false, "Apply the licence tier to the operating mode: starter = observe-only, professional = apply with human approval, enterprise = automation allowed. Off by default: the licence is then only reported. A missing, invalid or expired licence under enforcement means observe-only.")
-	flag.BoolVar(&spotDrain, "enable-spot-drain", true, "Cordon/drain Spot nodes with interruption signals.")
+	flag.BoolVar(&spotDrain, "enable-spot-drain", false, "Cordon/drain Spot nodes with interruption signals.")
 	flag.DurationVar(&drainTimeout, "drain-timeout", 2*time.Minute, "Maximum time to drain a node.")
 	var promHTTP, kcHTTP, engHTTP, redisTLS httpx.Options
 	var enableCostAutoscaler bool

@@ -23,3 +23,7 @@ kubeconfig*
 *.db
 *.db-wal
 *.db-shm
+.coverage
+coverage.xml
+.cloud-evidence/
+.local-validation/

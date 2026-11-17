@@ -1,0 +1,1 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="0" skipped="0" tests="1" time="14.343" timestamp="2026-11-16T16:46:01.600719-03:00" hostname="Pc-santiagodlC"><testcase classname="validation.test_console" name="test_console_real_api_empty_registration_and_mobile" time="13.580" /></testsuite></testsuites>

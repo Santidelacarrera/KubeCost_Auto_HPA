@@ -368,3 +368,8 @@ calculadora de la web son modelos sobre los supuestos que se les introducen, no 
 
 [Apache License 2.0](LICENSE): licencia permisiva con concesión expresa de patentes, la misma que usan Kubernetes,
 controller-runtime y OpenCost, de modo que el código es compatible con las dependencias del proyecto.
+
+
+## Enterprise control-plane preview
+
+`web/app.html` is the API-connected console. The upstream sample console is preserved at `web/upstream-demo.html`. PostgreSQL persistence, API users, licenses and retention are described in [docs/FOLLOWUP_IMPLEMENTATION.md](docs/FOLLOWUP_IMPLEMENTATION.md) and [docs/MAINTENANCE_IMPLEMENTATION.md](docs/MAINTENANCE_IMPLEMENTATION.md). This API runtime requires one active process. Consolidation approval does not execute a node drain.

@@ -160,6 +160,53 @@ func TestDrainRefusesWithoutCapacityOrWithUnmanagedPods(t *testing.T) {
 	}
 }
 
+func TestDrainProtectedPodsHaveNoSideEffects(t *testing.T) {
+	for _, kind := range []string{"annotation", "emptyDir", "hostPath", "pvc", "stateful"} {
+		t.Run(kind, func(t *testing.T) {
+			p := pod("protected", "source", "1", "", "ReplicaSet")
+			switch kind {
+			case "annotation":
+				p.Annotations = map[string]string{SafeToEvictAnnotation: "false"}
+			case "emptyDir":
+				p.Spec.Volumes = []corev1.Volume{{Name: "data", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}}}
+			case "hostPath":
+				p.Spec.Volumes = []corev1.Volume{{Name: "data", VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: "/data"}}}}
+			case "pvc":
+				p.Spec.Volumes = []corev1.Volume{{Name: "data", VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: "data"}}}}
+			case "stateful":
+				p.OwnerReferences[0].Kind = "StatefulSet"
+			}
+			cs := fake.NewSimpleClientset(readyNode("source"), readyNode("target"), p)
+			if err := (&Drainer{Client: cs}).Drain(context.Background(), "source"); err == nil {
+				t.Fatal("protected workload must block drain")
+			}
+			for _, action := range cs.Actions() {
+				if action.GetVerb() == "patch" || action.GetVerb() == "create" || action.GetVerb() == "delete" {
+					t.Fatalf("preflight failure mutated Kubernetes: %v", action)
+				}
+			}
+		})
+	}
+}
+
+func TestEvictionIsBoundToPodUID(t *testing.T) {
+	p := pod("web", "source", "1", "", "ReplicaSet")
+	cs := fake.NewSimpleClientset(readyNode("source"), readyNode("target"), p)
+	cs.PrependReactor("create", "pods", func(a clienttesting.Action) (bool, runtime.Object, error) {
+		if a.GetSubresource() != "eviction" {
+			return false, nil, nil
+		}
+		ev := a.(clienttesting.CreateAction).GetObject().(*policyv1.Eviction)
+		if ev.DeleteOptions.Preconditions == nil || *ev.DeleteOptions.Preconditions.UID != p.UID {
+			t.Fatal("eviction must protect against same-name replacement")
+		}
+		return true, nil, apierrors.NewConflict(schema.GroupResource{Resource: "pods"}, p.Name, errors.New("UID changed"))
+	})
+	if err := (&Drainer{Client: cs}).Drain(context.Background(), "source"); err == nil {
+		t.Fatal("must stop on UID conflict")
+	}
+}
+
 func TestUncordon(t *testing.T) {
 	n := readyNode("n")
 	n.Spec.Unschedulable = true

@@ -1,0 +1,68 @@
+........................................................................ [ 65%]
+.........F............s...............                                   [100%]
+================================== FAILURES ===================================
+_____ test_14_3_rate_limiting_429_headers_daily_quota_and_auth_keys_limit _____
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x00000203ADFFA390>
+
+    def test_14_3_rate_limiting_429_headers_daily_quota_and_auth_keys_limit(monkeypatch):
+        monkeypatch.setenv("ENGINE_TOKEN", "rl-secret")
+        monkeypatch.setenv("RATE_LIMIT_AUTH_KEYS_PER_MIN", "3")
+        monkeypatch.setenv("RATE_LIMIT_COMPUTE_PER_MIN", "50")
+        monkeypatch.setenv("RATE_LIMIT_DAILY_EVAL_QUOTA", "4")
+    
+        srv, base_url = _start_test_server()
+        auth_hdr = {"Authorization": "Bearer rl-secret", "X-Tenant-ID": "tenant-rl-1"}
+        try:
+            # 1. Test POST /v1/auth/keys strict brute-force limit (3 req/min/IP)
+            for _ in range(3):
+                code, hdrs, _ = _http_request(
+                    f"{base_url}/v1/auth/keys",
+                    method="POST",
+                    headers=auth_hdr,
+                    body=json.dumps({"client_id": "tenant-rl-1"}).encode(),
+                )
+>               assert code == 200
+E               assert 429 == 200
+
+engine\tests\test_security_hardening.py:481: AssertionError
+------------------------------ Captured log call ------------------------------
+WARNING  kubecost_engine.security:security.py:507 rate_limit_exceeded scope=ip category=auth_keys ip=127.0.0.1 limit=3
+- generated xml file: C:\Users\santi\KubeCost_Auto_HPA\docs\reports\evidence\enterprise-v2\python.xml -
+=============================== tests coverage ================================
+______________ coverage: platform win32, python 3.12.10-final-0 _______________
+
+Name                                           Stmts   Miss  Cover
+------------------------------------------------------------------
+engine\kubecost_engine\__init__.py                 5      0   100%
+engine\kubecost_engine\auth_billing.py           175     25    86%
+engine\kubecost_engine\billing_and_auth.py         2      2     0%
+engine\kubecost_engine\binpacking.py             230     19    92%
+engine\kubecost_engine\bootstrap.py               91     12    87%
+engine\kubecost_engine\cast_suite.py              55      4    93%
+engine\kubecost_engine\economics.py              123      6    95%
+engine\kubecost_engine\enterprise.py             139     38    73%
+engine\kubecost_engine\finops.py                  80     17    79%
+engine\kubecost_engine\gameday.py                 39      0   100%
+engine\kubecost_engine\gpu_optimizer.py           84      7    92%
+engine\kubecost_engine\greenops_guardrail.py      97      0   100%
+engine\kubecost_engine\guardrails.py              14      1    93%
+engine\kubecost_engine\oom_shield.py             110      4    96%
+engine\kubecost_engine\openapi.py                 16      0   100%
+engine\kubecost_engine\optimization.py           102      7    93%
+engine\kubecost_engine\persistence.py            124     15    88%
+engine\kubecost_engine\predictive.py             226     26    88%
+engine\kubecost_engine\pricing.py                 32      1    97%
+engine\kubecost_engine\saas.py                   429    101    76%
+engine\kubecost_engine\scaling.py                 99     12    88%
+engine\kubecost_engine\security.py               321     89    72%
+engine\kubecost_engine\server.py                 666    128    81%
+engine\kubecost_engine\spot.py                    52     17    67%
+engine\kubecost_engine\subscriptions.py           46      7    85%
+engine\kubecost_engine\telemetry.py               89     24    73%
+------------------------------------------------------------------
+TOTAL                                           3446    562    84%
+Coverage JSON written to file C:\Users\santi\KubeCost_Auto_HPA\docs\reports\evidence\enterprise-v2\coverage.json
+=========================== short test summary info ===========================
+FAILED engine\tests\test_security_hardening.py::test_14_3_rate_limiting_429_headers_daily_quota_and_auth_keys_limit
+1 failed, 108 passed, 1 skipped in 13.35s
