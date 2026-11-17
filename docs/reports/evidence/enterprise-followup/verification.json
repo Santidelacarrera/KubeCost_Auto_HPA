@@ -1,0 +1,26 @@
+{
+  "date": "2026-11-17",
+  "branch": "enterprise-completion-v2",
+  "python": {
+    "passed": 131,
+    "skipped": 0,
+    "coverage_percent": 85.8,
+    "log": "python.log",
+    "junit": "python.xml"
+  },
+  "postgres": {
+    "service": "PostgreSQL 17 in isolated local Docker container",
+    "tests": "real connections, concurrency, transaction rollback, entity recovery, migration and runtime exclusion"
+  },
+  "browser": "real HTTP API, navigation, chart values, mobile overflow",
+  "helm": "lint and PostgreSQL Secret rendering passed",
+  "lint": "ruff E9,F63,F7,F82 passed",
+  "git_diff_check": "passed",
+  "limits": [
+    "single active runtime",
+    "consolidation executor incomplete",
+    "retention incomplete",
+    "no external cloud or commercial acceptance"
+  ],
+  "release_candidate": false
+}

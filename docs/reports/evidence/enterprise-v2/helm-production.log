@@ -1,0 +1,984 @@
+---
+# Source: kubecost-auto-hpa/templates/extras.yaml
+# Engine and Redis only accept traffic from the operator.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: verification-kubecost-auto-hpa-engine
+  labels:
+    app.kubernetes.io/name: kubecost-auto-hpa
+    app.kubernetes.io/instance: verification
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: kubecost-auto-hpa-0.1.0
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: kubecost-auto-hpa
+      app.kubernetes.io/instance: verification
+      app.kubernetes.io/component: engine
+  policyTypes: [Ingress]
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: kubecost-auto-hpa
+          app.kubernetes.io/instance: verification
+          app.kubernetes.io/component: operator
+    ports: [{port: 8000}]
+
+---
+# Source: kubecost-auto-hpa/templates/extras.yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: verification-kubecost-auto-hpa-redis
+  labels:
+    app.kubernetes.io/name: kubecost-auto-hpa
+    app.kubernetes.io/instance: verification
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: kubecost-auto-hpa-0.1.0
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: kubecost-auto-hpa
+      app.kubernetes.io/instance: verification
+      app.kubernetes.io/component: redis
+  policyTypes: [Ingress]
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: kubecost-auto-hpa
+          app.kubernetes.io/instance: verification
+          app.kubernetes.io/component: operator
+    ports: [{port: 6379}]
+
+---
+# Source: kubecost-auto-hpa/templates/extras.yaml
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: verification-kubecost-auto-hpa-operator
+  labels:
+    app.kubernetes.io/name: kubecost-auto-hpa
+    app.kubernetes.io/instance: verification
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: kubecost-auto-hpa-0.1.0
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kubecost-auto-hpa
+      app.kubernetes.io/instance: verification
+      app.kubernetes.io/component: operator
+
+---
+# Source: kubecost-auto-hpa/templates/extras.yaml
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: verification-kubecost-auto-hpa-engine
+  labels:
+    app.kubernetes.io/name: kubecost-auto-hpa
+    app.kubernetes.io/instance: verification
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: kubecost-auto-hpa-0.1.0
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kubecost-auto-hpa
+      app.kubernetes.io/instance: verification
+      app.kubernetes.io/component: engine
+
+---
+# Source: kubecost-auto-hpa/templates/rbac.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: verification-kubecost-auto-hpa
+  labels:
+    app.kubernetes.io/name: kubecost-auto-hpa
+    app.kubernetes.io/instance: verification
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: kubecost-auto-hpa-0.1.0
+
+---
+# Source: kubecost-auto-hpa/templates/dashboard.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: verification-kubecost-auto-hpa-dashboard
+  labels:
+    app.kubernetes.io/name: kubecost-auto-hpa
+    app.kubernetes.io/instance: verification
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: kubecost-auto-hpa-0.1.0
+    grafana_dashboard: "1"
+  annotations:
+    grafana_folder: Nexus FinOps & Kubernetes Economics
+data:
+  kubecost-autoscaler.json: |-
+    {
+      "title": "KubeCost Autoscaler",
+      "uid": "kubecost-autoscaler",
+      "schemaVersion": 39,
+      "version": 1,
+      "editable": true,
+      "tags": [
+        "kubecost",
+        "autoscaling"
+      ],
+      "time": {
+        "from": "now-6h",
+        "to": "now"
+      },
+      "refresh": "1m",
+      "panels": [
+        {
+          "id": 1,
+          "title": "Replicas: current vs desired",
+          "type": "timeseries",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 0,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "kubecost_autoscaler_current_replicas{namespace=~\"$namespace\",name=~\"$name\"}",
+              "legendFormat": "current {{namespace}}/{{name}}"
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "kubecost_autoscaler_desired_replicas{namespace=~\"$namespace\",name=~\"$name\"}",
+              "legendFormat": "desired {{namespace}}/{{name}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {},
+            "overrides": []
+          },
+          "options": {},
+          "description": "Desired is what the last decision proposed; it differs from current while a stabilization window, cooldown or dry-run holds the change back."
+        },
+        {
+          "id": 2,
+          "title": "Hourly cost vs budget",
+          "type": "timeseries",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 0,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "kubecost_autoscaler_hourly_cost_usd{namespace=~\"$namespace\",name=~\"$name\"}",
+              "legendFormat": "cost {{namespace}}/{{name}}"
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "kubecost_autoscaler_budget_usd{namespace=~\"$namespace\",name=~\"$name\"}",
+              "legendFormat": "budget {{namespace}}/{{name}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "currencyUSD"
+            },
+            "overrides": []
+          },
+          "options": {},
+          "description": "Allocated hourly run-rate from the last valid KubeCost sample, against spec.costPolicy.maxHourlyCostUSD."
+        },
+        {
+          "id": 3,
+          "title": "KubeCost sample age",
+          "type": "timeseries",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 8,
+            "w": 8,
+            "h": 7
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "kubecost_autoscaler_metric_age_seconds{namespace=~\"$namespace\",name=~\"$name\"}",
+              "legendFormat": "{{namespace}}/{{name}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s"
+            },
+            "overrides": []
+          },
+          "options": {},
+          "description": "Age of the last KubeCost sample; compare with spec.failurePolicy.maxMetricAge."
+        },
+        {
+          "id": 4,
+          "title": "Native HPA fallback active",
+          "type": "stat",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "gridPos": {
+            "x": 8,
+            "y": 8,
+            "w": 4,
+            "h": 7
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "max(kubecost_autoscaler_fallback_active{namespace=~\"$namespace\",name=~\"$name\"})",
+              "legendFormat": "fallback"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "mappings": [
+                {
+                  "type": "value",
+                  "options": {
+                    "0": {
+                      "text": "off"
+                    },
+                    "1": {
+                      "text": "ACTIVE"
+                    }
+                  }
+                }
+              ],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 1
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "background",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            }
+          },
+          "description": "1 while the operator-owned native HPA holds the replicas because KubeCost is unavailable."
+        },
+        {
+          "id": 5,
+          "title": "KubeCost API errors by class",
+          "type": "timeseries",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 8,
+            "w": 12,
+            "h": 7
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "sum by (class) (increase(kubecost_autoscaler_kubecost_api_errors_total[$__rate_interval]))",
+              "legendFormat": "{{class}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {},
+            "overrides": []
+          },
+          "options": {},
+          "description": "transient, auth, client, malformed, no_data, ambiguous, stale."
+        },
+        {
+          "id": 6,
+          "title": "Scaling decisions by type",
+          "type": "timeseries",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 15,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "sum by (type) (increase(kubecost_autoscaler_scaling_decisions_total{namespace=~\"$namespace\",name=~\"$name\"}[$__rate_interval]))",
+              "legendFormat": "{{type}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "stacking": {
+                  "mode": "normal"
+                },
+                "fillOpacity": 40
+              }
+            },
+            "overrides": []
+          },
+          "options": {}
+        },
+        {
+          "id": 7,
+          "title": "Replica writes by direction and result",
+          "type": "timeseries",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 15,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "sum by (direction, result) (increase(kubecost_autoscaler_scaling_action_total{namespace=~\"$namespace\",name=~\"$name\"}[$__rate_interval]))",
+              "legendFormat": "{{direction}} / {{result}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "stacking": {
+                  "mode": "normal"
+                },
+                "fillOpacity": 40
+              }
+            },
+            "overrides": []
+          },
+          "options": {}
+        },
+        {
+          "id": 8,
+          "title": "Pods per capacity class",
+          "type": "timeseries",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 23,
+            "w": 24,
+            "h": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "sum by (class) (kubecost_autoscaler_node_classification{namespace=~\"$namespace\",name=~\"$name\"})",
+              "legendFormat": "{{class}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "stacking": {
+                  "mode": "normal"
+                },
+                "fillOpacity": 40
+              }
+            },
+            "overrides": []
+          },
+          "options": {},
+          "description": "spot, ondemand, unknown and pending pods of the target. Price weights are relative, never capacity guarantees."
+        }
+      ],
+      "templating": {
+        "list": [
+          {
+            "name": "datasource",
+            "label": "Data source",
+            "type": "datasource",
+            "query": "prometheus",
+            "current": {}
+          },
+          {
+            "name": "namespace",
+            "label": "Namespace",
+            "type": "query",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            },
+            "query": {
+              "query": "label_values(kubecost_autoscaler_current_replicas, namespace)",
+              "refId": "v"
+            },
+            "refresh": 2,
+            "includeAll": true,
+            "multi": true,
+            "allValue": ".*",
+            "current": {
+              "text": "All",
+              "value": "$__all"
+            },
+            "sort": 1
+          },
+          {
+            "name": "name",
+            "label": "Autoscaler",
+            "type": "query",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            },
+            "query": {
+              "query": "label_values(kubecost_autoscaler_current_replicas{namespace=~\"$namespace\"}, name)",
+              "refId": "v"
+            },
+            "refresh": 2,
+            "includeAll": true,
+            "multi": true,
+            "allValue": ".*",
+            "current": {
+              "text": "All",
+              "value": "$__all"
+            },
+            "sort": 1
+          }
+        ]
+      }
+    }
+    
+
+---
+# Source: kubecost-auto-hpa/templates/engine-pvc.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: verification-kubecost-auto-hpa-engine
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: "1Gi"
+
+---
+# Source: kubecost-auto-hpa/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: verification-kubecost-auto-hpa
+  labels:
+    app.kubernetes.io/name: kubecost-auto-hpa
+    app.kubernetes.io/instance: verification
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: kubecost-auto-hpa-0.1.0
+# Every verb below is used by the operator code; see docs/RBAC.md for the mapping and
+# operator/internal/rbaccheck for the test that keeps this file and config/rbac/role.yaml in step.
+rules:
+- apiGroups: [""]
+  resources: [events]
+  verbs: [create, patch]
+- apiGroups: [""]
+  resources: [nodes]
+  # patch (cordon + "drained" annotation) is only used by the Spot drain controller.
+  verbs: [get, list, watch]
+- apiGroups: [""]
+  resources: [pods]
+  verbs: [get, list, watch]
+- apiGroups: [""]
+  resources: [pods/resize]
+  verbs: [patch]
+- apiGroups: [apps]
+  resources: [deployments]
+  verbs: [get, list, watch]
+- apiGroups: [apps]
+  resources: [deployments/scale]
+  verbs: [get, update]
+# KubeCostAutoscaler: the spec is read-only for the operator; it only writes status.
+- apiGroups: [autoscaling.kubecost.io]
+  resources: [kubecostautoscalers]
+  verbs: [get, list, watch]
+- apiGroups: [autoscaling.kubecost.io]
+  resources: [kubecostautoscalers/status, kubecosthpas/status]
+  verbs: [get, update]
+# Fallback HPA: created, patched and removed only when it is controlled by a KubeCostAutoscaler
+# in ResourceMetricsFallback mode (ownership is checked in code; RBAC cannot restrict by owner).
+# Other HPAs are only read, to detect a competing writer.
+- apiGroups: [autoscaling]
+  resources: [horizontalpodautoscalers]
+  verbs: [create, delete, get, list, patch, watch]
+- apiGroups: [metrics.k8s.io]
+  resources: [pods]
+  verbs: [list]
+- apiGroups: [autoscaling.kubecost.io]
+  resources: [kubecosthpas]
+  verbs: [get, list, update, watch]
+- apiGroups: [autoscaling.kubecost.io]
+  resources: [kubecosthpas/finalizers]
+  verbs: [update]
+# Read by the legacy KubeCostHPA controller (a PDB selects the Deployment: more cautious scale-down).
+- apiGroups: [policy]
+  resources: [poddisruptionbudgets]
+  verbs: [get, list, watch]
+
+---
+# Source: kubecost-auto-hpa/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: verification-kubecost-auto-hpa
+  labels:
+    app.kubernetes.io/name: kubecost-auto-hpa
+    app.kubernetes.io/instance: verification
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: kubecost-auto-hpa-0.1.0
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: verification-kubecost-auto-hpa}
+subjects:
+- {kind: ServiceAccount, name: verification-kubecost-auto-hpa, namespace: default}
+
+---
+# Source: kubecost-auto-hpa/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: verification-kubecost-auto-hpa-leader-election
+  labels:
+    app.kubernetes.io/name: kubecost-auto-hpa
+    app.kubernetes.io/instance: verification
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: kubecost-auto-hpa-0.1.0
+rules:
+- apiGroups: [coordination.k8s.io]
+  resources: [leases]
+  verbs: [get, list, watch, create, update, patch, delete]
+- apiGroups: [""]
+  resources: [events]
+  verbs: [create, patch]
+
+---
+# Source: kubecost-auto-hpa/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: verification-kubecost-auto-hpa-leader-election
+  labels:
+    app.kubernetes.io/name: kubecost-auto-hpa
+    app.kubernetes.io/instance: verification
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: kubecost-auto-hpa-0.1.0
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: verification-kubecost-auto-hpa-leader-election}
+subjects:
+- {kind: ServiceAccount, name: verification-kubecost-auto-hpa, namespace: default}
+
+---
+# Source: kubecost-auto-hpa/templates/engine.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: verification-kubecost-auto-hpa-engine
+  labels:
+    app.kubernetes.io/name: kubecost-auto-hpa
+    app.kubernetes.io/instance: verification
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: kubecost-auto-hpa-0.1.0
+spec:
+  selector:
+    app.kubernetes.io/name: kubecost-auto-hpa
+    app.kubernetes.io/instance: verification
+    app.kubernetes.io/component: engine
+  ports: [{name: http, port: 8000, targetPort: http}]
+
+---
+# Source: kubecost-auto-hpa/templates/operator.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: verification-kubecost-auto-hpa-operator-metrics
+  labels:
+    app.kubernetes.io/name: kubecost-auto-hpa
+    app.kubernetes.io/instance: verification
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: kubecost-auto-hpa-0.1.0
+    app.kubernetes.io/component: operator
+spec:
+  selector:
+    app.kubernetes.io/name: kubecost-auto-hpa
+    app.kubernetes.io/instance: verification
+    app.kubernetes.io/component: operator
+  ports: [{name: metrics, port: 8080, targetPort: metrics}]
+
+---
+# Source: kubecost-auto-hpa/templates/redis.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: verification-kubecost-auto-hpa-redis
+  labels:
+    app.kubernetes.io/name: kubecost-auto-hpa
+    app.kubernetes.io/instance: verification
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: kubecost-auto-hpa-0.1.0
+spec:
+  selector:
+    app.kubernetes.io/name: kubecost-auto-hpa
+    app.kubernetes.io/instance: verification
+    app.kubernetes.io/component: redis
+  ports: [{name: redis, port: 6379, targetPort: redis}]
+
+---
+# Source: kubecost-auto-hpa/templates/engine.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: verification-kubecost-auto-hpa-engine
+  labels:
+    app.kubernetes.io/name: kubecost-auto-hpa
+    app.kubernetes.io/instance: verification
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: kubecost-auto-hpa-0.1.0
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kubecost-auto-hpa
+      app.kubernetes.io/instance: verification
+      app.kubernetes.io/component: engine
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kubecost-auto-hpa
+        app.kubernetes.io/instance: verification
+        app.kubernetes.io/component: engine
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 65532, fsGroup: 65532, seccompProfile: {type: RuntimeDefault}}
+      containers:
+      - name: engine
+        image: "ghcr.io/santidelacarrera/kubecost-auto-hpa-engine:0.1.0"
+        imagePullPolicy: IfNotPresent
+        env:
+        - {name: ENABLE_AUTOMATED_CONSOLIDATION, value: "false"}
+        - {name: SAAS_DB_PATH, value: /data/control-plane.db}
+        - {name: STANDALONE_SINGLE_REPLICA, value: "true"}
+        - name: ENGINE_TOKEN
+          valueFrom: {secretKeyRef: {name: kubecost-engine-auth, key: token}}
+        - {name: TLS_CERT, value: /tls/tls.crt}
+        - {name: TLS_KEY, value: /tls/tls.key}
+        - {name: TLS_CLIENT_CA, value: /tls/ca.crt}   # mTLS: only clients signed by this CA are accepted
+        - name: NEXUS_TELEMETRY_ENABLED
+          value: "true"
+        - name: REDIS_URL
+          value: "redis://kubecost-auto-hpa-redis:6379/0"
+        - name: NEXUS_TELEMETRY_STREAM
+          value: "nexus:telemetry"
+        - name: NEXUS_TENANT_ID
+          value: "6f1c2a7e-0b3d-4c8e-9a51-2d7f0e4b9c10"
+        ports: [{name: http, containerPort: 8000}]
+        # kubelet has no client certificate, so under mTLS probe the TCP port only
+        livenessProbe: {tcpSocket: {port: http}}
+        readinessProbe: {tcpSocket: {port: http}}
+        resources:
+          limits:
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+        securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+        volumeMounts:
+        - {name: tls, mountPath: /tls, readOnly: true}
+        - {name: data, mountPath: /data}
+      volumes:
+      - {name: tls, secret: {secretName: kubecost-engine-server-tls}}
+      - name: data
+        persistentVolumeClaim: {claimName: verification-kubecost-auto-hpa-engine}
+
+---
+# Source: kubecost-auto-hpa/templates/operator.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: verification-kubecost-auto-hpa-operator
+  labels:
+    app.kubernetes.io/name: kubecost-auto-hpa
+    app.kubernetes.io/instance: verification
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: kubecost-auto-hpa-0.1.0
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kubecost-auto-hpa
+      app.kubernetes.io/instance: verification
+      app.kubernetes.io/component: operator
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kubecost-auto-hpa
+        app.kubernetes.io/instance: verification
+        app.kubernetes.io/component: operator
+    spec:
+      serviceAccountName: verification-kubecost-auto-hpa
+      securityContext: {runAsNonRoot: true, seccompProfile: {type: RuntimeDefault}}
+      containers:
+      - name: manager
+        image: "ghcr.io/santidelacarrera/kubecost-auto-hpa-operator:0.1.0"
+        imagePullPolicy: IfNotPresent
+        args:
+        - --leader-elect
+        - --enable-spot-drain=false
+        - --enable-cost-autoscaler=true
+        - --kubecost-max-attempts=3
+        - --drain-timeout=2m
+        - --cpu-price-per-core-hour=0.031
+        - --mem-price-per-gib-hour=0.004
+        - --engine-ca-file=/tls/engine-client/ca.crt
+        - --engine-client-cert=/tls/engine-client/tls.crt
+        - --engine-client-key=/tls/engine-client/tls.key
+        env:
+        - {name: PROMETHEUS_URL, value: "http://prometheus-server.monitoring:80"}
+        - {name: KUBECOST_URL, value: "http://kubecost-cost-analyzer.kubecost:9090"}
+        - {name: ENGINE_URL, value: "https://verification-kubecost-auto-hpa-engine:8000"}
+        - {name: REDIS_ADDR, value: "verification-kubecost-auto-hpa-redis:6379"}
+        - name: ENGINE_TOKEN
+          valueFrom: {secretKeyRef: {name: kubecost-engine-auth, key: token}}
+        ports:
+        - {name: metrics, containerPort: 8080}
+        - {name: probes, containerPort: 8081}
+        livenessProbe: {httpGet: {path: /healthz, port: probes}, initialDelaySeconds: 15}
+        readinessProbe: {httpGet: {path: /readyz, port: probes}, initialDelaySeconds: 5}
+        resources:
+          limits:
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+        securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+        volumeMounts:
+        - {name: engine-server-tls, mountPath: /tls/engine-server, readOnly: true}
+        - {name: engine-client-tls, mountPath: /tls/engine-client, readOnly: true}
+      volumes:
+      - {name: engine-server-tls, secret: {secretName: kubecost-engine-server-tls}}
+      - {name: engine-client-tls, secret: {secretName: kubecost-operator-client-tls}}
+
+---
+# Source: kubecost-auto-hpa/templates/redis.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: verification-kubecost-auto-hpa-redis
+  labels:
+    app.kubernetes.io/name: kubecost-auto-hpa
+    app.kubernetes.io/instance: verification
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: kubecost-auto-hpa-0.1.0
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kubecost-auto-hpa
+      app.kubernetes.io/instance: verification
+      app.kubernetes.io/component: redis
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kubecost-auto-hpa
+        app.kubernetes.io/instance: verification
+        app.kubernetes.io/component: redis
+    spec:
+      securityContext: {runAsNonRoot: true, runAsUser: 999, runAsGroup: 999, fsGroup: 999, seccompProfile: {type: RuntimeDefault}}
+      containers:
+      - name: redis
+        image: redis:7.4-alpine
+        args: ["--save", "", "--appendonly", "no", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru"]
+        ports: [{name: redis, containerPort: 6379}]
+        readinessProbe: {exec: {command: [redis-cli, ping]}}
+        securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
+
+---
+# Source: kubecost-auto-hpa/templates/extras.yaml
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: verification-kubecost-auto-hpa
+  labels:
+    app.kubernetes.io/name: kubecost-auto-hpa
+    app.kubernetes.io/instance: verification
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: kubecost-auto-hpa-0.1.0
+spec:
+  groups:
+  - name: kubecost-auto-hpa
+    rules:
+    - alert: KubeCostHPABudgetFrozen
+      expr: kubecost_hpa_budget_frozen == 1
+      for: 10m
+      labels: {severity: warning}
+      annotations:
+        summary: "Autoscaling frozen by budget for {{ $labels.namespace }}/{{ $labels.name }}"
+    - alert: KubeCostHPASpotDrainFailing
+      expr: increase(kubecost_spot_drains_total{result="failed"}[15m]) > 0
+      labels: {severity: critical}
+      annotations:
+        summary: "Spot node drain failed: workloads may be interrupted ungracefully"
+    # --- KubeCostAutoscaler ---
+    - alert: KubeCostAutoscalerStaleCostData
+      expr: kubecost_autoscaler_metric_age_seconds > 600
+      for: 10m
+      labels: {severity: warning}
+      annotations:
+        summary: "KubeCost data for {{ $labels.namespace }}/{{ $labels.name }} is older than 10 minutes: scale-down is frozen"
+    - alert: KubeCostAutoscalerKubeCostAPIErrors
+      expr: sum by (class) (increase(kubecost_autoscaler_kubecost_api_errors_total[15m])) > 5
+      for: 15m
+      labels: {severity: warning}
+      annotations:
+        summary: "Persistent KubeCost API failures (class {{ $labels.class }})"
+    - alert: KubeCostAutoscalerAuthFailure
+      expr: increase(kubecost_autoscaler_kubecost_api_errors_total{class="auth"}[10m]) > 0
+      labels: {severity: critical}
+      annotations:
+        summary: "KubeCost rejects the operator credentials; the cost policy cannot be evaluated"
+    - alert: KubeCostAutoscalerFallbackActive
+      expr: kubecost_autoscaler_fallback_active == 1
+      for: 5m
+      labels: {severity: warning}
+      annotations:
+        summary: "{{ $labels.namespace }}/{{ $labels.name }} is scaled by the native CPU HPA fallback"
+    - alert: KubeCostAutoscalerScaleFailures
+      expr: sum by (namespace, name) (increase(kubecost_autoscaler_scaling_action_total{result="error"}[15m])) > 3
+      labels: {severity: critical}
+      annotations:
+        summary: "Repeated replica write failures for {{ $labels.namespace }}/{{ $labels.name }}"
+    - alert: KubeCostAutoscalerOverBudget
+      expr: kubecost_autoscaler_hourly_cost_usd > kubecost_autoscaler_budget_usd and kubecost_autoscaler_budget_usd > 0
+      for: 30m
+      labels: {severity: warning}
+      annotations:
+        summary: "{{ $labels.namespace }}/{{ $labels.name }} exceeds its hourly budget (safety capacity is still provisioned)"
+    - alert: KubeCostAutoscalerPaused
+      expr: kubecost_autoscaler_paused == 1
+      for: 1h
+      labels: {severity: warning}
+      annotations:
+        summary: "{{ $labels.namespace }}/{{ $labels.name }} has been paused for over an hour: nothing is scaling it"
+    - alert: KubeCostAutoscalerDemandMetricsStale
+      expr: kubecost_autoscaler_demand_metric_age_seconds > 120
+      for: 10m
+      labels: {severity: warning}
+      annotations:
+        summary: "Resource metrics behind {{ $labels.namespace }}/{{ $labels.name }} are over 2 minutes old: decisions lag the load"
+    - alert: KubeCostAutoscalerKubeCostSlow
+      expr: histogram_quantile(0.95, sum by (le) (rate(kubecost_autoscaler_kubecost_request_duration_seconds_bucket{outcome="ok"}[15m]))) > 10
+      for: 15m
+      labels: {severity: warning}
+      annotations:
+        summary: "KubeCost allocation queries take over 10 s at p95: risk of stale cost data"
+    - alert: KubeCostAutoscalerReconcileSlow
+      expr: histogram_quantile(0.99, sum by (le) (rate(kubecost_autoscaler_reconcile_duration_seconds_bucket[15m]))) > 20
+      for: 15m
+      labels: {severity: warning}
+      annotations:
+        summary: "KubeCostAutoscaler reconciles take over 20 s at p99"
+    - alert: KubeCostHPAOperatorDown
+      expr: absent(up{job=~".*kubecost-auto-hpa.*operator.*"} == 1)
+      for: 10m
+      labels: {severity: warning}
+      annotations:
+        summary: "KubeCost Auto-HPA operator metrics are missing"
+
+---
+# Source: kubecost-auto-hpa/templates/operator.yaml
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: verification-kubecost-auto-hpa
+  labels:
+    app.kubernetes.io/name: kubecost-auto-hpa
+    app.kubernetes.io/instance: verification
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: kubecost-auto-hpa-0.1.0
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: verification
+      app.kubernetes.io/component: operator
+  endpoints: [{port: metrics}]

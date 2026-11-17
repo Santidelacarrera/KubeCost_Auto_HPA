@@ -1,0 +1,9 @@
+# Overlay on production values. Validate CSI attachment/zone behavior independently.
+operator:
+  enableSpotDrain: false
+engine:
+  replicas: 1
+  persistence:
+    enabled: true
+    size: 1Gi
+    storageClass: ""  # operator supplies the authorized AKS StorageClass

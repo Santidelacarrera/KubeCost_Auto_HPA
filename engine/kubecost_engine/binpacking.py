@@ -16,7 +16,42 @@ Constraints Enforced:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import math
 from typing import Dict, List, Optional, Set, Tuple
+
+
+def parse_nodes(raw_nodes):
+    """Parse the complete planner contract without dropping scheduling constraints."""
+    from dataclasses import fields
+    if not isinstance(raw_nodes, list) or len(raw_nodes) > 1000:
+        raise ValueError("nodes must be a list with at most 1000 nodes")
+    nodes = []
+    for raw in raw_nodes:
+        if not isinstance(raw, dict):
+            raise ValueError("node must be an object")
+        node = dict(raw)
+        pods = node.pop("pods", [])
+        if not isinstance(pods, list) or len(pods) > 1000:
+            raise ValueError("pods must be a list with at most 1000 pods per node")
+        if set(node) - {f.name for f in fields(NodeState)}:
+            raise ValueError("unknown node constraints; refusing to ignore them")
+        parsed = []
+        for pod in pods:
+            if not isinstance(pod, dict) or set(pod) - {f.name for f in fields(PodPlacement)}:
+                raise ValueError("unknown pod constraints; refusing to ignore them")
+            for key in ("can_evict", "is_daemonset", "has_local_volume", "has_persistent_volume", "has_complex_affinity", "is_stateful"):
+                if key in pod and type(pod[key]) is not bool:
+                    raise ValueError(f"{key} must be a boolean")
+            if not isinstance(pod.get("node_selector", {}), dict) or not isinstance(pod.get("tolerations", []), list):
+                raise ValueError("invalid selector or tolerations")
+            parsed.append(PodPlacement(**pod))
+        for key in ("unschedulable", "ready", "excluded"):
+            if key in node and type(node[key]) is not bool:
+                raise ValueError(f"{key} must be a boolean")
+        if not isinstance(node.get("labels", {}), dict) or not isinstance(node.get("taints", []), list):
+            raise ValueError("invalid node labels or taints")
+        nodes.append(NodeState(**node, pods=parsed))
+    return nodes
 
 
 @dataclass
@@ -30,6 +65,11 @@ class PodPlacement:
     has_local_volume: bool = False
     anti_affinity_group: Optional[str] = None
     required_zone: Optional[str] = None
+    node_selector: Dict[str, str] = field(default_factory=dict)
+    tolerations: List[str] = field(default_factory=list)
+    has_persistent_volume: bool = False
+    has_complex_affinity: bool = False
+    is_stateful: bool = False
 
 
 @dataclass
@@ -45,6 +85,9 @@ class NodeState:
     pods: List[PodPlacement] = field(default_factory=list)
     taints: List[str] = field(default_factory=list)
     unschedulable: bool = False
+    ready: bool = True
+    excluded: bool = False
+    labels: Dict[str, str] = field(default_factory=dict)
 
     @property
     def cpu_utilization_pct(self) -> float:
@@ -137,13 +180,8 @@ class NodeBinPacker:
         for n in nodes:
             max_alloc_cpu = int(n.total_cpu_millicores * self.target_node_utilization)
             max_alloc_mem = int(n.total_memory_mib * self.target_node_utilization)
-            # Keep backward compatibility with tests where available_cpu_millicores is used directly if target_node_utilization allows
-            eff_avail_cpu = max(
-                0, min(n.available_cpu_millicores, max(n.available_cpu_millicores, max_alloc_cpu - n.allocated_cpu_millicores))
-            )
-            eff_avail_mem = max(
-                0, min(n.available_memory_mib, max(n.available_memory_mib, max_alloc_mem - n.allocated_memory_mib))
-            )
+            eff_avail_cpu = max(0, max_alloc_cpu - max(n.allocated_cpu_millicores, sum(p.cpu_request_millicores for p in n.pods)))
+            eff_avail_mem = max(0, max_alloc_mem - max(n.allocated_memory_mib, sum(p.memory_request_mib for p in n.pods)))
             avail_cpu[n.name] = eff_avail_cpu
             avail_mem[n.name] = eff_avail_mem
             groups: Set[str] = set()
@@ -157,14 +195,23 @@ class NodeBinPacker:
         monthly_savings = 0.0
 
         for candidate in sorted_candidates:
+            if len(drained_set) >= min(len(nodes) - 1, max(1, int(len(nodes) * self.max_eviction_ratio))):
+                break
+            if candidate.unschedulable or not candidate.ready or candidate.excluded:
+                continue
             if candidate.cpu_utilization_pct >= self.drain_utilization_threshold_pct:
+                continue
+            if candidate.memory_utilization_pct >= self.drain_utilization_threshold_pct:
                 continue
             if candidate.name in drained_set:
                 continue
 
             # Filter out DaemonSets (which stay with node lifecycle) and check if any workload pod blocks drain
             movable_pods = [p for p in candidate.pods if not p.is_daemonset]
-            if any((not p.can_evict or p.has_local_volume) for p in movable_pods):
+            if any((not p.can_evict or p.has_local_volume or p.has_persistent_volume or p.has_complex_affinity or p.is_stateful) for p in movable_pods):
+                continue
+            # Incomplete inventories must never imply that allocated workloads disappear.
+            if sum(p.cpu_request_millicores for p in candidate.pods) < candidate.allocated_cpu_millicores or sum(p.memory_request_mib for p in candidate.pods) < candidate.allocated_memory_mib:
                 continue
 
             # Sort pods in decreasing order of resource demand (Decreasing step of FFD/BFD/Multi-Dim)
@@ -183,6 +230,7 @@ class NodeBinPacker:
                 if n.name != candidate.name
                 and n.name not in drained_set
                 and not n.unschedulable
+                and n.ready and not n.excluded
                 and n.cpu_utilization_pct >= self.drain_utilization_threshold_pct
             ]
 
@@ -195,6 +243,10 @@ class NodeBinPacker:
             for pod in ordered_pods:
                 valid_targets: List[NodeState] = []
                 for t in target_pool:
+                    if any(taint not in pod.tolerations for taint in t.taints):
+                        continue
+                    if any(t.labels.get(k) != v for k, v in pod.node_selector.items()):
+                        continue
                     if snap_cpu[t.name] < pod.cpu_request_millicores:
                         continue
                     if snap_mem[t.name] < pod.memory_request_mib:
@@ -255,12 +307,24 @@ class NodeBinPacker:
                 relocations.extend(temp_relocs)
                 monthly_savings += candidate.monthly_cost_usd
 
-        return list(drained_set), relocations, round(monthly_savings, 2)
+        return sorted(drained_set), relocations, round(monthly_savings, 2)
 
     def optimize_cluster(
         self, nodes: List[NodeState], preferred_algorithm: Optional[str] = None
     ) -> ConsolidationResult:
         """Evaluates FFD, BFD, and Multi-Dimensional Cost Heuristic, selecting the highest-savings safe plan."""
+        if len({n.name for n in nodes}) != len(nodes):
+            raise ValueError("duplicate node names")
+        seen_pods = set()
+        for n in nodes:
+            values = (n.monthly_cost_usd, n.total_cpu_millicores, n.total_memory_mib, n.allocated_cpu_millicores, n.allocated_memory_mib)
+            if any(isinstance(v, bool) or not math.isfinite(v) or v < 0 for v in values) or n.total_cpu_millicores <= 0 or n.total_memory_mib <= 0:
+                raise ValueError("invalid node capacity or cost")
+            for p in n.pods:
+                key = (p.namespace, p.name)
+                if key in seen_pods or any(isinstance(v, bool) or not math.isfinite(v) or v <= 0 for v in (p.cpu_request_millicores, p.memory_request_mib)):
+                    raise ValueError("duplicate pod or invalid resource requests")
+                seen_pods.add(key)
         if not nodes:
             return ConsolidationResult(
                 cluster_efficiency_before_pct=0.0,

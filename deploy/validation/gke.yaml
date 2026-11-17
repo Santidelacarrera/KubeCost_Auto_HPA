@@ -1,0 +1,10 @@
+# Overlay on production values. Supply existing TLS/auth secrets before installation.
+# No automatic drain or provider-side node deletion.
+operator:
+  enableSpotDrain: false
+engine:
+  replicas: 1
+  persistence:
+    enabled: true
+    size: 1Gi
+    storageClass: ""  # operator supplies the authorized GKE StorageClass

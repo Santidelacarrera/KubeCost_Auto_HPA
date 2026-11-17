@@ -26,7 +26,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Optional
 
 from .auth_billing import MultiTenantAuthManager, generate_stripe_billing_invoice
-from .binpacking import NodeBinPacker, NodeState, PodPlacement
+from .binpacking import NodeBinPacker, parse_nodes
+from .enterprise import EnterpriseService
 from .bootstrap import get_production_readiness_report, process_stripe_webhook_event
 from .cast_suite import (
     evaluate_cluster_hibernation_and_rebalancing,
@@ -385,7 +386,7 @@ class Handler(BaseHTTPRequestHandler):
                 is_adm = "admin:*" in rec.scopes
                 return AuthContext(
                     authenticated=True,
-                    principal=f"apikey:{rec.key_id}",
+                    principal=f"user:{rec.client_id}:{rec.user_id}" if rec.user_id else f"apikey:{rec.key_id}",
                     authenticated_tenant=rec.client_id,
                     credential_type="api_key",
                     roles=("admin", "tenant") if is_adm else ("tenant",),
@@ -503,6 +504,9 @@ class Handler(BaseHTTPRequestHandler):
             headers["X-RateLimit-Remaining"] = str(rl_decision.remaining)
         if extra_headers:
             headers.update(extra_headers)
+        route = urllib.parse.urlparse(self.path).path
+        if code == 200 and (route.startswith("/v1/cast/") or route in ("/v1/gameday/simulate", "/v1/gpu/optimize", "/v1/greenops/report", "/v1/billing/invoice", "/v1/pricing/lookup")):
+            payload = {**payload, "evidence_kind": "model_or_simulation", "externally_validated": False}
         self._send(code, json.dumps(payload), "application/json", extra_headers=headers)
 
     def _write_rate_limited(self, rl_decision: RateLimitDecision) -> None:
@@ -677,6 +681,20 @@ class Handler(BaseHTTPRequestHandler):
                 return self._write_rate_limited(rl_dec)
 
             try:
+                enterprise_reads = {"/v1/alerts": "alerts", "/v1/predictions/backtests": "predictions/backtests", "/v1/usage": "usage", "/v1/subscriptions": "subscriptions", "/v1/clusters": "clusters", "/v1/plans": "plans", "/v1/rightsizing": "rightsizing", "/v1/predictions": "predictions", "/v1/finops/costs": "costs", "/v1/finops/reconciliations": "reconciliations", "/v1/consolidation/plans": "consolidation/plans", "/v1/licenses": "licenses"}
+                if path_only in enterprise_reads:
+                    if auth_ctx.credential_type == "api_key" and not auth_ctx.has_scope("enterprise:read"):
+                        raise AuthorizationError("missing enterprise:read scope")
+                    result = EnterpriseService(get_control_plane()).get(enterprise_reads[path_only], effective_tenant, qs)
+                    return self._write_json(200, result, rl_decision=rl_dec)
+                if path_only == "/v1/users":
+                    if auth_ctx.credential_type == "api_key" and not auth_ctx.has_scope("users:manage"):
+                        raise AuthorizationError("missing users:manage scope")
+                    result = EnterpriseService._page(get_control_plane()._store.list_objects(effective_tenant, "user"), qs)
+                    return self._write_json(200, result, rl_decision=rl_dec)
+                if path_only == "/v1/openapi.json":
+                    from .openapi import specification
+                    return self._write_json(200, specification(), rl_decision=rl_dec)
                 if path_only == "/v1/policies":
                     if req_tenant is None and not auth_ctx.authenticated_tenant:
                         raise InputValidationError("client_id is required")
@@ -888,64 +906,7 @@ class Handler(BaseHTTPRequestHandler):
                     get_control_plane().verify_cluster_access(
                         effective_tenant, cluster_id, tenant_header=effective_tenant
                     )
-                    sample_topology = {
-                        "client_id": effective_tenant,
-                        "cluster_name": cluster_id,
-                        "total_nodes": 6,
-                        "cluster_efficiency_pct": 74.2,
-                        "projected_efficiency_after_binpack_pct": 91.8,
-                        "monthly_waste_cost_usd": 1280.00,
-                        "nodes": [
-                            {
-                                "name": "ip-10-0-12-42.ec2.internal",
-                                "instance_type": "m6i.2xlarge",
-                                "zone": "us-east-1a",
-                                "cpu_capacity_cores": 8,
-                                "mem_capacity_gib": 32,
-                                "cpu_utilization_pct": 82.5,
-                                "mem_utilization_pct": 78.0,
-                                "pods_count": 18,
-                                "drain_candidate": False,
-                            },
-                            {
-                                "name": "ip-10-0-12-88.ec2.internal",
-                                "instance_type": "m6i.2xlarge",
-                                "zone": "us-east-1a",
-                                "cpu_capacity_cores": 8,
-                                "mem_capacity_gib": 32,
-                                "cpu_utilization_pct": 21.0,
-                                "mem_utilization_pct": 19.5,
-                                "pods_count": 3,
-                                "drain_candidate": True,
-                                "can_consolidate_to": "ip-10-0-12-42.ec2.internal",
-                                "potential_monthly_savings_usd": 280.00,
-                            },
-                            {
-                                "name": "ip-10-0-14-102.ec2.internal",
-                                "instance_type": "c6i.4xlarge",
-                                "zone": "us-east-1b",
-                                "cpu_capacity_cores": 16,
-                                "mem_capacity_gib": 32,
-                                "cpu_utilization_pct": 88.0,
-                                "mem_utilization_pct": 64.0,
-                                "pods_count": 26,
-                                "drain_candidate": False,
-                            },
-                            {
-                                "name": "ip-10-0-14-109.ec2.internal",
-                                "instance_type": "c6i.4xlarge",
-                                "zone": "us-east-1b",
-                                "cpu_capacity_cores": 16,
-                                "mem_capacity_gib": 32,
-                                "cpu_utilization_pct": 18.0,
-                                "mem_utilization_pct": 14.0,
-                                "pods_count": 2,
-                                "drain_candidate": True,
-                                "can_consolidate_to": "ip-10-0-14-102.ec2.internal",
-                                "potential_monthly_savings_usd": 395.00,
-                            },
-                        ],
-                    }
+                    sample_topology = {"cluster_id": cluster_id, "data_source": "not_collected", "nodes": [], "message": "No complete node scheduling inventory collected. Submit an explicit inventory to the planner."}
                     return self._write_json(200, sample_topology, rl_decision=rl_dec)
 
                 return self._write_json(404, {"error": "not found"}, rl_decision=rl_dec)
@@ -1086,61 +1047,27 @@ class Handler(BaseHTTPRequestHandler):
 
         # 6. Route Dispatch
         try:
+            write_scopes = {"/v1/policies": "policies:write", "/v1/agents/register": "agents:write", "/v1/agents/heartbeat": "telemetry:write", "/v1/telemetry/ingest": "telemetry:write", "/v1/commands/prewarm": "commands:write", "/v1/commands/ack": "commands:ack", "/v1/audit/decisions": "audit:write", "/v1/cluster/binpack": "compute:evaluate", "/v1/evaluate": "compute:evaluate"}
+            if auth_ctx.credential_type == "api_key" and path_only in write_scopes and not auth_ctx.has_scope(write_scopes[path_only]):
+                raise AuthorizationError("missing required write scope")
+            if path_only in ("/v1/users", "/v1/users/update", "/v1/users/credentials"):
+                from .users import mutate
+                result = mutate(get_control_plane(), _auth_manager, path_only.removeprefix("/v1/"), effective_tenant, payload, auth_ctx)
+                return self._write_json(200, result, rl_decision=rl_dec)
+            enterprise_writes = {"/v1/maintenance/retention": "maintenance/retention", "/v1/alerts/ack": "alerts/ack", "/v1/licenses/revoke": "licenses/revoke", "/v1/predictions/backtest": "predictions/backtest", "/v1/subscriptions/sandbox": "subscriptions/sandbox", "/v1/rightsizing": "rightsizing", "/v1/predictions": "predictions", "/v1/predictions/observe": "predictions/observe", "/v1/finops/import": "finops/import", "/v1/finops/reconcile": "finops/reconcile", "/v1/licenses/activate": "licenses/activate", "/v1/consolidation/plans": "consolidation/plans", "/v1/consolidation/decision": "consolidation/decision"}
+            if path_only in enterprise_writes:
+                scope = "maintenance:write" if path_only.startswith("/v1/maintenance/") else "alerts:write" if path_only == "/v1/alerts/ack" else "licenses:manage" if path_only.startswith("/v1/licenses/") else "consolidation:approve" if path_only.endswith("/decision") else "enterprise:write"
+                if auth_ctx.credential_type == "api_key" and not auth_ctx.has_scope(scope):
+                    raise AuthorizationError("missing required enterprise scope")
+                result = EnterpriseService(get_control_plane()).post(enterprise_writes[path_only], effective_tenant, payload, auth_ctx.principal)
+                return self._write_json(200, result, rl_decision=rl_dec)
             if path_only == "/v1/cluster/binpack":
                 if "cluster_id" in payload and payload["cluster_id"]:
                     cid = validate_identifier(str(payload["cluster_id"]), "cluster_id")
                     get_control_plane().verify_cluster_access(
                         effective_tenant, cid, tenant_header=effective_tenant
                     )
-                raw_nodes = payload.get("nodes", [])
-                if not isinstance(raw_nodes, list):
-                    raise InputValidationError("nodes must be a list")
-                nodes = []
-                for rn in raw_nodes:
-                    if not isinstance(rn, dict):
-                        raise InputValidationError("each node entry must be an object")
-                    raw_pods = rn.get("pods", [])
-                    if not isinstance(raw_pods, list):
-                        raise InputValidationError("pods must be a list")
-                    pods = [
-                        PodPlacement(
-                            name=validate_identifier(str(p["name"]), "pod_name"),
-                            namespace=validate_identifier(str(p.get("namespace", "default")), "namespace"),
-                            cpu_request_millicores=parse_body_int(
-                                p, "cpu_request_millicores", 100, min_val=1, max_val=1_000_000
-                            ),
-                            memory_request_mib=parse_body_int(
-                                p, "memory_request_mib", 128, min_val=1, max_val=10_000_000
-                            ),
-                            can_evict=bool(p.get("can_evict", True)),
-                        )
-                        for p in raw_pods
-                    ]
-                    nodes.append(
-                        NodeState(
-                            name=validate_identifier(str(rn["name"]), "node_name"),
-                            instance_type=validate_identifier(
-                                str(rn.get("instance_type", "m6i.xlarge")), "instance_type"
-                            ),
-                            zone=validate_identifier(str(rn.get("zone", "us-east-1a")), "zone"),
-                            monthly_cost_usd=parse_body_float(
-                                rn, "monthly_cost_usd", 140.0, min_val=0.0, max_val=1_000_000.0
-                            ),
-                            total_cpu_millicores=parse_body_int(
-                                rn, "total_cpu_millicores", 4000, min_val=1, max_val=1_000_000
-                            ),
-                            total_memory_mib=parse_body_int(
-                                rn, "total_memory_mib", 16384, min_val=1, max_val=10_000_000
-                            ),
-                            allocated_cpu_millicores=parse_body_int(
-                                rn, "allocated_cpu_millicores", 0, min_val=0, max_val=1_000_000
-                            ),
-                            allocated_memory_mib=parse_body_int(
-                                rn, "allocated_memory_mib", 0, min_val=0, max_val=10_000_000
-                            ),
-                            pods=pods,
-                        )
-                    )
+                nodes = parse_nodes(payload.get("nodes", []))
                 bp = NodeBinPacker()
                 res = bp.optimize_cluster(nodes)
                 out = {
@@ -1180,10 +1107,18 @@ class Handler(BaseHTTPRequestHandler):
                 )
 
             if path_only == "/v1/auth/keys":
+                if auth_ctx.principal.startswith("user:"):
+                    raise AuthorizationError("issue user-bound credentials through /v1/users/credentials")
                 if auth_ctx.credential_type == "api_key" and not auth_ctx.has_scope("keys:manage"):
                     raise AuthorizationError("missing required RBAC scope: keys:manage")
                 exp_days = parse_body_int(payload, "expires_in_days", 90, min_val=1, max_val=365)
                 prefix_tag = str(payload.get("prefix_tag", "kch_live"))
+                requested_scopes = payload.get("scopes")
+                if requested_scopes is not None and (not isinstance(requested_scopes, list) or any(not isinstance(s, str) for s in requested_scopes)):
+                    raise InputValidationError("scopes must be a list of strings")
+                if auth_ctx.credential_type == "api_key":
+                    if requested_scopes is None or any(not auth_ctx.has_scope(s) for s in requested_scopes):
+                        raise AuthorizationError("cannot delegate scopes absent from the issuing key")
                 res = _auth_manager.issue_api_key(
                     client_id=effective_tenant,
                     scopes=payload.get("scopes"),

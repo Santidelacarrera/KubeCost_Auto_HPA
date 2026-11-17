@@ -1,0 +1,312 @@
+{
+  "cluster": "kca-v2-1a43a25f",
+  "provider": "kind-local",
+  "steps": [
+    {
+      "command": [
+        "docker",
+        "info",
+        "--format",
+        "{{.ServerVersion}}"
+      ],
+      "exit_code": 0,
+      "seconds": 0.59
+    },
+    {
+      "command": [
+        "kind",
+        "get",
+        "clusters"
+      ],
+      "exit_code": 0,
+      "seconds": 0.45
+    },
+    {
+      "command": [
+        "kind",
+        "create",
+        "cluster",
+        "--name",
+        "kca-v2-1a43a25f",
+        "--image",
+        "kindest/node:v1.33.4",
+        "--kubeconfig",
+        "C:\\Users\\santi\\KubeCost_Auto_HPA\\docs\\reports\\evidence\\enterprise-lab\\lab.kubeconfig",
+        "--wait",
+        "180s"
+      ],
+      "exit_code": 0,
+      "seconds": 40.47
+    },
+    {
+      "command": [
+        "docker",
+        "build",
+        "-t",
+        "kubecost-auto-hpa-operator:dev",
+        "operator"
+      ],
+      "exit_code": 0,
+      "seconds": 82.25
+    },
+    {
+      "command": [
+        "docker",
+        "build",
+        "-t",
+        "kubecost-auto-hpa-engine:dev",
+        "engine"
+      ],
+      "exit_code": 0,
+      "seconds": 13.73
+    },
+    {
+      "command": [
+        "kind",
+        "load",
+        "docker-image",
+        "--name",
+        "kca-v2-1a43a25f",
+        "kubecost-auto-hpa-operator:dev",
+        "kubecost-auto-hpa-engine:dev"
+      ],
+      "exit_code": 0,
+      "seconds": 12.53
+    },
+    {
+      "command": [
+        "kubectl",
+        "apply",
+        "-k",
+        "operator/config/crd"
+      ],
+      "exit_code": 0,
+      "seconds": 3.73
+    },
+    {
+      "command": [
+        "kubectl",
+        "wait",
+        "--for=condition=Established",
+        "--timeout=60s",
+        "crd/kubecosthpas.autoscaling.kubecost.io",
+        "crd/kubecostautoscalers.autoscaling.kubecost.io"
+      ],
+      "exit_code": 0,
+      "seconds": 0.91
+    },
+    {
+      "command": [
+        "kubectl",
+        "apply",
+        "-k",
+        "operator/config/overlays/e2e"
+      ],
+      "exit_code": 0,
+      "seconds": 1.3
+    },
+    {
+      "command": [
+        "kubectl",
+        "-n",
+        "kubecost-auto-hpa-system",
+        "rollout",
+        "status",
+        "deploy/kubecost-auto-hpa-operator",
+        "--timeout=180s"
+      ],
+      "exit_code": 0,
+      "seconds": 11.77
+    },
+    {
+      "command": [
+        "kubectl",
+        "-n",
+        "kubecost-auto-hpa-system",
+        "rollout",
+        "status",
+        "deploy/kubecost-auto-hpa-engine",
+        "--timeout=180s"
+      ],
+      "exit_code": 0,
+      "seconds": 0.28
+    },
+    {
+      "command": [
+        "kubectl",
+        "-n",
+        "kubecost-auto-hpa-system",
+        "rollout",
+        "status",
+        "deploy/kubecost-auto-hpa-redis",
+        "--timeout=180s"
+      ],
+      "exit_code": 0,
+      "seconds": 1.81
+    },
+    {
+      "command": [
+        "kubectl",
+        "-n",
+        "kubecost-auto-hpa-system",
+        "rollout",
+        "status",
+        "deploy/fake-prometheus",
+        "--timeout=180s"
+      ],
+      "exit_code": 0,
+      "seconds": 0.23
+    },
+    {
+      "command": [
+        "kubectl",
+        "-n",
+        "e2e",
+        "rollout",
+        "status",
+        "deploy/web",
+        "--timeout=180s"
+      ],
+      "exit_code": 0,
+      "seconds": 0.23
+    },
+    {
+      "command": [
+        "kubectl",
+        "-n",
+        "e2e",
+        "get",
+        "pods",
+        "-l",
+        "app=web",
+        "-o",
+        "json"
+      ],
+      "exit_code": 0,
+      "seconds": 0.19
+    },
+    {
+      "command": [
+        "kubectl",
+        "-n",
+        "e2e",
+        "get",
+        "pods",
+        "-l",
+        "app=web",
+        "-o",
+        "json"
+      ],
+      "exit_code": 0,
+      "seconds": 0.23
+    },
+    {
+      "command": [
+        "kubectl",
+        "-n",
+        "kubecost-auto-hpa-system",
+        "scale",
+        "deploy/kubecost-auto-hpa-operator",
+        "--replicas=0"
+      ],
+      "exit_code": 0,
+      "seconds": 0.24
+    },
+    {
+      "command": [
+        "helm",
+        "install",
+        "rehearsal",
+        "deploy/helm/kubecost-auto-hpa",
+        "-n",
+        "helm-lab",
+        "--create-namespace",
+        "--set",
+        "operator.image.repository=kubecost-auto-hpa-operator",
+        "--set",
+        "operator.image.tag=dev",
+        "--set",
+        "engine.image.repository=kubecost-auto-hpa-engine",
+        "--set",
+        "engine.image.tag=dev",
+        "--set",
+        "operator.replicas=1",
+        "--set",
+        "engine.persistence.enabled=true",
+        "--wait",
+        "--timeout",
+        "4m"
+      ],
+      "exit_code": 0,
+      "seconds": 16.89
+    },
+    {
+      "command": [
+        "helm",
+        "upgrade",
+        "rehearsal",
+        "deploy/helm/kubecost-auto-hpa",
+        "-n",
+        "helm-lab",
+        "--set",
+        "operator.image.repository=kubecost-auto-hpa-operator",
+        "--set",
+        "operator.image.tag=dev",
+        "--set",
+        "engine.image.repository=kubecost-auto-hpa-engine",
+        "--set",
+        "engine.image.tag=dev",
+        "--set",
+        "operator.replicas=1",
+        "--set",
+        "engine.persistence.enabled=true",
+        "--set",
+        "grafanaDashboard.enabled=true",
+        "--wait",
+        "--timeout",
+        "4m"
+      ],
+      "exit_code": 0,
+      "seconds": 1.88
+    },
+    {
+      "command": [
+        "helm",
+        "rollback",
+        "rehearsal",
+        "1",
+        "-n",
+        "helm-lab",
+        "--wait",
+        "--timeout",
+        "4m"
+      ],
+      "exit_code": 0,
+      "seconds": 0.74
+    },
+    {
+      "command": [
+        "kubectl",
+        "-n",
+        "helm-lab",
+        "get",
+        "pvc",
+        "-o",
+        "json"
+      ],
+      "exit_code": 0,
+      "seconds": 0.17
+    },
+    {
+      "command": [
+        "kind",
+        "delete",
+        "cluster",
+        "--name",
+        "kca-v2-1a43a25f"
+      ],
+      "exit_code": 0,
+      "seconds": 1.95
+    }
+  ]
+}

@@ -45,6 +45,9 @@ func ParseMode(raw string, dryRunFlag bool, pausedFlag bool) Mode {
 	case string(ModeDryRun):
 		return ModeDryRun
 	case string(ModeCanary):
+		if dryRunFlag {
+			return ModeDryRun
+		}
 		return ModeCanary
 	case string(ModeActive):
 		if dryRunFlag {
@@ -53,11 +56,13 @@ func ParseMode(raw string, dryRunFlag bool, pausedFlag bool) Mode {
 		return ModeActive
 	case string(ModeEmergencyStop):
 		return ModeEmergencyStop
-	default:
+	case "": // Legacy CRs without an annotation retain the documented dryRun flag semantics.
 		if dryRunFlag {
 			return ModeDryRun
 		}
 		return ModeActive
+	default:
+		return ModeObserve
 	}
 }
 

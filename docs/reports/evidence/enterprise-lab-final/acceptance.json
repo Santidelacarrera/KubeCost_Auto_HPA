@@ -1,0 +1,8 @@
+{
+  "resize_without_recreation": true,
+  "container_restarts": 0,
+  "helm_install_upgrade_rollback": true,
+  "provider": "kind-local",
+  "version_upgrade_v010_v020": "not_tested",
+  "cloud_validation": false
+}

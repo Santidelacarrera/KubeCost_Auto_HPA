@@ -2,6 +2,17 @@ package execution
 
 import "testing"
 
+func TestUnknownModeAndDryRunCanaryCannotWrite(t *testing.T) {
+	for _, raw := range []string{"automtaed", "OBSERVE_ONLY", "unexpected"} {
+		if ParseMode(raw, false, false).AllowsKubernetesWrites() {
+			t.Fatalf("unknown mode %q enabled writes", raw)
+		}
+	}
+	if ParseMode("CANARY", true, false).AllowsKubernetesWrites() {
+		t.Fatal("dryRun must override canary writes")
+	}
+}
+
 func TestExecutionModesAndKillSwitch(t *testing.T) {
 	g := DefaultGuardrails()
 	p := Proposal{

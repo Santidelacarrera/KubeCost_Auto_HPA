@@ -1,8 +1,7 @@
 # Production Hardened Values for KubeCost_Auto_HPA (Nexus Security & AI Lab — Pillar 2)
 # Validates strictly against deploy/helm/kubecost-auto-hpa/values.schema.json
 operator:
-  extraArgs:
-    - "--webhook-bind-address=:9443"
+  extraArgs: []  # Admission webhook requires a separate TLS implementation before exposure
   extraEnv: []
   extraVolumes: []
   extraVolumeMounts: []
@@ -15,7 +14,7 @@ operator:
     pullPolicy: IfNotPresent
   replicas: 2
   leaderElect: true
-  enableSpotDrain: true
+  enableSpotDrain: false
   enableCostAutoscaler: true
   kubecostMaxAttempts: 3
   drainTimeout: 2m
@@ -36,13 +35,18 @@ engine:
     repository: ghcr.io/santidelacarrera/kubecost-auto-hpa-engine
     tag: ""
     pullPolicy: IfNotPresent
-  replicas: 2
+  replicas: 1
   resources:
     requests:
       cpu: 100m
       memory: 128Mi
     limits:
       memory: 512Mi
+
+  persistence:
+    enabled: true
+    size: 1Gi
+    storageClass: ""
 
 prometheus:
   url: http://prometheus-server.monitoring:80

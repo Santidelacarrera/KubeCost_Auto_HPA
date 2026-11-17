@@ -1,3 +1,5 @@
+> Informe hist?rico: sus afirmaciones de readiness no constituyen evidencia de la rama actual. Consulte [ENTERPRISE_COMPLETION_REPORT](../ENTERPRISE_COMPLETION_REPORT.md) para el estado del 2026-11-16.
+
 # Auditoría Técnica y Estado de Verificación - KubeCost Auto-HPA
 
 Fecha de auditoría: 2026-11-10

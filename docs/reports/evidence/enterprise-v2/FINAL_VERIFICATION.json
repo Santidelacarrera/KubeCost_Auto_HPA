@@ -1,0 +1,19 @@
+{
+  "python": {
+    "passed": 115,
+    "skipped": 0,
+    "coverage_percent": 84.55354579385587,
+    "evidence": "python-final.xml"
+  },
+  "go_integration": "PASS: go-final.log",
+  "go_vet": "PASS: go-vet-final.log",
+  "go_race": "PASS: go-race-final.log",
+  "browser_and_backup": "PASS: browser-final.xml",
+  "redis": "PASS: redis.xml",
+  "image_engine": "PASS: image-engine-final.log",
+  "image_operator": "PASS: image-operator-final-retry.log",
+  "secrets": "No findings in scanned scope: secret-summary.json",
+  "local_kind": "PASS: ../enterprise-lab-final/acceptance.json",
+  "gke_aks": "NOT EXECUTED",
+  "release_candidate": false
+}

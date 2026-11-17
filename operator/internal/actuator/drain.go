@@ -108,18 +108,18 @@ func InspectPodDrainSafety(p corev1.Pod) DrainSafetyReport {
 	isStateful := owner.Kind == "StatefulSet"
 	hasLocal := false
 	for _, v := range p.Spec.Volumes {
-		if v.HostPath != nil {
+		if v.HostPath != nil || v.EmptyDir != nil || v.PersistentVolumeClaim != nil || v.Ephemeral != nil || v.CSI != nil {
 			hasLocal = true
 			break
 		}
 	}
-	if hasLocal && p.Annotations[SafeToEvictAnnotation] != "true" {
+	if (hasLocal || isStateful) && p.Annotations[SafeToEvictAnnotation] != "true" {
 		return DrainSafetyReport{
 			CanEvict:                false,
 			IsStatefulSet:           isStateful,
 			HasLocalStorage:         true,
 			TerminationGraceSeconds: grace,
-			BlockerReason:           "pod uses non-migratable HostPath local volume",
+			BlockerReason:           "stateful or storage-backed pod requires explicit migration approval",
 		}
 	}
 	return DrainSafetyReport{
@@ -144,8 +144,8 @@ func evictable(pods []corev1.Pod) (evict []corev1.Pod, blockers []string) {
 		if owner != nil && owner.Kind == "DaemonSet" {
 			continue
 		}
-		if owner == nil {
-			blockers = append(blockers, p.Namespace+"/"+p.Name)
+		if safety := InspectPodDrainSafety(p); !safety.CanEvict {
+			blockers = append(blockers, p.Namespace+"/"+p.Name+": "+safety.BlockerReason)
 			continue
 		}
 		evict = append(evict, p)
@@ -159,9 +159,6 @@ func (d *Drainer) Drain(ctx context.Context, node string) error {
 	if err := d.CheckCapacity(ctx, node); err != nil {
 		return fmt.Errorf("refusing to drain %s: %w", node, err)
 	}
-	if err := d.Cordon(ctx, node); err != nil {
-		return fmt.Errorf("cordon %s: %w", node, err)
-	}
 	pods, err := d.Client.CoreV1().Pods(metav1.NamespaceAll).List(ctx, metav1.ListOptions{FieldSelector: "spec.nodeName=" + node})
 	if err != nil {
 		return err
@@ -174,7 +171,10 @@ func (d *Drainer) Drain(ctx context.Context, node string) error {
 	}
 	toEvict, blockers := evictable(onNode)
 	if len(blockers) > 0 {
-		return fmt.Errorf("unmanaged pods block drain of %s: %s", node, strings.Join(blockers, ", "))
+		return fmt.Errorf("protected pods block drain of %s: %s", node, strings.Join(blockers, ", "))
+	}
+	if err := d.Cordon(ctx, node); err != nil {
+		return fmt.Errorf("cordon %s: %w", node, err)
 	}
 
 	timeout := d.Timeout
@@ -190,7 +190,7 @@ func (d *Drainer) Drain(ctx context.Context, node string) error {
 		for _, p := range pending {
 			err := d.Client.CoreV1().Pods(p.Namespace).EvictV1(ctx, &policyv1.Eviction{
 				ObjectMeta:    metav1.ObjectMeta{Name: p.Name, Namespace: p.Namespace},
-				DeleteOptions: &metav1.DeleteOptions{GracePeriodSeconds: d.GracePeriodSeconds},
+				DeleteOptions: &metav1.DeleteOptions{GracePeriodSeconds: d.GracePeriodSeconds, Preconditions: &metav1.Preconditions{UID: &p.UID}},
 			})
 			switch {
 			case err == nil, apierrors.IsNotFound(err):

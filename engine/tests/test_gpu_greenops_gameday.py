@@ -103,8 +103,8 @@ def test_server_gpu_greenops_guardrail_gameday_endpoints():
 
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/v1/system/readiness") as resp:
             rdy_data = json.loads(resp.read().decode())
-            assert rdy_data["overall_status"] == "PRODUCTION_READY_100_PCT"
-            assert rdy_data["certified_subsystems"] == 10
+            assert rdy_data["overall_status"] == "VALIDATION_REQUIRED"
+            assert rdy_data["certified_subsystems"] == 0
 
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/v1/cast/full-suite") as resp:
             cs_data = json.loads(resp.read().decode())

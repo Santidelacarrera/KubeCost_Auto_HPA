@@ -86,7 +86,7 @@
         },
         "drainTimeout": {
           "type": "string",
-          "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$"
+          "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|\u00c2\u00b5s|ms|s|m|h))+$"
         },
         "cpuPricePerCoreHour": {
           "type": [
@@ -169,6 +169,44 @@
               "type": "object"
             }
           },
+          "additionalProperties": false
+        },
+        "persistence": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "size": {
+              "type": "string",
+              "minLength": 1
+            },
+            "storageClass": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "enabled",
+            "size",
+            "storageClass"
+          ],
+          "additionalProperties": false
+        },
+        "postgres": {
+          "type": "object",
+          "properties": {
+            "secretName": {
+              "type": "string"
+            },
+            "key": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "secretName",
+            "key"
+          ],
           "additionalProperties": false
         }
       },
@@ -360,26 +398,42 @@
         "predictiveScaling": {
           "type": "object",
           "properties": {
-            "enabled": { "type": "boolean" },
-            "warmupLeadTimeSeconds": { "type": "integer" }
+            "enabled": {
+              "type": "boolean"
+            },
+            "warmupLeadTimeSeconds": {
+              "type": "integer"
+            }
           },
           "additionalProperties": false
         },
         "oomProtection": {
           "type": "object",
           "properties": {
-            "enabled": { "type": "boolean" },
-            "criticalThresholdPercent": { "type": "integer" },
-            "warningThresholdPercent": { "type": "integer" },
-            "maxLimitMiB": { "type": "integer" }
+            "enabled": {
+              "type": "boolean"
+            },
+            "criticalThresholdPercent": {
+              "type": "integer"
+            },
+            "warningThresholdPercent": {
+              "type": "integer"
+            },
+            "maxLimitMiB": {
+              "type": "integer"
+            }
           },
           "additionalProperties": false
         },
         "nodeBinPacking": {
           "type": "object",
           "properties": {
-            "enabled": { "type": "boolean" },
-            "consolidationThresholdPercent": { "type": "integer" }
+            "enabled": {
+              "type": "boolean"
+            },
+            "consolidationThresholdPercent": {
+              "type": "integer"
+            }
           },
           "additionalProperties": false
         }

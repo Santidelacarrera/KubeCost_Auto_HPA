@@ -61,7 +61,7 @@ func main() {
 	flag.IntVar(&redisDB, "redis-db", 0, "Redis database.")
 	flag.Float64Var(&cpuPrice, "cpu-price-per-core-hour", 0.031, "Default CPU price (USD/core-hour).")
 	flag.Float64Var(&memPrice, "mem-price-per-gib-hour", 0.004, "Default memory price (USD/GiB-hour).")
-	flag.BoolVar(&spotDrain, "enable-spot-drain", true, "Cordon/drain Spot nodes with interruption signals.")
+	flag.BoolVar(&spotDrain, "enable-spot-drain", false, "Cordon/drain Spot nodes with interruption signals.")
 	flag.DurationVar(&drainTimeout, "drain-timeout", 2*time.Minute, "Maximum time to drain a node.")
 	var promHTTP, kcHTTP, engHTTP, redisTLS httpx.Options
 	var enableCostAutoscaler bool

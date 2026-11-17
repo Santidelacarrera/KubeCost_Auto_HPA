@@ -332,8 +332,10 @@ class PredictiveAutoscaler:
         workload: str = "default/workload",
     ) -> ForecastResult:
         """Calculates predicted replicas factoring in hybrid ML forecast, velocity, and cyclical peaks."""
-        if target_rps_per_pod <= 0:
-            target_rps_per_pod = 50.0
+        if not math.isfinite(current_rps) or current_rps < 0 or not math.isfinite(target_rps_per_pod) or target_rps_per_pod <= 0:
+            raise ValueError("demand must be finite/nonnegative and target capacity positive")
+        if rps_history and any(not math.isfinite(v) or v < 0 for v in rps_history):
+            raise ValueError("history must be finite and nonnegative")
 
         # 1. Base reactive replica calculation
         reactive_target = max(
@@ -355,9 +357,7 @@ class PredictiveAutoscaler:
 
         # 3. Cyclical / Time-of-day seasonal factor
         cyclical_multiplier = 1.0
-        if hour_of_day_utc is not None:
-            angle = (hour_of_day_utc - 7) * (2 * math.pi / 24)
-            cyclical_multiplier = 1.0 + 0.25 * math.sin(angle)
+        # Time of day alone is not evidence of seasonality.
 
         # 4. Hybrid ML time-series model evaluation & temporal validation
         model_name, ml_pred_rps, lower_rps, upper_rps, val_metrics, cold_start = (
@@ -371,6 +371,12 @@ class PredictiveAutoscaler:
             confidence = round(max(confidence, min(0.98, 1.0 - min(0.25, val_metrics.wape))), 2)
         else:
             projected_rps = heuristic_rps
+
+        if cold_start or val_metrics.drift_detected:
+            confidence = 0.0
+            projected_rps = current_rps
+        else:
+            confidence = max(0.0, min(0.95, 1.0 - val_metrics.wape))
 
         predicted_target = max(
             self.min_replicas,

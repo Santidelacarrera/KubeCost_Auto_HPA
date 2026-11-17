@@ -1,0 +1,26 @@
+?   	github.com/santidelacarrera/kubecost_auto_hpa/operator/api/v1alpha1	[no test files]
+ok  	github.com/santidelacarrera/kubecost_auto_hpa/operator/cmd	97.666s
+?   	github.com/santidelacarrera/kubecost_auto_hpa/operator/cmd/simbench	[no test files]
+ok  	github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/actuator	4.233s
+ok  	github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/arbitrator	3.703s
+ok  	github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/cache	4.609s
+ok  	github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/castsuite	3.775s
+?   	github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/config	[no test files]
+ok  	github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/controller	8.604s
+ok  	github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/engine	12.020s
+ok  	github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/execution	4.892s
+ok  	github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/gpu	3.977s
+ok  	github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/httpx	13.484s
+ok  	github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/infra	11.433s
+ok  	github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/kubecost	13.745s
+ok  	github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/metrics	2.409s
+ok  	github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/money	4.670s
+ok  	github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/ownership	4.370s
+ok  	github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/policy	12.566s
+ok  	github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/pricing	10.807s
+ok  	github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/psi	5.898s
+ok  	github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/rbaccheck	7.730s
+ok  	github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/resmetrics	4.496s
+ok  	github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/sim	14.700s
+ok  	github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/stability	5.458s
+ok  	github.com/santidelacarrera/kubecost_auto_hpa/operator/internal/webhook	13.475s

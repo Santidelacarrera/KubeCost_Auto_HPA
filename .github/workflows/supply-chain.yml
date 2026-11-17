@@ -2,6 +2,7 @@ name: supply-chain
 # Manual and weekly checks that publish NOTHING: an SBOM of the operator, and a vulnerability scan of the
 # images built from the Dockerfiles. STATUS: written but not yet run on GitHub; run it by hand first.
 on:
+  pull_request:
   workflow_dispatch:
   schedule:
     - cron: "17 6 * * 1"

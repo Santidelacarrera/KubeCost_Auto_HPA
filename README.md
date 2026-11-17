@@ -1,4 +1,6 @@
-# KubeCost Auto-HPA (ScaleOps Parity Edition)
+# KubeCost Auto-HPA
+
+> Estado 2026-11-16: desarrollo empresarial en curso, no Release Candidate. Consulte [STATUS](docs/STATUS.md) y el [informe verificable](docs/ENTERPRISE_COMPLETION_REPORT.md). AWS queda fuera de esta fase; no se ha demostrado paridad competitiva ni ahorro conciliado.
 
 [![ci](https://github.com/Santidelacarrera/KubeCost_Auto_HPA/actions/workflows/ci.yml/badge.svg)](https://github.com/Santidelacarrera/KubeCost_Auto_HPA/actions/workflows/ci.yml)
 [![release](https://github.com/Santidelacarrera/KubeCost_Auto_HPA/actions/workflows/release.yml/badge.svg)](https://github.com/Santidelacarrera/KubeCost_Auto_HPA/actions/workflows/release.yml)
@@ -7,7 +9,7 @@
 [![Kubernetes](https://img.shields.io/badge/kubernetes-1.33-326ce5.svg)](https://kubernetes.io)
 [![Live Demo](https://img.shields.io/badge/Live_Console-GitHub_Pages-2ea44f.svg)](https://santidelacarrera.github.io/KubeCost_Auto_HPA/app.html)
 
-Operador autónomo de Kubernetes de alta disponibilidad con **Unit Economics Scaling** y **paridad funcional total con ScaleOps**: ajusta réplicas de forma predictiva, redimensiona contenedores en caliente (*in-place resize*) sin reinicios, previene caídas por OOM y consolida el clúster (*node bin-packing*) para maximizar el ahorro en AWS/GCP sin violar los SLOs de latencia p99.
+Operador autónomo de Kubernetes de alta disponibilidad con **Unit Economics Scaling** y **capacidades de optimizaci?n en desarrollo y validaci?n**: ajusta réplicas de forma predictiva, redimensiona contenedores en caliente (*in-place resize*) sin reinicios, previene caídas por OOM y consolida el clúster (*node bin-packing*) para evaluar oportunidades de optimizaci?n. La consolidaci?n de extremo a extremo y el ahorro atribuible requieren validaci?n adicional.
 
 🌐 **Consola Enterprise en Vivo:** [https://santidelacarrera.github.io/KubeCost_Auto_HPA/app.html](https://santidelacarrera.github.io/KubeCost_Auto_HPA/app.html)  
 🏢 **Landing Comercial y ROI:** [https://santidelacarrera.github.io/KubeCost_Auto_HPA/](https://santidelacarrera.github.io/KubeCost_Auto_HPA/)
@@ -28,7 +30,7 @@ Operador autónomo de Kubernetes de alta disponibilidad con **Unit Economics Sca
 
 `C_pod = Costo Instancia / RPS`. Escala según rentabilidad y SLO, no según picos de CPU/RAM.
 
-## Funcionalidades Clave (Paridad Total con ScaleOps)
+## Capacidades del repositorio (ver alcance validado en STATUS)
 
 1. **Predictive Horizontal Scaling (Pre-Warming)** – Pronostica subidas de demanda y precalienta réplicas antes de los picos estacionales para mantener la latencia p99 por debajo del SLO.
 2. **OOM Protection Shield** – Monitorea la velocidad de memoria cgroup (`dMem/dt`); infla dinámicamente los límites de memoria en caliente mediante `pods/resize` de K8s 1.33+ sin reiniciar los pods (adiós exit code 137).
@@ -47,7 +49,7 @@ Operador autónomo de Kubernetes de alta disponibilidad con **Unit Economics Sca
 | `engine/` | Motor Unit Economics & ScaleOps (Python 3.12). Algoritmos de predicción, escudo OOM, bin-packing, productor de telemetría Nexus y API HTTP `POST /v1/evaluate`. |
 | `operator/` | Operador Go (controller-runtime): CRDs `KubeCostAutoscaler` y `KubeCostHPA`, reconciliadores, actuadores in-place, clientes Prometheus/KubeCost. |
 | `operator/internal/{policy,kubecost,money,infra,ownership,resmetrics}` | Motor de decisión puro (Go), cliente KubeCost, dinero exacto, clasificación Spot, propiedad de réplicas y métricas de recursos del `KubeCostAutoscaler`. |
-| `frontend/` | Consola web comercial independiente (`index.html`, `app.html`, `pricing.html`) desplegada en GitHub Pages. |
+| `web/` | Consola web comercial independiente (`index.html`, `app.html`, `pricing.html`) desplegada en GitHub Pages. |
 | `deploy/helm/kubecost-auto-hpa/` | Chart de Helm enterprise versionado, con validación OpenAPI v3 y flags `features.*` y `telemetry.*`. |
 | `docker-compose.yml` | Stack local: Redis, motor, Prometheus, Grafana (+ operador con `--profile operator`). |
 

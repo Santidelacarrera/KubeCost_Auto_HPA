@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import hashlib
 import hmac
 import secrets
@@ -27,6 +27,7 @@ class TenantAPIKeyRecord:
     created_at: int
     expires_at: int = 0
     revoked: bool = False
+    user_id: str = ""
 
     def is_expired(self, now_unix: Optional[int] = None) -> bool:
         now = int(now_unix if now_unix is not None else time.time())
@@ -131,6 +132,8 @@ class MultiTenantAuthManager:
                 "audit:read",
                 "audit:write",
                 "policies:read",
+                "agents:write",
+                "enterprise:read",
             ]
         )
         tag = "kc_live" if prefix_tag == "kc_live" else "kch_live"
@@ -217,6 +220,12 @@ class MultiTenantAuthManager:
                     f"cross-tenant key mismatch: key belongs to {matched_rec.client_id}, not {expected_client_id}"
                 )
 
+            if self._store is not None:
+                from .users import credential_user, ROLES
+
+                user = credential_user(self._store, matched_rec.client_id, matched_rec.key_id)
+                if user:
+                    matched_rec = replace(matched_rec, user_id=user["id"], scopes=[scope for scope in matched_rec.scopes if scope in ROLES[user["role"]]])
             if required_scope and required_scope not in matched_rec.scopes and "admin:*" not in matched_rec.scopes:
                 self._record_audit(
                     "KEY_SCOPE_DENIED",
@@ -268,7 +277,7 @@ class MultiTenantAuthManager:
         key_id: str,
         expires_in_days: int = DEFAULT_KEY_EXPIRATION_DAYS,
     ) -> dict[str, Any]:
-        """Atomically revoke an existing key and issue a new replacement key with the same scopes."""
+        """Revoke then replace; preserve user binding and fail closed on errors."""
         clean_client = validate_identifier(client_id.strip(), "client_id")
         clean_key_id = validate_identifier(key_id.strip(), "key_id")
         with self._lock:
@@ -282,6 +291,10 @@ class MultiTenantAuthManager:
                 raise KeyError(f"key_id '{clean_key_id}' not found for tenant '{clean_client}'")
             scopes_copy = list(target_rec.scopes)
 
+        user = None
+        if self._store is not None:
+            from .users import credential_user
+            user = credential_user(self._store, clean_client, clean_key_id)
         self.revoke_api_key(clean_client, clean_key_id)
         new_issued = self.issue_api_key(
             client_id=clean_client,
@@ -289,6 +302,12 @@ class MultiTenantAuthManager:
             expires_in_days=expires_in_days,
         )
         new_issued["rotated_from_key_id"] = clean_key_id
+        if user:
+            try:
+                self._store.put_object(clean_client, "user_credential", new_issued["key_id"], {"id": new_issued["key_id"], "user_id": user["id"], "created_at": time.time(), "rotated_from": clean_key_id})
+            except Exception:
+                self.revoke_api_key(clean_client, new_issued["key_id"])
+                raise
         return new_issued
 
     def list_client_keys(self, client_id: str, now_unix: Optional[int] = None) -> list[dict[str, Any]]:

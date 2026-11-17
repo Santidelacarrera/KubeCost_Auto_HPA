@@ -1,0 +1,11 @@
+{
+  "date": "2026-11-17",
+  "python_passed": 139,
+  "python_skipped": 0,
+  "coverage_percent": 85.93,
+  "postgres": "real PostgreSQL 17",
+  "browser": "real API, user creation and retention preview",
+  "lint": "passed",
+  "diff_check_exit": 0,
+  "release_candidate": false
+}

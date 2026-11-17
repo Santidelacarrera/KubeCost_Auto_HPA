@@ -199,18 +199,12 @@ def process_stripe_webhook_event(
 
 
 def get_production_readiness_report(auth_manager: MultiTenantAuthManager | None = None) -> Dict[str, Any]:
-    """Verify and certify all 10 production subsystems end-to-end without leaking secrets or internal paths."""
+    """Report local self-checks and outstanding external validation."""
     mgr = auth_manager or MultiTenantAuthManager()
     existing_keys = mgr.list_client_keys(CANONICAL_NEXUS_TENANT_ID)
-    if not existing_keys:
-        mgr.issue_api_key(
-            client_id=CANONICAL_NEXUS_TENANT_ID,
-            scopes=["telemetry:write", "commands:read", "commands:ack", "audit:write", "audit:read"],
-        )
-        existing_keys = mgr.list_client_keys(CANONICAL_NEXUS_TENANT_ID)
 
     # Self-test SQLite WAL + TimescaleDB + Nexus RLS DDL
-    store = SQLiteSaaSStore(db_path=":memory:")
+    store = SQLiteSaaSStore(db_path=":memory:", postgres_dsn="")
     ts_ddl = generate_timescaledb_migrations(90)
     rls_ddl = generate_nexus_rls_telemetry_ddl()
     store.close()
@@ -260,8 +254,8 @@ def get_production_readiness_report(auth_manager: MultiTenantAuthManager | None 
     subsystems = [
         {
             "id": "sqlite_wal_and_timescaledb",
-            "name": "SQLite WAL + TimescaleDB Hypertables",
-            "status": "READY",
+            "name": "SQLite WAL; TimescaleDB DDL only",
+            "status": "PARTIAL",
             "migrations_count": len(ts_ddl),
         },
         {
@@ -320,8 +314,11 @@ def get_production_readiness_report(auth_manager: MultiTenantAuthManager | None 
     return {
         "organization": "Nexus Security & AI Lab",
         "pillar": "Pilar 2 — KubeCost_Auto_HPA",
-        "overall_status": "PRODUCTION_READY_100_PCT",
-        "certified_subsystems": ready_count,
+        "overall_status": "VALIDATION_REQUIRED",
+        "certified_subsystems": 0,
+        "self_checks_passed": ready_count,
+        "external_validation": "not_performed",
+        "limitations": ["PostgreSQL persistence implemented; runtime requires one active control plane", "No verified Kubernetes consolidation executor", "No cloud or invoice savings validation"],
         "total_subsystems": len(subsystems),
         "canonical_tenant_id": CANONICAL_NEXUS_TENANT_ID,
         "subsystems": subsystems,

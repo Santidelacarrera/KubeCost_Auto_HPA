@@ -1,0 +1,113 @@
+{
+  "started_at_utc": "2026-11-16T19:41:23.604811+00:00",
+  "commit": "716e0d7709c032c494ba128e2941d4e15a756d76",
+  "working_tree_changes": true,
+  "environment": "win32",
+  "checks": [
+    {
+      "name": "python",
+      "command": [
+        "C:\\Users\\santi\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+        "-m",
+        "pytest",
+        "engine/tests",
+        "-q",
+        "--junitxml=C:\\Users\\santi\\KubeCost_Auto_HPA\\docs\\reports\\evidence\\enterprise-v2\\python.xml",
+        "--cov=kubecost_engine",
+        "--cov-report=json:C:\\Users\\santi\\KubeCost_Auto_HPA\\docs\\reports\\evidence\\enterprise-v2\\coverage.json",
+        "--cov-report=term"
+      ],
+      "exit_code": 1,
+      "duration_seconds": 16.14,
+      "log": "python.log"
+    },
+    {
+      "name": "lint",
+      "command": [
+        "C:\\Users\\santi\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+        "-m",
+        "ruff",
+        "check",
+        "engine",
+        "--select",
+        "E9,F63,F7,F82"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 0.38,
+      "log": "lint.log"
+    },
+    {
+      "name": "go",
+      "command": [
+        "go",
+        "test",
+        "-count=1",
+        "./..."
+      ],
+      "exit_code": 0,
+      "duration_seconds": 230.81,
+      "log": "go.log"
+    },
+    {
+      "name": "go-vet",
+      "command": [
+        "go",
+        "vet",
+        "./..."
+      ],
+      "exit_code": 0,
+      "duration_seconds": 28.48,
+      "log": "go-vet.log"
+    },
+    {
+      "name": "helm",
+      "command": [
+        "helm",
+        "lint",
+        "deploy/helm/kubecost-auto-hpa"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 0.31,
+      "log": "helm.log"
+    },
+    {
+      "name": "helm-production",
+      "command": [
+        "helm",
+        "template",
+        "verification",
+        "deploy/helm/kubecost-auto-hpa",
+        "-f",
+        "deploy/helm/kubecost-auto-hpa/values-production.yaml"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 0.39,
+      "log": "helm-production.log"
+    },
+    {
+      "name": "javascript",
+      "command": [
+        "node",
+        "--check",
+        "web/console.js"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 0.22,
+      "log": "javascript.log"
+    },
+    {
+      "name": "browser",
+      "command": [
+        "C:\\Users\\santi\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+        "-m",
+        "pytest",
+        "validation/test_console.py",
+        "-q",
+        "--junitxml=C:\\Users\\santi\\KubeCost_Auto_HPA\\docs\\reports\\evidence\\enterprise-v2\\browser.xml"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 16.39,
+      "log": "browser.log"
+    }
+  ]
+}
