@@ -85,7 +85,6 @@ tls:
 
 telemetry:
   enabled: true
-  redisUrl: "redis://kubecost-auto-hpa-redis:6379/0"
   stream: "nexus:telemetry"
   tenantId: "6f1c2a7e-0b3d-4c8e-9a51-2d7f0e4b9c10"
 

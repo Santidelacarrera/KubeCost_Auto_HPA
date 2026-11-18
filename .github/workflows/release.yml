@@ -2,7 +2,7 @@ name: release
 # Publishes images to GHCR on main (tags: sha + latest) and on v* tags (tag: version).
 # Only on v* tags it also: attaches an SBOM and SLSA provenance to the images, signs the images and the
 # chart keylessly (Sigstore, GitHub OIDC), and pushes the Helm chart as an OCI artifact.
-# The tag path has NOT been executed yet (see docs/RELEASING.md): rehearse it before the first tag.
+# Rehearsal and published-artifact checks are described in docs/RELEASING.md.
 on:
   push:
     branches: [main]
@@ -11,7 +11,10 @@ on:
 permissions:
   contents: read
 jobs:
+  validated:
+    uses: ./.github/workflows/ci.yml
   images:
+    needs: validated
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -90,7 +93,7 @@ jobs:
           echo "signed $IMAGE@$DIGEST"
   chart:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: images
+    needs: sign
     runs-on: ubuntu-latest
     permissions:
       contents: read

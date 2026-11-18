@@ -223,6 +223,15 @@ def test_approval_separation_expiration_and_restart(tmp_path, monkeypatch):
     approved = service.post("consolidation/decision", "a", decision, "approver")
     assert approved["status"] == "approved"
     assert approved["execution_status"] == "not_dispatched"
+    execution = {"id": plan["id"], "version": approved["version"], "node": approved["nodes_can_drain"][0], "action": "claim"}
+    claimed = service.post("consolidation/execution", "a", execution, "executor")
+    with pytest.raises(ValueError):
+        service.post("consolidation/execution", "a", execution, "other")
+    completion = {**execution, "version": claimed["version"], "action": "cordoned"}
+    with pytest.raises(AuthorizationError):
+        service.post("consolidation/execution", "a", completion, "other")
+    completed = service.post("consolidation/execution", "a", completion, "executor")
+    assert completed["execution_status"] == "cordoned"
     with pytest.raises(ValueError):
         service.post("consolidation/decision", "b", decision, "approver")
     with pytest.raises(ValueError):

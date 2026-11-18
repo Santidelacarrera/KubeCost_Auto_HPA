@@ -19,6 +19,7 @@ import json
 import logging
 import math
 import os
+import signal
 import ssl
 import threading
 import urllib.parse
@@ -67,6 +68,7 @@ from .security import (
     validate_identifier,
 )
 from .spot import SpotCandidate, is_spot_eligible
+from .stripe_checkout import KIND as CHECKOUT_KIND, StripeUnavailable, create_checkout, public_status
 
 logger = logging.getLogger("kubecost_engine.server")
 
@@ -74,6 +76,41 @@ _MAX_BODY_BYTES = 1 << 20  # 1 MiB strict limit
 
 _auth_manager = MultiTenantAuthManager(store=get_control_plane()._store)
 _rate_limiter = DistributedRateLimiter(sqlite_store=get_control_plane()._store)
+_draining = threading.Event()
+
+
+def readiness():
+    if _draining.is_set():
+        return 503, {"status": "draining"}
+    checks = (
+        ("database", get_control_plane()._store.check_connection),
+        ("redis", _rate_limiter.check_redis),
+    )
+    for name, check in checks:
+        try:
+            if check():
+                continue
+        except Exception as exc:
+            logger.warning("Readiness check failed for %s: %s", name, type(exc).__name__)
+        return 503, {"status": "unavailable", "dependency": name}
+    return 200, {"status": "ok"}
+
+
+class LocalReadinessHandler(BaseHTTPRequestHandler):
+    def do_GET(self):  # noqa: N802
+        if self.path != "/readyz":
+            self.send_error(404)
+            return
+        code, payload = readiness()
+        body = json.dumps(payload).encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *_args):
+        pass
 
 _counters: dict[str, int] = {}
 _lock = threading.Lock()
@@ -645,7 +682,9 @@ class Handler(BaseHTTPRequestHandler):
         tenant_hdr = self.headers.get("X-Tenant-ID")
 
         # 1. Explicit Public Health & Readiness Probes
-        if path_only in ("/healthz", "/health", "/readyz"):
+        if path_only == "/readyz":
+            return self._write_json(*readiness())
+        if path_only in ("/healthz", "/health"):
             return self._write_json(200, {"status": "ok"})
 
         # 2. Metrics endpoint: protected when ENGINE_TOKEN / production mode is active
@@ -702,6 +741,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self._write_rate_limited(rl_dec)
 
             try:
+                if path_only == "/v1/billing/checkout":
+                    if not auth_ctx.authenticated or not auth_ctx.has_scope("billing:write"):
+                        raise AuthorizationError("missing billing:write scope")
+                    request_id = validate_identifier(qs.get("request_id", [""])[0], "request_id")
+                    row = get_control_plane()._store.get_object(effective_tenant, CHECKOUT_KIND, request_id)
+                    if row is None:
+                        return self._write_json(404, {"error": "checkout not found"}, rl_decision=rl_dec)
+                    return self._write_json(200, public_status(row), rl_decision=rl_dec)
                 enterprise_reads = {"/v1/alerts": "alerts", "/v1/predictions/backtests": "predictions/backtests", "/v1/usage": "usage", "/v1/subscriptions": "subscriptions", "/v1/clusters": "clusters", "/v1/plans": "plans", "/v1/rightsizing": "rightsizing", "/v1/predictions": "predictions", "/v1/finops/costs": "costs", "/v1/finops/reconciliations": "reconciliations", "/v1/consolidation/plans": "consolidation/plans", "/v1/licenses": "licenses"}
                 if path_only in enterprise_reads:
                     if auth_ctx.credential_type == "api_key" and not auth_ctx.has_scope("enterprise:read"):
@@ -1068,6 +1115,14 @@ class Handler(BaseHTTPRequestHandler):
 
         # 6. Route Dispatch
         try:
+            if path_only == "/v1/billing/checkout":
+                if not auth_ctx.authenticated or not auth_ctx.has_scope("billing:write"):
+                    raise AuthorizationError("missing billing:write scope")
+                try:
+                    checkout = create_checkout(get_control_plane()._store, effective_tenant, payload)
+                except (StripeWebhookConfigError, StripeUnavailable):
+                    return self._write_json(503, {"error": "Stripe Checkout unavailable"}, rl_decision=rl_dec)
+                return self._write_json(200, checkout, rl_decision=rl_dec)
             write_scopes = {"/v1/policies": "policies:write", "/v1/agents/register": "agents:write", "/v1/agents/heartbeat": "telemetry:write", "/v1/telemetry/ingest": "telemetry:write", "/v1/commands/prewarm": "commands:write", "/v1/commands/ack": "commands:ack", "/v1/audit/decisions": "audit:write", "/v1/cluster/binpack": "compute:evaluate", "/v1/evaluate": "compute:evaluate"}
             if auth_ctx.credential_type == "api_key" and path_only in write_scopes and not auth_ctx.has_scope(write_scopes[path_only]):
                 raise AuthorizationError("missing required write scope")
@@ -1075,10 +1130,11 @@ class Handler(BaseHTTPRequestHandler):
                 from .users import mutate
                 result = mutate(get_control_plane(), _auth_manager, path_only.removeprefix("/v1/"), effective_tenant, payload, auth_ctx)
                 return self._write_json(200, result, rl_decision=rl_dec)
-            enterprise_writes = {"/v1/maintenance/retention": "maintenance/retention", "/v1/alerts/ack": "alerts/ack", "/v1/licenses/revoke": "licenses/revoke", "/v1/predictions/backtest": "predictions/backtest", "/v1/subscriptions/sandbox": "subscriptions/sandbox", "/v1/rightsizing": "rightsizing", "/v1/predictions": "predictions", "/v1/predictions/observe": "predictions/observe", "/v1/finops/import": "finops/import", "/v1/finops/reconcile": "finops/reconcile", "/v1/licenses/activate": "licenses/activate", "/v1/consolidation/plans": "consolidation/plans", "/v1/consolidation/decision": "consolidation/decision"}
+            enterprise_writes = {"/v1/maintenance/retention": "maintenance/retention", "/v1/alerts/ack": "alerts/ack", "/v1/licenses/revoke": "licenses/revoke", "/v1/predictions/backtest": "predictions/backtest", "/v1/subscriptions/sandbox": "subscriptions/sandbox", "/v1/rightsizing": "rightsizing", "/v1/predictions": "predictions", "/v1/predictions/observe": "predictions/observe", "/v1/finops/import": "finops/import", "/v1/finops/reconcile": "finops/reconcile", "/v1/licenses/activate": "licenses/activate", "/v1/consolidation/plans": "consolidation/plans", "/v1/consolidation/decision": "consolidation/decision", "/v1/consolidation/execution": "consolidation/execution"}
             if path_only in enterprise_writes:
-                scope = "maintenance:write" if path_only.startswith("/v1/maintenance/") else "alerts:write" if path_only == "/v1/alerts/ack" else "licenses:manage" if path_only.startswith("/v1/licenses/") else "consolidation:approve" if path_only.endswith("/decision") else "enterprise:write"
-                if auth_ctx.credential_type == "api_key" and not auth_ctx.has_scope(scope):
+                scope = "maintenance:write" if path_only.startswith("/v1/maintenance/") else "alerts:write" if path_only == "/v1/alerts/ack" else "licenses:manage" if path_only.startswith("/v1/licenses/") else "consolidation:execute" if path_only.endswith("/execution") else "consolidation:approve" if path_only.endswith("/decision") else "enterprise:write"
+                requires_scope = scope.startswith("consolidation:") or auth_ctx.credential_type == "api_key"
+                if requires_scope and not auth_ctx.has_scope(scope):
                     raise AuthorizationError("missing required enterprise scope")
                 result = EnterpriseService(get_control_plane()).post(enterprise_writes[path_only], effective_tenant, payload, auth_ctx.principal)
                 return self._write_json(200, result, rl_decision=rl_dec)
@@ -1315,12 +1371,12 @@ class HighConcurrencyHTTPServer(ThreadingHTTPServer):
         except (AttributeError, OSError):
             pass
 
-    def server_close(self):
+    def server_close(self, *, wait_for_requests=False):
         worker = getattr(self, "retention_worker", None)
         if worker is not None:
             worker.stop()
         super().server_close()
-        self.executor.shutdown(wait=False)
+        self.executor.shutdown(wait=wait_for_requests)
 
 
 def make_server(
@@ -1348,10 +1404,41 @@ def make_server(
 
 def main() -> None:
     srv = make_server(port=int(os.environ.get("PORT", "8000")))
+    local_probe = None
+    previous_handler = signal.getsignal(signal.SIGTERM)
+
+    def terminate(_signum, _frame):
+        if not _draining.is_set():
+            _draining.set()
+            threading.Thread(target=srv.shutdown, daemon=True).start()
+
+    signal.signal(signal.SIGTERM, terminate)
     try:
+        if port := os.environ.get("LOCAL_READINESS_PORT"):
+            local_probe = ThreadingHTTPServer(("127.0.0.1", int(port)), LocalReadinessHandler)
+            threading.Thread(target=local_probe.serve_forever, daemon=True).start()
+        if os.environ.get("POSTGRES_STANDBY") == "true":
+            threading.Thread(target=_exit_on_database_session_loss, daemon=True).start()
         srv.serve_forever()
     finally:
-        srv.server_close()
+        _draining.set()
+        if local_probe is not None:
+            local_probe.shutdown()
+            local_probe.server_close()
+        srv.server_close(wait_for_requests=True)
+        get_control_plane()._store.close()
+        signal.signal(signal.SIGTERM, previous_handler)
+
+
+def _exit_on_database_session_loss():
+    store = get_control_plane()._store
+    while not _draining.wait(2):
+        try:
+            store.check_connection()
+        except Exception as exc:
+            # A replacement process must reacquire the lock and reload durable state.
+            logger.error("Database session failed: %s. Restarting engine.", type(exc).__name__)
+            os._exit(1)
 
 
 if __name__ == "__main__":

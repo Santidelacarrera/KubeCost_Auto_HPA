@@ -1,5 +1,6 @@
 name: ci
 on:
+  workflow_call:
   push:
   pull_request:
 # CI only reads the repository; no job needs to write.
@@ -70,6 +71,7 @@ jobs:
     needs: [engine, operator]
     steps:
       - uses: actions/checkout@v7
+        with: {fetch-depth: 0}
       - uses: actions/setup-python@v7
         with: {python-version: "3.12"}
       - uses: helm/kind-action@v1
@@ -83,6 +85,21 @@ jobs:
           path: |
             .local-validation/enterprise-lab/*.json
             .local-validation/enterprise-lab/*.log
+  operational-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with: {python-version: "3.12"}
+      - uses: helm/kind-action@v1
+        with: {install_only: true, version: v0.27.0}
+      - uses: azure/setup-helm@v5
+      - run: pip install -e 'engine[dev,runtime]' PyYAML
+      - run: python -m pytest validation/test_consolidation_kind.py validation/test_alert_notifications.py validation/test_failover_runtime.py -q
+        env:
+          KCA_KIND_CONSOLIDATION: "1"
+          KCA_ALERTMANAGER_SMOKE: "1"
+          KCA_FAILOVER_SMOKE: "1"
   operator:
     runs-on: ubuntu-latest
     steps:
@@ -195,5 +212,10 @@ jobs:
           grep -q -- "--observe-only" /tmp/base.yaml || { echo "the Kustomize base no longer starts in observe-only"; exit 1; }
       - name: Chart lints with the production values
         run: helm lint deploy/helm/kubecost-auto-hpa -f deploy/helm/kubecost-auto-hpa/values-production.yaml
+      - name: Production engine uses the bundled Redis Service name
+        run: |
+          helm template redis-check deploy/helm/kubecost-auto-hpa -f deploy/helm/kubecost-auto-hpa/values-production.yaml > /tmp/redis-check.yaml
+          grep -F 'name: redis-check-kubecost-auto-hpa-redis' /tmp/redis-check.yaml
+          grep -F 'value: "redis://redis-check-kubecost-auto-hpa-redis:6379/0"' /tmp/redis-check.yaml
       - run: kustomize build operator/config/overlays/local >/dev/null
       - run: kustomize build operator/config/overlays/e2e-kca >/dev/null

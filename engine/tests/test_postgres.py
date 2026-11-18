@@ -114,6 +114,46 @@ def test_repeated_immediate_control_plane_handoff(stores):
             successor.close()
 
 
+def test_waiting_replica_promotes_and_recovers_committed_state(stores, monkeypatch):
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+    import psycopg
+    from psycopg import sql
+    from psycopg.conninfo import make_conninfo
+    from kubecost_engine.saas import SaaSControlPlane
+
+    tenant = "ha-" + uuid.uuid4().hex
+    dsn = os.environ["KCA_TEST_POSTGRES_DSN"]
+    with psycopg.connect(dsn, autocommit=True) as connection:
+        connection.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(tenant)))
+    monkeypatch.setenv("POSTGRES_DSN", make_conninfo(dsn, options=f"-csearch_path={tenant}"))
+    holder = SaaSControlPlane()
+    holder.register_agent({"client_id": tenant, "cluster_id": tenant})
+    monkeypatch.setenv("POSTGRES_STANDBY", "true")
+    waiting = threading.Event()
+    from kubecost_engine import postgres
+    sleep = postgres.time.sleep
+
+    def mark_waiting(seconds):
+        waiting.set()
+        sleep(seconds)
+
+    monkeypatch.setattr(postgres.time, "sleep", mark_waiting)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        successor = pool.submit(SaaSControlPlane)
+        try:
+            assert waiting.wait(10)
+            assert not successor.done()
+        finally:
+            holder._store.close()
+        promoted = successor.result(timeout=12)
+    try:
+        assert tenant in promoted._agents[tenant]
+        assert promoted._store.check_connection()
+    finally:
+        promoted._store.close()
+
+
 def test_sqlite_migration_restart_and_no_overwrite(stores, tmp_path, monkeypatch):
     import runpy
     from pathlib import Path

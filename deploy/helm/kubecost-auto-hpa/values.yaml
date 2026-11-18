@@ -41,6 +41,7 @@ operator:
     limits: {memory: 256Mi}
 
 engine:
+  stripeCheckout: {mode: test, secretName: ""}
   retention:
     enabled: false
     days: 90
@@ -107,6 +108,12 @@ networkPolicy:
 
 prometheusRule:
   enabled: false           # alerts (needs the Prometheus Operator CRDs)
+
+alertNotifications:
+  enabled: false
+  webhookSecretName: ""
+  webhookSecretKey: url
+  testAlert: false
 
 grafanaDashboard:
   enabled: false           # ConfigMap with the KubeCostAutoscaler dashboard for the Grafana sidecar

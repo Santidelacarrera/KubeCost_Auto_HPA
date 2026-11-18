@@ -32,9 +32,7 @@ def test_console_real_api_empty_registration_and_mobile(monkeypatch, tmp_path):
             page.get_by_role("button", name="Conectar", exact=True).click()
             page.locator("#connection").filter(has_text="API conectada").wait_for()
             assert page.locator("#cluster-count").inner_text() == "0"
-            page.locator("#payload").fill(
-                '{"cluster_id":"gke-lab","cloud_provider":"gcp","execution_mode":"OBSERVE_ONLY"}'
-            )
+            page.locator("#operation-fields [name=cluster_id]").fill("gke-lab")
             page.get_by_role("button", name="Validar y enviar").click()
             page.locator("#cluster-count").filter(has_text="1").wait_for()
             assert "gke-lab" in page.locator("#results").inner_text()

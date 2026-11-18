@@ -4,6 +4,7 @@
 def specification():
     paths = {}
     reads = (
+        "billing/checkout",
         "alerts",
         "users",
         "usage",
@@ -19,6 +20,7 @@ def specification():
         "licenses",
     )
     writes = (
+        "billing/checkout",
         "maintenance/retention", "alerts/ack",
         "users", "users/update", "users/credentials",
         "subscriptions/sandbox",
@@ -32,8 +34,12 @@ def specification():
         "licenses/activate",
         "consolidation/plans",
         "consolidation/decision",
+        "consolidation/execution",
+        "agents/register",
+        "policies",
     )
     required = {
+        "billing/checkout": ["plan", "request_id"],
         "maintenance/retention": ["days"],
         "alerts/ack": ["id"],
         "users": ["id", "role"],
@@ -50,6 +56,9 @@ def specification():
         "licenses/activate": ["license"],
         "consolidation/plans": ["cluster_id", "nodes"],
         "consolidation/decision": ["id", "version", "decision"],
+        "consolidation/execution": ["id", "version", "node", "action"],
+        "agents/register": ["cluster_id"],
+        "policies": ["cluster_id"],
     }
     for method, routes in (("get", reads), ("post", writes)):
         for route in routes:
@@ -102,6 +111,25 @@ def specification():
                     if prop["type"] == "array":
                         prop["items"] = {"type": "object"}
                 schema = operation["requestBody"]["content"]["application/json"]["schema"]
+                if route in ("agents/register", "policies"):
+                    schema["properties"].update(
+                        execution_mode={"type": "string", "enum": ["OBSERVE_ONLY", "ASSISTED", "AUTOMATED"]},
+                    )
+                if route == "agents/register":
+                    schema["properties"]["cloud_provider"] = {"type": "string"}
+                if route == "consolidation/execution":
+                    schema["properties"]["action"]["enum"] = ["claim", "cordoned", "failed"]
+                    operation["description"] = "Requires consolidation:execute. Records an executor claim or outcome."
+                if route == "consolidation/plans":
+                    schema["properties"]["execution_strategy"] = {
+                        "type": "string", "enum": ["empty-only", "stateless-eviction"], "default": "empty-only"
+                    }
+                if route == "rightsizing":
+                    keys = ("cpu_request_millicores", "cpu_limit_millicores", "memory_request_mib", "memory_limit_mib")
+                    schema["properties"]["current"].update(
+                        required=list(keys),
+                        properties={key: {"type": "number", "minimum": 1} for key in keys},
+                    )
                 if route == "maintenance/retention":
                     schema["properties"].update(days={"type": "integer", "minimum": 1, "maximum": 3650}, dry_run={"type": "boolean", "default": True})
                 if route in ("rightsizing", "predictions", "predictions/backtest"):
@@ -130,6 +158,15 @@ def specification():
                     },
                     {"name": "client_id", "in": "query", "schema": {"type": "string"}},
                 ]
+                if route == "consolidation/plans":
+                    operation["parameters"].append(
+                        {"name": "id", "in": "query", "schema": {"type": "string"}}
+                    )
+                if route == "billing/checkout":
+                    operation["parameters"] = [
+                        {"name": "request_id", "in": "query", "required": True, "schema": {"type": "string"}},
+                        {"name": "client_id", "in": "query", "schema": {"type": "string"}},
+                    ]
             paths.setdefault("/v1/" + route, {})[method] = operation
     return {
         "openapi": "3.0.3",

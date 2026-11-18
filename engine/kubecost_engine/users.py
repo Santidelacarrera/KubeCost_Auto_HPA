@@ -9,7 +9,7 @@ ROLES = {
     "operator": ["enterprise:read", "enterprise:write", "telemetry:read", "policies:read", "policies:write", "audit:read", "billing:read", "compute:evaluate"],
     "approver": ["enterprise:read", "consolidation:approve", "audit:read"],
 }
-ROLES["owner"] = sorted(set(scope for scopes in ROLES.values() for scope in scopes) | {"maintenance:write", "alerts:write", "users:manage", "keys:manage", "licenses:manage", "agents:write"})
+ROLES["owner"] = sorted(set(scope for scopes in ROLES.values() for scope in scopes) | {"maintenance:write", "alerts:write", "users:manage", "keys:manage", "licenses:manage", "agents:write", "consolidation:execute", "billing:write"})
 
 
 def credential_user(store, tenant, key_id):

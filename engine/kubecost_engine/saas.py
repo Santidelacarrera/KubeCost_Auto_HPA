@@ -17,6 +17,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 import hashlib
 import math
+import os
 import threading
 import time
 from typing import Any, Dict, List, Optional
@@ -111,8 +112,6 @@ class SaaSControlPlane:
     def __init__(self, db_path: Optional[str] = None) -> None:
         self._lock = threading.RLock()
         self._store = create_store(db_path=db_path)
-        if hasattr(self._store, "acquire_control_plane"):
-            self._store.acquire_control_plane()
         # Keyed by client_id for strict tenant isolation
         self._agents: Dict[str, Dict[str, AgentRegistration]] = {}
         self._telemetry: Dict[str, List[NormalizedTelemetryRecord]] = {}
@@ -128,6 +127,15 @@ class SaaSControlPlane:
         self._command_owners: Dict[str, str] = {}
         self._event_owners: Dict[str, str] = {}
         self._decision_owners: Dict[str, str] = {}
+        try:
+            if hasattr(self._store, "acquire_control_plane"):
+                self._store.acquire_control_plane(wait=os.environ.get("POSTGRES_STANDBY") == "true")
+            self._restore_runtime()
+        except Exception:
+            self._store.close()
+            raise
+
+    def _restore_runtime(self):
         recovery = self._store.recovery_records()
         for tenant, state in recovery["runtime"]:
             self._agents[tenant] = {k: AgentRegistration(**v) for k, v in state["agents"].items()}

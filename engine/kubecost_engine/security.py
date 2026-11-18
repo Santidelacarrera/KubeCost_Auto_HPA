@@ -382,6 +382,13 @@ class DistributedRateLimiter:
         with self._lock:
             self._local_counters.clear()
 
+    def check_redis(self) -> bool:
+        client = self._get_redis_client()
+        if client is not None:
+            return bool(client.ping())
+        url = self._explicit_redis_url
+        return not (os.environ.get("REDIS_URL", "").strip() if url is None else url)
+
     def _get_redis_client(self) -> Any:
         url = self._explicit_redis_url if self._explicit_redis_url is not None else os.environ.get("REDIS_URL", "").strip()
         if not url:

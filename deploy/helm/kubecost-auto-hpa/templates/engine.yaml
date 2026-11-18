@@ -1,5 +1,7 @@
-{{- if gt (int .Values.engine.replicas) 1 }}
-{{- fail "Control-plane runtime requires engine.replicas=1; multi-replica caches are not supported" }}
+{{- $standby := gt (int .Values.engine.replicas) 1 }}
+{{- $sqlite := and .Values.engine.persistence.enabled (not .Values.engine.postgres.secretName) }}
+{{- if and $standby (not .Values.engine.postgres.secretName) }}
+{{- fail "Multiple engine replicas require a shared PostgreSQL database" }}
 {{- end }}
 apiVersion: apps/v1
 kind: Deployment
@@ -8,7 +10,11 @@ metadata:
   labels: {{- include "kch.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.engine.replicas }}
+  {{- if $standby }}
+  strategy: {type: RollingUpdate, rollingUpdate: {maxSurge: 1, maxUnavailable: 100%}}
+  {{- else }}
   strategy: {type: Recreate}
+  {{- end }}
   selector:
     matchLabels: {{- include "kch.selector" (dict "ctx" . "component" "engine") | nindent 6 }}
   template:
@@ -16,12 +22,36 @@ spec:
       labels: {{- include "kch.selector" (dict "ctx" . "component" "engine") | nindent 8 }}
     spec:
       automountServiceAccountToken: false
+      {{- if $standby }}
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels: {{- include "kch.selector" (dict "ctx" . "component" "engine") | nindent 12 }}
+      {{- end }}
       securityContext: {runAsNonRoot: true, runAsUser: 65532, fsGroup: 65532, seccompProfile: {type: RuntimeDefault}}
       containers:
       - name: engine
         image: "{{ .Values.engine.image.repository }}:{{ .Values.engine.image.tag | default .Chart.AppVersion }}"
         imagePullPolicy: {{ .Values.engine.image.pullPolicy }}
         env:
+        {{- if .Values.engine.stripeCheckout.secretName }}
+        {{- if not (or $sqlite .Values.engine.postgres.secretName) }}
+        {{- fail "Stripe Checkout requires persistent engine storage" }}
+        {{- end }}
+        - {name: STRIPE_CHECKOUT_MODE, value: {{ .Values.engine.stripeCheckout.mode | quote }}}
+        {{- range $key := list "STRIPE_SECRET_KEY" "STRIPE_WEBHOOK_SECRET" "STRIPE_CHECKOUT_PRICES" "STRIPE_CHECKOUT_SUCCESS_URL" "STRIPE_CHECKOUT_CANCEL_URL" }}
+        - name: {{ $key }}
+          valueFrom: {secretKeyRef: {name: {{ $.Values.engine.stripeCheckout.secretName | quote }}, key: {{ $key }}}}
+        {{- end }}
+        {{- end }}
+        {{- if $standby }}
+        - {name: POSTGRES_STANDBY, value: "true"}
+        {{- end }}
+        {{- if .Values.tls.engine.clientSecretName }}
+        - {name: LOCAL_READINESS_PORT, value: "8001"}
+        {{- end }}
         - {name: ENABLE_AUTOMATED_CONSOLIDATION, value: "false"}
         {{- if .Values.engine.retention.enabled }}
         - {name: TELEMETRY_RETENTION_DAYS, value: {{ .Values.engine.retention.days | quote }}}
@@ -32,7 +62,7 @@ spec:
           valueFrom: {secretKeyRef: {name: {{ .Values.engine.postgres.secretName }}, key: {{ .Values.engine.postgres.key }}}}
         - {name: STANDALONE_SINGLE_REPLICA, value: "true"}
         {{- end }}
-        {{- if .Values.engine.persistence.enabled }}
+        {{- if $sqlite }}
         - {name: SAAS_DB_PATH, value: /data/control-plane.db}
         - {name: STANDALONE_SINGLE_REPLICA, value: "true"}
         {{- end }}
@@ -50,10 +80,12 @@ spec:
         {{- if .Values.telemetry.enabled }}
         - name: NEXUS_TELEMETRY_ENABLED
           value: "true"
-        {{- if .Values.telemetry.redisUrl }}
-        - name: REDIS_URL
-          value: {{ .Values.telemetry.redisUrl | quote }}
         {{- end }}
+        {{- if or .Values.telemetry.redisUrl .Values.redis.enabled }}
+        - name: REDIS_URL
+          value: {{ .Values.telemetry.redisUrl | default (printf "redis://%s/0" (include "kch.redisAddr" .)) | quote }}
+        {{- end }}
+        {{- if .Values.telemetry.enabled }}
         {{- if .Values.telemetry.stream }}
         - name: NEXUS_TELEMETRY_STREAM
           value: {{ .Values.telemetry.stream | quote }}
@@ -65,29 +97,35 @@ spec:
         {{- end }}
         ports: [{name: http, containerPort: 8000}]
         {{- if .Values.tls.engine.clientSecretName }}
-        # kubelet has no client certificate, so under mTLS probe the TCP port only
+        {{- if not $standby }}
         livenessProbe: {tcpSocket: {port: http}}
-        readinessProbe: {tcpSocket: {port: http}}
+        {{- end }}
+        readinessProbe:
+          exec:
+            command: ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/readyz', timeout=4)"]
+          timeoutSeconds: 5
         {{- else }}
         {{- $scheme := ternary "HTTPS" "HTTP" (ne .Values.tls.engine.secretName "") }}
+        {{- if not $standby }}
         livenessProbe: {httpGet: {path: /healthz, port: http, scheme: {{ $scheme }}}}
-        readinessProbe: {httpGet: {path: /healthz, port: http, scheme: {{ $scheme }}}}
+        {{- end }}
+        readinessProbe: {httpGet: {path: /readyz, port: http, scheme: {{ $scheme }}}, timeoutSeconds: 5}
         {{- end }}
         resources: {{- toYaml .Values.engine.resources | nindent 10 }}
         securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
-        {{- if or .Values.tls.engine.secretName .Values.engine.persistence.enabled }}
+        {{- if or .Values.tls.engine.secretName $sqlite }}
         volumeMounts:
         {{- if .Values.tls.engine.secretName }}
         - {name: tls, mountPath: /tls, readOnly: true}
         {{- end }}
-        {{- if .Values.engine.persistence.enabled }}
+        {{- if $sqlite }}
         - {name: data, mountPath: /data}
         {{- end }}
       volumes:
         {{- if .Values.tls.engine.secretName }}
       - {name: tls, secret: {secretName: {{ .Values.tls.engine.secretName }}}}
         {{- end }}
-        {{- if .Values.engine.persistence.enabled }}
+        {{- if $sqlite }}
       - name: data
         persistentVolumeClaim: {claimName: {{ include "kch.name" . }}-engine}
         {{- end }}

@@ -9,10 +9,10 @@ No etiquetar ni publicar v0.2.0 hasta cerrar los pendientes aplicables. Esta ram
 - [x] Laboratorio Kind: resize sin reinicio y ciclo Helm, con límites documentados.
 - [x] Pipeline incorpora cobertura, navegador, Redis y laboratorio con artefactos.
 - [ ] Ejecución remota del pipeline y branch protection confirmadas.
-- [ ] Consolidación Assisted/Automated de extremo a extremo con scheduler/PDB, rollback y recuperación.
+- [ ] Validación de evacuación asistida en GKE y AKS, recuperación tras fallo del proceso y ejecución automática. La evacuación asistida de Deployments sin estado ya se prueba en Kind con un PDB.
 - [ ] PostgreSQL/HA stateful, usuarios, retención y límites comerciales completos.
 - [ ] Contrato OpenAPI exhaustivo de rutas heredadas y formularios empresariales completos.
-- [ ] Upgrade v0.1.0 → v0.2.0; migración y restauración de datos/CRD.
+- [ ] Validar los artefactos publicados de destino. El ensayo en Kind cubre `v0.1.0` y el chart de trabajo. La suite de persistencia cubre migración SQLite a PostgreSQL y restauración SQLite.
 - [ ] Compatibilidad/race/envtest en matriz completa y artefacto final.
 - [ ] GKE y AKS independientemente aprobados; soak prolongado.
 - [ ] Escaneo de secretos, pentest externo y cierre de hallazgos relevantes.

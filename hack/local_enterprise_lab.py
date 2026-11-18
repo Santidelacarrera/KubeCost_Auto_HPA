@@ -4,6 +4,7 @@
 import argparse
 import json
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -14,6 +15,7 @@ import uuid
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--keep", action="store_true")
+    parser.add_argument("--release-only", action="store_true")
     parser.add_argument("--output", default=".local-validation/enterprise-lab")
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
@@ -105,88 +107,6 @@ def main():
                 "kubecost-auto-hpa-engine:dev",
             ]
         )
-        run(["kubectl", "apply", "-k", "operator/config/crd"])
-        run(
-            [
-                "kubectl",
-                "wait",
-                "--for=condition=Established",
-                "--timeout=60s",
-                "crd/kubecosthpas.autoscaling.kubecost.io",
-                "crd/kubecostautoscalers.autoscaling.kubecost.io",
-            ]
-        )
-        run(["kubectl", "apply", "-k", "operator/config/overlays/e2e"])
-        for deployment in (
-            "kubecost-auto-hpa-operator",
-            "kubecost-auto-hpa-engine",
-            "kubecost-auto-hpa-redis",
-            "fake-prometheus",
-        ):
-            run(
-                [
-                    "kubectl",
-                    "-n",
-                    "kubecost-auto-hpa-system",
-                    "rollout",
-                    "status",
-                    "deploy/" + deployment,
-                    "--timeout=180s",
-                ]
-            )
-        run(
-            [
-                "kubectl",
-                "-n",
-                "e2e",
-                "rollout",
-                "status",
-                "deploy/web",
-                "--timeout=180s",
-            ]
-        )
-        pods_command = [
-            "kubectl",
-            "-n",
-            "e2e",
-            "get",
-            "pods",
-            "-l",
-            "app=web",
-            "-o",
-            "json",
-        ]
-        before = json.loads(run(pods_command, capture=True))["items"]
-        for _ in range(60):
-            after = json.loads(run(pods_command, capture=True))["items"]
-            cpus = [
-                p["spec"]["containers"][0]["resources"]["requests"]["cpu"]
-                for p in after
-            ]
-            if cpus and all(c.endswith("m") and int(c[:-1]) < 500 for c in cpus):
-                break
-            time.sleep(5)
-        else:
-            raise RuntimeError("no in-place shrink observed")
-        if {p["metadata"]["uid"] for p in before} != {
-            p["metadata"]["uid"] for p in after
-        }:
-            raise RuntimeError("pods recreated during resize")
-        if any(
-            s["restartCount"] for p in after for s in p["status"]["containerStatuses"]
-        ):
-            raise RuntimeError("container restarted during resize")
-        # Disable first operator before installing a second writer in the same disposable cluster.
-        run(
-            [
-                "kubectl",
-                "-n",
-                "kubecost-auto-hpa-system",
-                "scale",
-                "deploy/kubecost-auto-hpa-operator",
-                "--replicas=0",
-            ]
-        )
         values = [
             "--set",
             "operator.image.repository=kubecost-auto-hpa-operator",
@@ -202,21 +122,42 @@ def main():
             "engine.persistence.enabled=true",
         ]
         chart = "deploy/helm/kubecost-auto-hpa"
+        previous_chart = output / "previous-chart"
+        archive = output / "previous-chart.tar"
+        run(["git", "archive", "--output", str(archive), "v0.1.0", chart])
+        shutil.unpack_archive(archive, previous_chart)
         run(
             [
                 "helm",
                 "install",
                 "rehearsal",
-                chart,
+                str(previous_chart / chart),
                 "-n",
                 "helm-lab",
                 "--create-namespace",
-                *values,
+                "--set",
+                "operator.replicas=1",
                 "--wait",
                 "--timeout",
                 "4m",
             ]
         )
+        run(["kubectl", "apply", "-f", str(Path(chart) / "crds")])
+        run([
+            "kubectl", "wait", "--for=condition=Established", "--timeout=60s",
+            "crd/workloadrecommendations.autoscaling.kubecost.io",
+        ])
+        # Helm 4 SSA retains the old API-defaulted rollingUpdate fields unless
+        # they are removed in the same operation that switches the strategy.
+        strategy_patch = output / "engine-strategy.json"
+        strategy_patch.write_text(json.dumps({
+            "spec": {"strategy": {"type": "Recreate", "rollingUpdate": None}},
+        }), encoding="utf-8")
+        run([
+            "kubectl", "-n", "helm-lab", "patch", "deployment",
+            "rehearsal-kubecost-auto-hpa-engine",
+            "--type=merge", "--patch-file", str(strategy_patch),
+        ])
         run(
             [
                 "helm",
@@ -233,6 +174,10 @@ def main():
                 "4m",
             ]
         )
+        pvc_cmd = ["kubectl", "-n", "helm-lab", "get", "pvc", "rehearsal-kubecost-auto-hpa-engine", "-o", "json"]
+        pvc = json.loads(run(pvc_cmd, capture=True))
+        if pvc["status"].get("phase") != "Bound":
+            raise RuntimeError("engine storage did not bind after upgrade")
         run(
             [
                 "helm",
@@ -246,15 +191,90 @@ def main():
                 "4m",
             ]
         )
-        run(["kubectl", "-n", "helm-lab", "get", "pvc", "-o", "json"])
+        retained = json.loads(run(pvc_cmd, capture=True))
+        if retained["metadata"]["uid"] != pvc["metadata"]["uid"]:
+            raise RuntimeError("rollback replaced the engine volume claim")
+        run(["helm", "uninstall", "rehearsal", "-n", "helm-lab", "--wait"])
+        if not args.release_only:
+            run(
+                [
+                    "kubectl",
+                    "wait",
+                    "--for=condition=Established",
+                    "--timeout=60s",
+                    "crd/kubecosthpas.autoscaling.kubecost.io",
+                    "crd/kubecostautoscalers.autoscaling.kubecost.io",
+                ]
+            )
+            run(["kubectl", "apply", "-k", "operator/config/overlays/e2e"])
+            for deployment in (
+                "kubecost-auto-hpa-operator",
+                "kubecost-auto-hpa-engine",
+                "kubecost-auto-hpa-redis",
+                "fake-prometheus",
+            ):
+                run(
+                    [
+                        "kubectl",
+                        "-n",
+                        "kubecost-auto-hpa-system",
+                        "rollout",
+                        "status",
+                        "deploy/" + deployment,
+                        "--timeout=180s",
+                    ]
+                )
+            run(
+                [
+                    "kubectl",
+                    "-n",
+                    "e2e",
+                    "rollout",
+                    "status",
+                    "deploy/web",
+                    "--timeout=180s",
+                ]
+            )
+            pods_command = [
+                "kubectl",
+                "-n",
+                "e2e",
+                "get",
+                "pods",
+                "-l",
+                "app=web",
+                "-o",
+                "json",
+            ]
+            before = json.loads(run(pods_command, capture=True))["items"]
+            for _ in range(60):
+                after = json.loads(run(pods_command, capture=True))["items"]
+                cpus = [
+                    p["spec"]["containers"][0]["resources"]["requests"]["cpu"]
+                    for p in after
+                ]
+                if cpus and all(c.endswith("m") and int(c[:-1]) < 500 for c in cpus):
+                    break
+                time.sleep(5)
+            else:
+                raise RuntimeError("no in-place shrink observed")
+            if {p["metadata"]["uid"] for p in before} != {
+                p["metadata"]["uid"] for p in after
+            }:
+                raise RuntimeError("pods recreated during resize")
+            if any(
+                s["restartCount"] for p in after for s in p["status"]["containerStatuses"]
+            ):
+                raise RuntimeError("container restarted during resize")
         (output / "acceptance.json").write_text(
             json.dumps(
                 {
-                    "resize_without_recreation": True,
-                    "container_restarts": 0,
+                    "resize_without_recreation": True if not args.release_only else None,
+                    "container_restarts": 0 if not args.release_only else None,
                     "helm_install_upgrade_rollback": True,
                     "provider": "kind-local",
-                    "version_upgrade_v010_v020": "not_tested",
+                    "version_upgrade_v010_to_working_tree": True,
+                    "engine_pvc_retained_after_rollback": True,
                     "cloud_validation": False,
                 },
                 indent=2,

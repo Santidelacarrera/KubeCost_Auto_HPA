@@ -83,6 +83,26 @@ def _serve(monkeypatch=None):
     return srv, f"http://127.0.0.1:{srv.server_address[1]}"
 
 
+def test_readiness_fails_when_persistent_store_closes(monkeypatch, tmp_path):
+    from kubecost_engine import server
+    from kubecost_engine.saas import SaaSControlPlane
+
+    cp = SaaSControlPlane(str(tmp_path / "readiness.db"))
+    monkeypatch.setattr(server, "get_control_plane", lambda: cp)
+    srv, url = _serve()
+    try:
+        assert urllib.request.urlopen(url + "/readyz", timeout=5).status == 200
+        cp._store.close()
+        with pytest.raises(urllib.error.HTTPError) as error:
+            urllib.request.urlopen(url + "/readyz", timeout=5)
+        assert error.value.code == 503
+        assert json.load(error.value)["dependency"] == "database"
+        assert urllib.request.urlopen(url + "/healthz", timeout=5).status == 200
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
 def test_bearer_token(monkeypatch):
     monkeypatch.setenv("ENGINE_TOKEN", "s3cret")
     srv, url = _serve()

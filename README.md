@@ -17,8 +17,7 @@ Alcance de esta fase: **Kubernetes estándar, GKE y AKS**. AWS queda fuera de al
 > varios días y un ahorro conciliado con una factura. Estado por funcionalidad: [`docs/STATUS.md`](docs/STATUS.md).
 
 Documentación: [`docs/README.md`](docs/README.md) · Instalación: [`docs/INSTALL.md`](docs/INSTALL.md) · Limitaciones:
-[`docs/KNOWN_LIMITATIONS.md`](docs/KNOWN_LIMITATIONS.md) · Consola de demostración (datos de ejemplo, salvo el panel de estado
-verificado): <https://santidelacarrera.github.io/KubeCost_Auto_HPA/app.html>
+[`docs/KNOWN_LIMITATIONS.md`](docs/KNOWN_LIMITATIONS.md) · Consola conectada a la API (requiere conexión y credencial): <https://santidelacarrera.github.io/KubeCost_Auto_HPA/app.html>
 
 ```
  Prometheus (cAdvisor, kube-state-metrics) / metrics-server / OpenCost
@@ -82,7 +81,7 @@ Reglas y tratamiento de moneda, periodo, impuestos, descuentos, créditos y comp
 | `deploy/helm/kubecost-auto-hpa/` | Chart de Helm equivalente. |
 | `operator/cmd/recommend`, `operator/internal/recommend/` | Recomendador de solo lectura (historial de Prometheus): [`docs/RECOMMENDER.md`](docs/RECOMMENDER.md). |
 | `operator/internal/{safety,execute,cost,capacity}`, `operator/cmd/rightsize` | Política fail-closed, aplicación con rollback y auditoría, asignación de costos, análisis de capacidad (ver más abajo). |
-| `web/` | Página y consola de demostración (`index.html`, `app.html`) publicadas en GitHub Pages. Datos de ejemplo, salvo el panel de estado (`status.json`). |
+| `web/` | Página y consola conectada a la API (`index.html`, `app.html`). La simulación está en `upstream-demo.html`. |
 | `benchmarks/` | Arnés de benchmarking reproducible (escenarios, trazas, recolector). Sin resultados frente a competidores: ver `docs/BENCHMARKING.md`. |
 | `docker-compose.yml` | Stack local: Redis, motor, Prometheus, Grafana (+ operador con `--profile operator`). |
 
@@ -372,4 +371,4 @@ controller-runtime y OpenCost, de modo que el código es compatible con las depe
 
 ## Enterprise control-plane preview
 
-`web/app.html` is the API-connected console. The upstream sample console is preserved at `web/upstream-demo.html`. PostgreSQL persistence, API users, licenses and retention are described in [docs/FOLLOWUP_IMPLEMENTATION.md](docs/FOLLOWUP_IMPLEMENTATION.md) and [docs/MAINTENANCE_IMPLEMENTATION.md](docs/MAINTENANCE_IMPLEMENTATION.md). This API runtime requires one active process. Consolidation approval does not execute a node drain.
+`web/app.html` is the API-connected console. The upstream sample console is preserved at `web/upstream-demo.html`. PostgreSQL persistence, API users, licenses and retention are described in [docs/FOLLOWUP_IMPLEMENTATION.md](docs/FOLLOWUP_IMPLEMENTATION.md) and [docs/MAINTENANCE_IMPLEMENTATION.md](docs/MAINTENANCE_IMPLEMENTATION.md). PostgreSQL supports one active engine with standby replicas. A separate assisted executor can cordon an approved candidate and evict opted-in stateless pods under a PDB.

@@ -247,6 +247,14 @@
           ],
           "additionalProperties": false
         },
+        "stripeCheckout": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "mode": {"enum": ["test", "live"]},
+            "secretName": {"type": "string"}
+          }
+        },
         "postgres": {
           "type": "object",
           "properties": {
@@ -451,6 +459,16 @@
         }
       },
       "additionalProperties": false
+    },
+    "alertNotifications": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "webhookSecretName": {"type": "string"},
+        "webhookSecretKey": {"type": "string", "minLength": 1},
+        "testAlert": {"type": "boolean"}
+      }
     },
     "grafanaDashboard": {
       "type": "object",

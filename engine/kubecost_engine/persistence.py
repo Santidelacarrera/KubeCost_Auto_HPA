@@ -94,6 +94,14 @@ class SQLiteSaaSStore:
         self._conn.row_factory = sqlite3.Row
         self._init_schema()
 
+    def check_connection(self) -> bool:
+        if not self._lock.acquire(timeout=0.5):
+            return False
+        try:
+            return self._conn.execute("SELECT 1").fetchone() is not None
+        finally:
+            self._lock.release()
+
     def _init_schema(self) -> None:
         with self._lock:
             cur = self._conn.cursor()
@@ -410,3 +418,10 @@ class SQLiteSaaSStore:
                 if cur.rowcount != 1:
                     raise ValueError("object version conflict; reload before retry")
         return {**payload, "version": expected_version + 1}
+    def get_object(self, tenant: str, kind: str, object_id: str):
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT version,payload FROM enterprise_objects WHERE tenant=? AND kind=? AND id=?",
+                (tenant, kind, object_id),
+            ).fetchone()
+        return {**json.loads(row["payload"]), "version": row["version"]} if row else None
