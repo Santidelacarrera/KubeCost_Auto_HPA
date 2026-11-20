@@ -1,0 +1,23 @@
+name: PostgreSQL restore
+on:
+  pull_request:
+  push:
+    branches-ignore: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with: {python-version: "3.12"}
+      - run: pip install -e 'engine[dev,runtime]'
+      - run: python -m pytest validation/test_postgres_restore.py -q --junitxml=restore.xml
+        env:
+          KCA_POSTGRES_RESTORE: "1"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with: {name: postgres-restore-evidence, path: restore.xml}
