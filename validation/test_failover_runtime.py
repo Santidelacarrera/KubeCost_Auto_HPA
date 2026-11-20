@@ -12,7 +12,8 @@ import pytest
 
 
 @pytest.mark.skipif(os.getenv("KCA_FAILOVER_SMOKE") != "1", reason="requires Docker")
-def test_engine_signals_release_postgres_and_preserve_state():
+@pytest.mark.parametrize("failure", ["sigterm", "sigkill", "database-session-loss"])
+def test_engine_signals_release_postgres_and_preserve_state(failure):
     name = "kca-failover-" + uuid.uuid4().hex[:8]
     pg, active, standby = [f"{name}-{role}" for role in ("pg", "active", "standby")]
     tag = name + ":test"
@@ -65,12 +66,29 @@ def test_engine_signals_release_postgres_and_preserve_state():
         with pytest.raises(OSError):
             request(second, "/readyz")
         started = time.monotonic()
-        docker("stop", "-t", "15", active)
+        if failure == "sigterm":
+            docker("stop", "-t", "15", active)
+            expected_exit = "0"
+        elif failure == "sigkill":
+            docker("kill", active)
+            expected_exit = "137"
+        else:
+            # Only the lock-owning connection in this disposable database is
+            # terminated. The waiting replica must reload committed state.
+            terminated = docker("exec", pg, "psql", "-U", "postgres", "-Atc",
+                                "SELECT pg_terminate_backend(pid) FROM pg_locks "
+                                "WHERE locktype='advisory' AND objid=1262698833 AND granted")
+            assert terminated == "t"
+            expected_exit = "1"
         ready(second)
-        print(f"Engine available on standby after {time.monotonic() - started:.2f}s")
-        assert docker("inspect", "-f", "{{.State.ExitCode}}", active) == "0"
+        print(f"Engine available on standby after {failure}: {time.monotonic() - started:.2f}s")
+        assert docker("wait", active) == expected_exit
         clusters = request(second, "/v1/clusters?client_id=lab")["items"]
         assert [c["cluster_id"] for c in clusters] == ["before-failover"]
+        request(second, "/v1/agents/register", {"client_id": "lab", "cluster_id": "after-failover"})
+        assert {c["cluster_id"] for c in request(second, "/v1/clusters?client_id=lab")["items"]} == {
+            "before-failover", "after-failover",
+        }
     finally:
         for args in (("rm", "-f", active, standby, pg), ("network", "rm", name), ("image", "rm", tag)):
             subprocess.run(["docker", *args], capture_output=True, timeout=45)

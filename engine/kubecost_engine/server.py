@@ -410,6 +410,11 @@ def _is_sample_data_path(path_only: str) -> bool:
 class Handler(BaseHTTPRequestHandler):
     def _extract_raw_credential(self) -> Optional[str]:
         """Extract Bearer token or X-API-Key header if provided."""
+        for name in ("Authorization", "X-API-Key", "X-Tenant-ID"):
+            if len(self.headers.get_all(name, [])) > 1:
+                raise AuthenticationError("repeated identity headers are forbidden")
+        if self.headers.get("Authorization") and self.headers.get("X-API-Key"):
+            raise AuthenticationError("use a single credential header")
         auth_hdr = self.headers.get("Authorization", "").strip()
         if auth_hdr:
             if auth_hdr.lower().startswith("bearer "):
@@ -594,15 +599,21 @@ class Handler(BaseHTTPRequestHandler):
 
     def _read_raw_body(self, max_bytes: int = _MAX_BODY_BYTES) -> bytes:
         """Centralized bounded body reader enforcing `_MAX_BODY_BYTES = 1 << 20` (1 MiB)."""
+        if self.headers.get("Transfer-Encoding") is not None:
+            self.close_connection = True
+            raise InputValidationError("Transfer-Encoding is not supported")
+        if len(self.headers.get_all("Content-Length", [])) > 1:
+            self.close_connection = True
+            raise InputValidationError("repeated Content-Length headers are forbidden")
         raw_cl = self.headers.get("Content-Length")
         if raw_cl is None:
             raise InputValidationError("Content-Length header is required")
-        try:
-            n = int(raw_cl.strip())
-        except ValueError as exc:
-            raise InputValidationError("invalid Content-Length header") from exc
-        if n < 0:
-            raise InputValidationError("Content-Length cannot be negative")
+        raw_cl = raw_cl.strip()
+        if not raw_cl.isascii() or not raw_cl.isdecimal():
+            raise InputValidationError("invalid Content-Length header")
+        if len(raw_cl) > 20:
+            raise InputValidationError("invalid Content-Length header")
+        n = int(raw_cl)
         if n > max_bytes:
             # Reject from headers without waiting for an attacker-controlled body.
             # Close the connection so unread bytes cannot become another request.
@@ -611,8 +622,9 @@ class Handler(BaseHTTPRequestHandler):
         if n == 0:
             raise InputValidationError("request body cannot be empty")
         data = self.rfile.read(n)
-        if len(data) > max_bytes:
-            raise PayloadTooLargeError("payload too large")
+        if len(data) != n:
+            self.close_connection = True
+            raise InputValidationError("incomplete request body")
         return data
 
     def _read_json_body(self, max_bytes: int = _MAX_BODY_BYTES) -> dict[str, Any]:
@@ -623,7 +635,15 @@ class Handler(BaseHTTPRequestHandler):
         except UnicodeDecodeError as exc:
             raise InputValidationError("request body must be valid UTF-8") from exc
         try:
-            parsed = json.loads(text, parse_constant=_reject_constant)
+            def unique_object(pairs):
+                value = {}
+                for key, item in pairs:
+                    if key in value:
+                        raise InputValidationError("duplicate JSON fields are forbidden")
+                    value[key] = item
+                return value
+
+            parsed = json.loads(text, parse_constant=_reject_constant, object_pairs_hook=unique_object)
         except InputValidationError:
             raise
         except Exception as exc:
@@ -1001,11 +1021,19 @@ class Handler(BaseHTTPRequestHandler):
                 clean_rel = os.path.normpath(path_only.lstrip("/\\"))
                 target = os.path.join(web_dir, clean_rel)
 
-            target = os.path.abspath(target)
-            if target.startswith(web_dir) and os.path.isfile(target):
+            # Prefix matching permits siblings such as web-private. Resolve
+            # symlinks too, then compare complete path components.
+            target = os.path.realpath(target)
+            web_root = os.path.realpath(web_dir)
+            try:
+                contained = os.path.commonpath((web_root, target)) == web_root
+            except ValueError:
+                contained = False
+            if contained and os.path.isfile(target):
                 ext = os.path.splitext(target)[1].lower()
-                ctype = _MIME_TYPES.get(ext, "application/octet-stream")
-                if self._serve_file(target, ctype):
+                relative_parts = os.path.relpath(target, web_root).replace("\\", "/").split("/")
+                ctype = _MIME_TYPES.get(ext)
+                if ctype and not any(part.startswith(".") for part in relative_parts) and self._serve_file(target, ctype):
                     return
 
         self._write_json(404, {"error": "not found"})
@@ -1049,6 +1077,9 @@ class Handler(BaseHTTPRequestHandler):
                 )
             except PayloadTooLargeError:
                 return self._write_json(413, {"error": "payload too large"}, rl_decision=rl_dec)
+            except TimeoutError:
+                self.close_connection = True
+                return self._write_json(408, {"error": "request body timed out"}, rl_decision=rl_dec)
             except AuthenticationError:
                 return self._write_json(401, {"error": "invalid Stripe-Signature"}, rl_decision=rl_dec)
             except PermissionError:
@@ -1075,6 +1106,9 @@ class Handler(BaseHTTPRequestHandler):
             payload = self._read_json_body(max_bytes=_MAX_BODY_BYTES)
         except PayloadTooLargeError:
             return self._write_json(413, {"error": "payload too large"})
+        except TimeoutError:
+            self.close_connection = True
+            return self._write_json(408, {"error": "request body timed out"})
         except InputValidationError as exc:
             return self._write_json(400, {"error": str(exc)})
 
@@ -1344,23 +1378,65 @@ class Handler(BaseHTTPRequestHandler):
 
 
 class HighConcurrencyHTTPServer(ThreadingHTTPServer):
-    """High-performance HTTP server utilizing a warm thread pool and high-backlog listen queue."""
+    """Bounded HTTP workers with idle I/O deadlines, including TLS handshakes."""
 
     request_queue_size = 2048
     daemon_threads = True
     allow_reuse_address = True
 
-    def __init__(self, server_address, RequestHandlerClass, bind_and_activate=True, max_workers=None):
+    def __init__(self, server_address, RequestHandlerClass, bind_and_activate=True, max_workers=None,
+                 socket_timeout=None):
         if max_workers is None:
             max_workers = int(os.environ.get("MAX_WORKERS", "256"))
+        if isinstance(max_workers, bool) or not isinstance(max_workers, int) or not 1 <= max_workers <= 1024:
+            raise ValueError("MAX_WORKERS must be an integer in 1..1024")
+        if socket_timeout is None:
+            socket_timeout = float(os.environ.get("HTTP_SOCKET_TIMEOUT_SECONDS", "15"))
+        if not math.isfinite(socket_timeout) or not 0.1 <= socket_timeout <= 300:
+            raise ValueError("HTTP_SOCKET_TIMEOUT_SECONDS must be finite and in 0.1..300")
+        self.socket_timeout = socket_timeout
+        self.tls_context = None
+        self.request_slots = threading.BoundedSemaphore(max_workers)
         self.executor = concurrent.futures.ThreadPoolExecutor(
             max_workers=max_workers, thread_name_prefix="engine-worker"
         )
         super().__init__(server_address, RequestHandlerClass, bind_and_activate=bind_and_activate)
 
     def process_request(self, request, client_address):
-        """Submit request handling to the pre-warmed thread pool instead of spawning new OS threads."""
-        self.executor.submit(self.process_request_thread, request, client_address)
+        # ThreadPoolExecutor has an unbounded internal queue. Reserve a slot
+        # before submission so slow clients cannot accumulate accepted sockets.
+        if not self.request_slots.acquire(blocking=False):
+            if self.tls_context is None:
+                try:
+                    request.settimeout(0.1)
+                    request.sendall(b"HTTP/1.0 503 Service Unavailable\r\nContent-Length: 0\r\n"
+                                    b"Connection: close\r\nRetry-After: 1\r\n\r\n")
+                except OSError:
+                    pass
+            self.shutdown_request(request)
+            return
+        try:
+            self.executor.submit(self._process_bounded_request, request, client_address)
+        except RuntimeError:
+            self.request_slots.release()
+            self.shutdown_request(request)
+
+    def _process_bounded_request(self, request, client_address):
+        try:
+            if self.tls_context is not None:
+                try:
+                    request = self.tls_context.wrap_socket(request, server_side=True)
+                except OSError:
+                    self.shutdown_request(request)
+                    return
+            self.process_request_thread(request, client_address)
+        finally:
+            self.request_slots.release()
+
+    def get_request(self):
+        request, address = super().get_request()
+        request.settimeout(self.socket_timeout)
+        return request, address
 
     def server_bind(self):
         super().server_bind()
@@ -1380,22 +1456,28 @@ class HighConcurrencyHTTPServer(ThreadingHTTPServer):
 
 
 def make_server(
-    host: str = "0.0.0.0", port: int = 8000, max_workers: int | None = None
+    host: str = "0.0.0.0", port: int = 8000, max_workers: int | None = None,
+    socket_timeout: float | None = None,
 ) -> HighConcurrencyHTTPServer:
     """TLS is enabled with TLS_CERT/TLS_KEY; adding TLS_CLIENT_CA requires client certs (mTLS)."""
     from .maintenance import configured_worker
-    worker = configured_worker(get_control_plane())
-    srv = HighConcurrencyHTTPServer((host, port), Handler, max_workers=max_workers)
     cert, key = os.environ.get("TLS_CERT"), os.environ.get("TLS_KEY")
+    ca = os.environ.get("TLS_CLIENT_CA")
+    if bool(cert) != bool(key) or (ca and not cert):
+        raise ValueError("TLS_CERT and TLS_KEY must be configured together; TLS_CLIENT_CA requires TLS")
+    ctx = None
     if cert and key:
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         ctx.minimum_version = ssl.TLSVersion.TLSv1_2
         ctx.load_cert_chain(cert, key)
-        ca = os.environ.get("TLS_CLIENT_CA")
         if ca:
             ctx.load_verify_locations(ca)
             ctx.verify_mode = ssl.CERT_REQUIRED
-        srv.socket = ctx.wrap_socket(srv.socket, server_side=True)
+    worker = configured_worker(get_control_plane())
+    srv = HighConcurrencyHTTPServer((host, port), Handler, max_workers=max_workers,
+                                    socket_timeout=socket_timeout)
+    # Perform TLS in a bounded worker, not inside accept() on the listener.
+    srv.tls_context = ctx
     srv.retention_worker = worker
     if worker is not None:
         worker.start()

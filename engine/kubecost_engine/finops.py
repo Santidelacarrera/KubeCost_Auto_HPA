@@ -14,7 +14,7 @@ def money(value):
         result = Decimal(str(value))
     except InvalidOperation as exc:
         raise ValueError("invalid monetary value") from exc
-    if not result.is_finite() or abs(result) > Decimal("1e15"):
+    if not result.is_finite() or result.copy_abs() > Decimal("1e15"):
         raise ValueError("non-finite or excessive monetary value")
     return result
 
@@ -71,12 +71,19 @@ def normalize_records(records, provider):
             if (
                 not isinstance(currency, str)
                 or len(currency) != 3
+                or not currency.isascii()
                 or not currency.isalpha()
                 or currency != currency.upper()
             ):
                 raise ValueError("currency must be an uppercase ISO code")
             if instant(end) <= instant(start):
                 raise ValueError("charge period end must follow start")
+            for field in ("cluster_id", "namespace", "workload", "node"):
+                value = raw.get(field)
+                if value is not None and (
+                    not isinstance(value, str) or not value.strip() or len(value) > 256
+                ):
+                    raise ValueError(f"{field} must be a nonempty string of at most 256 characters")
             # Caller must identify rows to avoid silently dropping identical legitimate charges.
             row_id = raw.get("record_id")
             if not isinstance(row_id, str) or not row_id.strip():

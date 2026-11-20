@@ -1,0 +1,4 @@
+# Synthetic HMAC fixture used only by the local webhook signature test.
+90addace940f9c911919358717272f61b01d7cf4:engine/tests/test_security_hardening.py:generic-api-key:634
+# Go variable declaration (costPer1kTokens, costPer1kInf float64), not a credential.
+b87f6ce823b831ea219f5d16d2e8f40e69f314b8:operator/internal/gpu/mig.go:generic-api-key:139

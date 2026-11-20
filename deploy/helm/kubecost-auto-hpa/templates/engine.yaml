@@ -1,4 +1,7 @@
 {{- $standby := gt (int .Values.engine.replicas) 1 }}
+{{- if and .Values.tls.engine.clientSecretName (not .Values.tls.engine.secretName) }}
+{{- fail "tls.engine.clientSecretName requires tls.engine.secretName" }}
+{{- end }}
 {{- $sqlite := and .Values.engine.persistence.enabled (not .Values.engine.postgres.secretName) }}
 {{- if and $standby (not .Values.engine.postgres.secretName) }}
 {{- fail "Multiple engine replicas require a shared PostgreSQL database" }}
@@ -36,6 +39,8 @@ spec:
         image: "{{ .Values.engine.image.repository }}:{{ .Values.engine.image.tag | default .Chart.AppVersion }}"
         imagePullPolicy: {{ .Values.engine.image.pullPolicy }}
         env:
+        - {name: MAX_WORKERS, value: {{ .Values.engine.http.maxWorkers | quote }}}
+        - {name: HTTP_SOCKET_TIMEOUT_SECONDS, value: {{ .Values.engine.http.socketTimeoutSeconds | quote }}}
         {{- if .Values.engine.stripeCheckout.secretName }}
         {{- if not (or $sqlite .Values.engine.postgres.secretName) }}
         {{- fail "Stripe Checkout requires persistent engine storage" }}

@@ -144,7 +144,11 @@ def test_tls_and_mtls(monkeypatch, tmp_path):
     try:
         good = ssl.create_default_context(cafile=str(tmp_path / "ca.crt"))
         good.load_cert_chain(str(tmp_path / "client.crt"), str(tmp_path / "client.key"))
-        assert urllib.request.urlopen(url, context=good).status == 200
+        # A client that never completes its TLS handshake must not block accept.
+        import socket
+        with socket.create_connection(srv.server_address, timeout=3) as incomplete_tls:
+            incomplete_tls.sendall(b"\x16")
+            assert urllib.request.urlopen(url, context=good, timeout=3).status == 200
         no_cert = ssl.create_default_context(cafile=str(tmp_path / "ca.crt"))
         with pytest.raises(Exception):
             urllib.request.urlopen(url, context=no_cert).read()

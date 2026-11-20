@@ -1,6 +1,6 @@
 module github.com/santidelacarrera/kubecost_auto_hpa/tools/audit-collector
 
-go 1.26.11
+go 1.27.4
 
 require github.com/minio/minio-go/v7 v7.0.95
 

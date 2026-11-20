@@ -73,6 +73,7 @@ def specification():
                         (400, "Invalid input or state conflict"),
                         (401, "Authentication required"),
                         (403, "Organization or scope denied"),
+                        (408, "Request body idle timeout"),
                         (413, "Payload exceeds 1 MiB"),
                         (429, "Rate limited"),
                         (503, "Required backend unavailable"),
@@ -130,6 +131,28 @@ def specification():
                         required=list(keys),
                         properties={key: {"type": "number", "minimum": 1} for key in keys},
                     )
+                    operation["description"] = "Recommendations never lower existing CPU/memory limits. No Kubernetes mutation occurs."
+                    schema["properties"]["samples"]["items"] = {
+                        "type": "object", "required": ["timestamp", "cpu_millicores", "memory_mib"],
+                        "properties": {
+                            **{key: {"type": "number", "minimum": 0} for key in ("timestamp", "cpu_millicores", "memory_mib")},
+                            "oom_killed": {"type": "boolean", "description": "When supplied, ambiguous strings/numbers/null are rejected"},
+                        },
+                    }
+                    schema["properties"]["policy"] = {
+                        "type": "object", "properties": {
+                            "window_seconds": {"type": "number", "minimum": 60, "maximum": 2592000, "default": 86400},
+                            "min_samples": {"type": "number", "minimum": 3, "maximum": 10000, "default": 20},
+                            "headroom": {"type": "number", "minimum": 1.1, "maximum": 3, "default": 1.3},
+                        },
+                    }
+                if route == "finops/import":
+                    schema["properties"]["provider"]["enum"] = ["focus", "gcp", "azure"]
+                    schema["properties"]["records"].update(minItems=1, maxItems=5000)
+                    schema["properties"]["records"]["items"]["properties"] = {
+                        key: {"type": "string", "nullable": True, "minLength": 1, "maxLength": 256}
+                        for key in ("cluster_id", "namespace", "workload", "node")
+                    }
                 if route == "maintenance/retention":
                     schema["properties"].update(days={"type": "integer", "minimum": 1, "maximum": 3650}, dry_run={"type": "boolean", "default": True})
                 if route in ("rightsizing", "predictions", "predictions/backtest"):

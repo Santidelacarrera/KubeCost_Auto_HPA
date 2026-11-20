@@ -61,6 +61,8 @@ def rightsizing(payload, now=None):
     samples = samples_in_window(
         payload["samples"], ("cpu_millicores", "memory_mib"), window, now
     )
+    if any("oom_killed" in sample and type(sample["oom_killed"]) is not bool for sample in samples):
+        raise ValueError("oom_killed must be a boolean when supplied")
     fresh = bool(samples) and now - samples[-1]["timestamp"] <= min(300, window)
     result = {
         "kind": "recommendation",
@@ -88,9 +90,9 @@ def rightsizing(payload, now=None):
     memory_request = max(memory_request, math.ceil(current["memory_request_mib"] * 0.9))
     recommendation = {
         "cpu_request_millicores": cpu_request,
-        "cpu_limit_millicores": math.ceil(max(cpu_request, max(cpu) * headroom)),
+        "cpu_limit_millicores": math.ceil(max(current["cpu_limit_millicores"], cpu_request, max(cpu) * headroom)),
         "memory_request_mib": memory_request,
-        "memory_limit_mib": math.ceil(max(memory_request * 1.1, memory_floor)),
+        "memory_limit_mib": math.ceil(max(current["memory_limit_mib"], memory_request * 1.1, memory_floor)),
     }
     result.update(status="ready", recommendation=recommendation)
     result["observed"].update(
@@ -108,6 +110,7 @@ def rightsizing(payload, now=None):
     result["reasons"] = [
         "CPU p95 and memory p99 with configurable headroom; peak-memory floor",
         "Per-decision reduction limited to 20% CPU and 10% memory",
+        "Existing CPU and memory limits are never lowered",
         "OOM history prevents memory reduction"
         if oom
         else "No OOM event supplied in this window",

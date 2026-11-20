@@ -173,6 +173,14 @@
     "engine": {
       "type": "object",
       "properties": {
+        "http": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "maxWorkers": {"type": "integer", "minimum": 1, "maximum": 1024},
+            "socketTimeoutSeconds": {"type": "number", "minimum": 0.1, "maximum": 300}
+          }
+        },
         "podDisruptionBudget": {
           "type": "object",
           "properties": {

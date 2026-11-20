@@ -3,6 +3,23 @@
 Rama: `enterprise-completion-v2`. Base: `716e0d7`. Única etiqueta disponible al iniciar: `v0.1.0`.
 **Estado: desarrollo empresarial en curso; no Release Candidate.** AWS está fuera de esta fase.
 
+## Seguimiento 2026-11-19
+
+La [revisión posterior de seguridad y funcionalidad](reports/2026-11-19_REVISION_SEGURIDAD_FUNCIONAL.md)
+corrige escapes del directorio web, parsing ambiguo de HTTP/JSON, espera y
+concurrencia sin cota, TLS incompleto, límites de recomendaciones y validación
+de filas financieras. El motor pasó 189 pruebas sin omisiones; conserva estado Beta.
+
+La [verificación local](reports/2026-11-19_CIERRE_LOCAL.md) pasó con PostgreSQL,
+Redis y navegador reales, sin omisiones. Kind verificó actualización desde
+`v0.1.0`, rollback con PVC conservado y resize sin reinicio. La recuperación del
+motor se probó ante SIGTERM, SIGKILL y pérdida de sesión PostgreSQL, conservando
+estado y admitiendo nuevas escrituras. Sigue habiendo un solo escritor activo;
+esto no valida HA productiva ni recuperación del servidor PostgreSQL.
+La evacuación protegida por PDB y Alertmanager pasaron localmente.
+GKE pasó un preflight de solo lectura; AKS no resolvió su endpoint DNS.
+Los límites históricos que siguen abajo deben leerse con este seguimiento.
+
 Este documento, el [informe de cierre](ENTERPRISE_COMPLETION_REPORT.md) y los logs actuales sustituyen las afirmaciones históricas de “paridad total”, “10/10” y “100% production ready”. Los documentos STATUS, MVP y ROADMAP no existían en la base: se crearon en esta intervención.
 
 ## Avance 2026-11-17

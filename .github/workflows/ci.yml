@@ -25,7 +25,7 @@ jobs:
             coverage.xml
       - name: Benchmark and script checks
         run: |
-          python -m pytest benchmarks -q
+          python -m pytest benchmarks validation/test_verification_runner.py -q
           python -m py_compile scripts/*.py benchmarks/bench.py
   postgres:
     runs-on: ubuntu-latest
@@ -95,11 +95,14 @@ jobs:
         with: {install_only: true, version: v0.27.0}
       - uses: azure/setup-helm@v5
       - run: pip install -e 'engine[dev,runtime]' PyYAML
-      - run: python -m pytest validation/test_consolidation_kind.py validation/test_alert_notifications.py validation/test_failover_runtime.py -q
+      - run: python -m pytest validation/test_consolidation_kind.py validation/test_alert_notifications.py validation/test_failover_runtime.py -q --junitxml=operational-results.xml
         env:
           KCA_KIND_CONSOLIDATION: "1"
           KCA_ALERTMANAGER_SMOKE: "1"
           KCA_FAILOVER_SMOKE: "1"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with: {name: operational-evidence, path: operational-results.xml}
   operator:
     runs-on: ubuntu-latest
     steps:
@@ -133,6 +136,7 @@ jobs:
           test -z "$(gofmt -l .)"
           go vet ./...
           go build ./...
+          go test -race -count=1 ./...
           go install golang.org/x/vuln/cmd/govulncheck@latest
           "$(go env GOPATH)"/bin/govulncheck ./...
   envtest:
@@ -202,6 +206,11 @@ jobs:
         run: |
           if helm template r deploy/helm/kubecost-auto-hpa --set kubecost.ulr=x >/dev/null 2>&1; then
             echo "schema accepted an unknown value"; exit 1
+          fi
+      - name: Client TLS cannot silently fall back to plaintext
+        run: |
+          if helm template r deploy/helm/kubecost-auto-hpa --set tls.engine.clientSecretName=client-only >/dev/null 2>&1; then
+            echo "client TLS without server TLS was accepted"; exit 1
           fi
       - name: Safe defaults (observe-only on, applier off) in the chart and in the Kustomize base
         run: |

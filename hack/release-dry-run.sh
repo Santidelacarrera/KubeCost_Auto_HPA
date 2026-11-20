@@ -36,10 +36,11 @@ ok "rendered manifests reference ghcr.io/$OWNER_LC/kubecost-auto-hpa-{operator,e
 MIXED=$(helm push "$PKG" "oci://localhost:1/$OWNER/charts" 2>&1 || true)
 LOWER=$(helm push "$PKG" "oci://localhost:1/$OWNER_LC/charts" 2>&1 || true)
 if [[ $OWNER != "$OWNER_LC" ]]; then
-  [[ $MIXED == *invalid_reference* ]] || fail "expected helm to reject the mixed-case OCI repository, got: $MIXED"
+  [[ $MIXED == *invalid_reference* || $MIXED == *"invalid reference"* ]] || fail "expected helm to reject the mixed-case OCI repository, got: $MIXED"
   ok "mixed-case owner is rejected by helm (release.yml lower-cases it, as required)"
 fi
-[[ $LOWER != *invalid_reference* ]] || fail "the lower-case OCI reference was rejected: $LOWER"
+[[ $LOWER != *invalid_reference* && $LOWER != *"invalid reference"* ]] || fail "the lower-case OCI reference was rejected: $LOWER"
+[[ $LOWER == *"connection refused"* || $LOWER == *"actively refused"* ]] || fail "expected a refused local connection, got: $LOWER"
 ok "lower-case OCI reference is accepted by helm (no registry contacted: connection refused is the expected outcome)"
 
 # 4. version and commit reach the operator binary (the Dockerfile uses the same -ldflags)

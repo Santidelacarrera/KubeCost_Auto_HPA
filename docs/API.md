@@ -42,6 +42,12 @@ token (operator to engine), the admin token, or a tenant API key. Public routes:
 limited to 1 MiB; `NaN` and `Infinity` are rejected; rate limits return `429` with `Retry-After`. TLS and mTLS:
 `TLS_CERT`/`TLS_KEY`, `TLS_CLIENT_CA`. Environment reference: `.env.example`.
 
+Requests require a single decimal `Content-Length`; transfer encoding and
+duplicate identity headers or JSON keys are rejected. Stalled bodies return
+408 when possible. See [HTTP limits](CONFIGURATION.md#engine-http-limits).
+The enterprise rightsizing API preserves existing CPU/memory limits while
+recommending request reductions and rejects non-boolean OOM signals.
+
 ### Routes that compute on the caller's data
 
 | Route | Purpose |

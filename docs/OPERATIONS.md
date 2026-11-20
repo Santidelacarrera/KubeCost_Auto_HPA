@@ -98,6 +98,13 @@ zero-downtime upgrades. Keep backups and test recovery.
 On SIGTERM the active engine stops accepting new requests, waits for requests
 already in progress and then releases its database session for the standby.
 
+Local Docker validation on 2026-11-19 also exercised SIGKILL and termination of
+the active PostgreSQL session. The standby recovered persisted registration
+state and accepted new writes in all three cases. Run
+`KCA_FAILOVER_SMOKE=1 python -m pytest validation/test_failover_runtime.py -q -s`
+to reproduce against disposable containers. This does not exercise database
+server failover, network partitions, or production availability guarantees.
+
 With bundled Redis the chart derives its DNS name from the release. With external
 Redis, set `telemetry.redisUrl` explicitly if the engine should use it.
 

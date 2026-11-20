@@ -41,6 +41,7 @@ operator:
     limits: {memory: 256Mi}
 
 engine:
+  http: {maxWorkers: 256, socketTimeoutSeconds: 15}
   stripeCheckout: {mode: test, secretName: ""}
   retention:
     enabled: false

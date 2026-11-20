@@ -308,8 +308,9 @@ def extract_requested_tenant(
     if qs:
         for k in ("client_id", "tenant_id"):
             vals = qs.get(k)
-            if vals and vals[0].strip():
-                candidates.append(validate_identifier(vals[0].strip(), k))
+            for value in vals or []:
+                if value.strip():
+                    candidates.append(validate_identifier(value.strip(), k))
     if isinstance(payload, dict):
         for k in ("client_id", "tenant_id"):
             v = payload.get(k)

@@ -11,6 +11,13 @@ The release workflow calls CI on the triggering commit before publishing images.
 
 ## Release rehearsals
 
+For local image SBOMs, immutable image IDs, artifact hashes and the fixable
+HIGH/CRITICAL vulnerability gate, build both local `:dev` images and run
+`python hack/verify_release_artifacts.py --output .local-validation/release-artifacts-NEW`.
+The scanner image is pinned by digest. This command publishes nothing and does
+not create release signatures or provenance. See the
+[2026-11-19 evidence](reports/2026-11-19_CIERRE_LOCAL.md) for the current run.
+
 | Step | Command | Needs | Status |
 |---|---|---|---|
 | Tag/version propagation, chart package, image references, OCI reference syntax, binary `--version` | `hack/release-dry-run.sh vX.Y.Z` | helm, go | **run and passing** (v0.2.0, 2026-11-12) |
