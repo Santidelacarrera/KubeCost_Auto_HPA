@@ -4,7 +4,7 @@ import json
 import os
 from pathlib import Path
 
-from control_plane_backup import apply_profile_decisions
+from control_plane_backup import apply_profile_decisions, apply_revocations, export_revocations
 
 
 def activity(conn, tenant, user_id):
@@ -41,24 +41,35 @@ def main():
     parser.add_argument("--database", required=True, help="Expected database name on the restored server")
     actions = parser.add_subparsers(dest="action", required=True)
     replay = actions.add_parser("replay")
-    replay.add_argument("--decisions", type=Path, required=True)
+    replay.add_argument("--decisions", type=Path)
+    replay.add_argument("--revocations", type=Path)
+    export = actions.add_parser("export-revocations")
+    export.add_argument("--output", type=Path, required=True)
     review = actions.add_parser("review")
     review.add_argument("--tenant", required=True)
     review.add_argument("--user", required=True)
     review.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     with psycopg.connect(os.environ["KCA_RESTORED_POSTGRES_DSN"], connect_timeout=10) as conn:
-        if args.action == "review":
+        if args.action != "replay":
             conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
         database = conn.execute("SELECT current_database()").fetchone()[0]
         if database != args.database:
             parser.error("unexpected database name")
         if args.action == "replay":
+            if not (args.decisions or args.revocations):
+                parser.error("replay requires --decisions or --revocations")
             if not conn.execute("SELECT pg_try_advisory_xact_lock(1262698833)").fetchone()[0]:
                 parser.error("control plane is active")
             conn.execute("LOCK TABLE enterprise_objects IN SHARE ROW EXCLUSIVE MODE NOWAIT")
-            decisions = json.loads(args.decisions.read_text(encoding="utf-8-sig"))
-            apply_profile_decisions(conn, decisions, postgres=True)
+            if args.decisions:
+                decisions = json.loads(args.decisions.read_text(encoding="utf-8-sig"))
+                apply_profile_decisions(conn, decisions, postgres=True)
+            if args.revocations:
+                conn.execute("LOCK TABLE tenant_api_keys IN SHARE ROW EXCLUSIVE MODE NOWAIT")
+                apply_revocations(conn, json.loads(args.revocations.read_text(encoding="utf-8-sig")), postgres=True)
+        elif args.action == "export-revocations":
+            print(json.dumps(export_revocations(conn, args.output)))
         else:
             result = activity(conn, args.tenant, args.user)
             encoded = json.dumps(result, ensure_ascii=False, allow_nan=False).encode()

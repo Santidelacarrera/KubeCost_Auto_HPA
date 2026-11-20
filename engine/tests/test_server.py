@@ -40,6 +40,12 @@ def test_spot_flag():
     assert r["spot_eligible"] is True
 
 
+@pytest.mark.parametrize("spot", ["false", [], {"has_pdb": "false"}, {"stateful": 0}])
+def test_spot_requires_structured_safety_inputs(spot):
+    with pytest.raises(ValueError):
+        evaluate({**BASE, "spot": spot})
+
+
 def test_missing_field():
     with pytest.raises(KeyError):
         evaluate({"cpu_millicores": 1})

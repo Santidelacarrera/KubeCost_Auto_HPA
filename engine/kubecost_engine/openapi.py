@@ -23,7 +23,7 @@ def specification():
     writes = (
         "billing/checkout",
         "maintenance/retention", "alerts/ack",
-        "users", "users/me", "users/update", "users/credentials",
+        "users", "users/me", "users/me/rotate", "users/update", "users/credentials",
         "subscriptions/sandbox",
         "rightsizing",
         "predictions",
@@ -45,7 +45,8 @@ def specification():
         "alerts/ack": ["id"],
         "users": ["id", "role"],
         "users/me": ["display_name", "version"],
-        "users/update": ["id", "role", "status", "version"],
+        "users/me/rotate": [],
+        "users/update": ["id", "version"],
         "users/credentials": ["id"],
         "licenses/revoke": ["id", "version", "reason"],
         "predictions/backtest": ["cluster_id", "workload", "samples"],
@@ -121,6 +122,19 @@ def specification():
                     if prop["type"] == "array":
                         prop["items"] = {"type": "object"}
                 schema = operation["requestBody"]["content"]["application/json"]["schema"]
+                if route == "users/update":
+                    schema["properties"].update(role={"type": "string", "enum": ["viewer", "operator", "approver", "owner"]},
+                                                status={"type": "string", "enum": ["active", "disabled"]},
+                                                display_name={"type": "string", "minLength": 1, "maxLength": 120})
+                if route == "users/me/rotate":
+                    del schema["required"]
+                    schema.update(additionalProperties=False, properties={"client_id": {"type": "string"}, "tenant_id": {"type": "string"}})
+                    operation["description"] = "Rotate the authenticated user's current key, retaining the expiry. The replacement secret is returned once."
+                    properties = {k: {"type": "string"} for k in ("api_key", "key_id", "client_id", "key_prefix", "rotated_from_key_id")}
+                    properties.update({k: {"type": "integer"} for k in ("created_at", "expires_at", "expires_in_days")})
+                    properties["scopes"] = {"type": "array", "items": {"type": "string"}}
+                    operation["responses"]["200"] = {"description": "Replacement key", "content": {"application/json": {
+                        "schema": {"type": "object", "properties": properties, "required": list(properties)}}}}
                 if route == "users/me":
                     schema["additionalProperties"] = False
                     schema["properties"].update(client_id={"type": "string"}, display_name={"type": "string", "minLength": 1, "maxLength": 120})

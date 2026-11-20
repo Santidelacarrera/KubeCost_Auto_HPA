@@ -1,6 +1,7 @@
 """Run against an isolated real database via KCA_TEST_POSTGRES_DSN."""
 import concurrent.futures
 import os
+import sqlite3
 import uuid
 
 import pytest
@@ -34,6 +35,18 @@ def test_atomic_cas_and_tenant_isolation(stores):
         assert sum(pool.map(approve, stores)) == 1
     assert stores[1].list_objects(tenant, "plan")[0]["version"] == 2
     assert stores[1].list_objects(tenant + "other", "plan") == []
+
+
+def test_key_and_user_binding_rollback_together(stores):
+    first, reader = stores[:2]
+    tenant = uuid.uuid4().hex
+    first.save_api_key("old", tenant, "prefix", tenant + "old", [], 1, 200)
+    first.put_object(tenant, "user_credential", "replacement", {"id": "replacement"})
+    with pytest.raises(sqlite3.IntegrityError):
+        first.save_api_key("replacement", tenant, "prefix", tenant + "new", [], 2, 200,
+                           create_only=True, binding={"user_id": "operator"}, rotated_from="old")
+    rows = [row for row in reader.load_all_api_keys() if row["client_id"] == tenant]
+    assert [(row["key_id"], row["revoked"]) for row in rows] == [("old", False)]
 
 
 def test_rate_counter_across_connections(stores):

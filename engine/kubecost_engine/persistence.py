@@ -259,18 +259,33 @@ class SQLiteSaaSStore:
         created_at: int,
         expires_at: int,
         revoked: bool = False,
+        *,
+        create_only: bool = False,
+        binding: Optional[Dict[str, Any]] = None,
+        rotated_from: Optional[str] = None,
     ) -> None:
-        with self._lock:
-            self._conn.execute(
-                """
+        with self._lock, self._conn:
+            if rotated_from is not None:
+                changed = self._conn.execute(
+                    "UPDATE tenant_api_keys SET revoked=1 WHERE client_id=? AND key_id=? AND revoked=0",
+                    (client_id, rotated_from),
+                ).rowcount
+                if changed != 1:
+                    raise ValueError("credential no longer active")
+            insert = """
                 INSERT INTO tenant_api_keys
                 (key_id, client_id, key_prefix, key_sha256, scopes_json, created_at, expires_at, revoked)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """
+            if not create_only:
+                insert += """
                 ON CONFLICT(client_id, key_id) DO UPDATE SET
                     key_prefix=excluded.key_prefix, key_sha256=excluded.key_sha256,
                     scopes_json=excluded.scopes_json, created_at=excluded.created_at,
                     expires_at=excluded.expires_at, revoked=excluded.revoked
-                """,
+                """
+            self._conn.execute(
+                insert,
                 (
                     key_id,
                     client_id,
@@ -282,7 +297,11 @@ class SQLiteSaaSStore:
                     1 if revoked else 0,
                 ),
             )
-            self._conn.commit()
+            if binding is not None:
+                self._conn.execute(
+                    "INSERT INTO enterprise_objects (tenant,kind,id,version,payload) VALUES (?,?,?,1,?)",
+                    (client_id, "user_credential", key_id, json.dumps({**binding, "id": key_id})),
+                )
 
     def load_all_api_keys(self) -> List[Dict[str, Any]]:
         with self._lock:

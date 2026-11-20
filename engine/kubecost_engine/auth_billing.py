@@ -41,7 +41,7 @@ class MultiTenantAuthManager:
     """
 
     def __init__(self, store: Any = None) -> None:
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._store = store
         self._keys_by_hash: dict[str, TenantAPIKeyRecord] = {}
         self._keys_by_client: dict[str, list[TenantAPIKeyRecord]] = {}
@@ -93,6 +93,9 @@ class MultiTenantAuthManager:
         created_at: Optional[int] = None,
         expires_at: Optional[int] = None,
         prefix_tag: str = "kch_live",
+        *,
+        binding: Optional[dict] = None,
+        _rotated_from: Optional[str] = None,
     ) -> dict[str, Any]:
         """Issue a new tenant-bound API key with default 90-day expiration.
 
@@ -103,7 +106,7 @@ class MultiTenantAuthManager:
         clean_client = validate_identifier(client_id.strip(), "client_id")
 
         if expires_at is None:
-            if isinstance(expires_in_days, bool) or not isinstance(expires_in_days, (int, float)):
+            if type(expires_in_days) is not int:
                 raise InputValidationError("expires_in_days must be a positive integer")
             days_int = int(expires_in_days)
             if days_int <= 0 or days_int > MAX_KEY_EXPIRATION_DAYS:
@@ -151,8 +154,8 @@ class MultiTenantAuthManager:
             revoked=False,
         )
         with self._lock:
-            self._keys_by_hash[key_hash] = rec
-            self._keys_by_client.setdefault(clean_client, []).append(rec)
+            if binding is not None and not hasattr(self._store, "save_api_key"):
+                raise ValueError("user credentials require persistent bindings")
             if self._store is not None and hasattr(self._store, "save_api_key"):
                 self._store.save_api_key(
                     key_id=rec.key_id,
@@ -163,7 +166,10 @@ class MultiTenantAuthManager:
                     created_at=rec.created_at,
                     expires_at=rec.expires_at,
                     revoked=rec.revoked,
+                    binding=binding, create_only=True, rotated_from=_rotated_from,
                 )
+            self._keys_by_hash[key_hash] = rec
+            self._keys_by_client.setdefault(clean_client, []).append(rec)
             self._record_audit("KEY_ISSUED", clean_client, key_id, f"expires_at={resolved_expires_at}")
 
         return {
@@ -254,8 +260,6 @@ class MultiTenantAuthManager:
                         expires_at=rec.expires_at,
                         revoked=True,
                     )
-                    records[idx] = updated
-                    self._keys_by_hash[rec.key_sha256] = updated
                     if self._store is not None and hasattr(self._store, "save_api_key"):
                         self._store.save_api_key(
                             key_id=updated.key_id,
@@ -267,6 +271,8 @@ class MultiTenantAuthManager:
                             expires_at=updated.expires_at,
                             revoked=True,
                         )
+                    records[idx] = updated
+                    self._keys_by_hash[rec.key_sha256] = updated
                     self._record_audit("KEY_REVOKED", clean_client, clean_key_id, "revoked_by_tenant")
                     return True
         return False
@@ -276,39 +282,39 @@ class MultiTenantAuthManager:
         client_id: str,
         key_id: str,
         expires_in_days: int = DEFAULT_KEY_EXPIRATION_DAYS,
+        *,
+        preserve_expiry: bool = False,
     ) -> dict[str, Any]:
-        """Revoke then replace; preserve user binding and fail closed on errors."""
+        """Commit one replacement and the prior revocation together."""
         clean_client = validate_identifier(client_id.strip(), "client_id")
         clean_key_id = validate_identifier(key_id.strip(), "key_id")
         with self._lock:
             records = self._keys_by_client.get(clean_client, [])
-            target_rec: Optional[TenantAPIKeyRecord] = None
-            for rec in records:
+            for idx, rec in enumerate(records):
                 if rec.key_id == clean_key_id:
-                    target_rec = rec
                     break
-            if target_rec is None:
+            else:
                 raise KeyError(f"key_id '{clean_key_id}' not found for tenant '{clean_client}'")
-            scopes_copy = list(target_rec.scopes)
-
-        user = None
-        if self._store is not None:
-            from .users import credential_user
-            user = credential_user(self._store, clean_client, clean_key_id)
-        self.revoke_api_key(clean_client, clean_key_id)
-        new_issued = self.issue_api_key(
-            client_id=clean_client,
-            scopes=scopes_copy,
-            expires_in_days=expires_in_days,
-        )
-        new_issued["rotated_from_key_id"] = clean_key_id
-        if user:
-            try:
-                self._store.put_object(clean_client, "user_credential", new_issued["key_id"], {"id": new_issued["key_id"], "user_id": user["id"], "created_at": time.time(), "rotated_from": clean_key_id})
-            except Exception:
-                self.revoke_api_key(clean_client, new_issued["key_id"])
-                raise
-        return new_issued
+            if rec.revoked or rec.is_expired():
+                raise AuthenticationError("credential no longer active")
+            binding = None
+            scopes = rec.scopes
+            if self._store is not None:
+                from .users import credential_user, ROLES
+                user = credential_user(self._store, clean_client, clean_key_id)
+                if user:
+                    binding = {"user_id": user["id"], "created_at": time.time(), "rotated_from": clean_key_id}
+                    scopes = [scope for scope in scopes if scope in ROLES[user["role"]]]
+            new_issued = self.issue_api_key(
+                clean_client, scopes=scopes, expires_in_days=expires_in_days,
+                expires_at=rec.expires_at if preserve_expiry else None,
+                binding=binding, _rotated_from=clean_key_id,
+            )
+            revoked = replace(rec, revoked=True)
+            records[idx] = revoked
+            self._keys_by_hash[rec.key_sha256] = revoked
+            self._record_audit("KEY_REVOKED", clean_client, clean_key_id, "rotated")
+            return {**new_issued, "rotated_from_key_id": clean_key_id}
 
     def list_client_keys(self, client_id: str, now_unix: Optional[int] = None) -> list[dict[str, Any]]:
         """Return metadata for a tenant's API keys without ever exposing raw key secrets or SHA-256 hashes."""

@@ -88,6 +88,7 @@ class AuthContext:
     scopes: tuple[str, ...] = field(default_factory=tuple)
     expires_at: Optional[int] = None
     revoked: bool = False
+    credential_id: Optional[str] = None
 
     @property
     def is_admin(self) -> bool:

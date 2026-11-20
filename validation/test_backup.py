@@ -1,4 +1,5 @@
 import importlib.util
+import json
 from pathlib import Path
 import sqlite3
 
@@ -49,6 +50,7 @@ def test_restore_replays_only_reviewed_profile_decisions(tmp_path, backup_tool):
         backup_tool.copy_database(source, backup)
     finally:
         store.close()
+
     decision = {"tenant": "a", "id": "operator", "created_at": 123, "action": "remove_display_name"}
     with pytest.raises(ValueError, match="creation timestamp"):
         backup_tool.copy_database(backup, restored, profile_decisions=[decision, {**decision, "created_at": 456}])
@@ -63,5 +65,31 @@ def test_restore_replays_only_reviewed_profile_decisions(tmp_path, backup_tool):
             MultiTenantAuthManager(store).verify_api_key(key["api_key"])
         other = store.get_object("b", "user", "operator")
         assert (other["status"], other["display_name"]) == ("active", "Alias")
+    finally:
+        store.close()
+
+
+def test_newer_revocation_inventory_applies_to_older_snapshot(tmp_path, backup_tool):
+    live, backup, manifest, restored = (tmp_path / n for n in ("live", "backup", "revocations.json", "restored"))
+    store = SQLiteSaaSStore(str(live))
+    try:
+        manager = MultiTenantAuthManager(store)
+        old = manager.issue_api_key("a")
+        keep = manager.issue_api_key("b")
+        backup_tool.copy_database(live, backup)
+        manager.rotate_api_key("a", old["key_id"])
+        with sqlite3.connect(live) as connection:
+            assert backup_tool.export_revocations(connection, manifest) == {"revoked_keys": 1}
+        entries = json.loads(manifest.read_text(encoding="utf-8"))
+        assert entries == [{"tenant": "a", "key_id": old["key_id"], "created_at": old["created_at"]}]
+        backup_tool.copy_database(backup, restored, revocations=entries)
+    finally:
+        store.close()
+    store = SQLiteSaaSStore(str(restored))
+    try:
+        manager = MultiTenantAuthManager(store)
+        with pytest.raises(AuthenticationError):
+            manager.verify_api_key(old["api_key"])
+        assert manager.verify_api_key(keep["api_key"]).client_id == "b"
     finally:
         store.close()

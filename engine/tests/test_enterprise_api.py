@@ -164,6 +164,34 @@ def test_personal_profile_export_and_correction(api):
     assert request("users?client_id=b")[1]["items"][0]["display_name"] == "alice"
 
 
+def test_personal_rotation_serializes_and_preserves_account_updates(api):
+    from concurrent.futures import ThreadPoolExecutor
+
+    request, auth, cp = api
+    base = {"client_id": "a", "id": "alice"}
+    assert request("users", {**base, "role": "operator", "display_name": "Ops"})[0] == 200
+    issued = request("users/credentials", base)[1]
+    from kubecost_engine.users import ROLES
+    limited = auth.issue_api_key("a", scopes=["users:manage", *ROLES["viewer"]])["api_key"]
+    assert request("users/update", {**base, "role": "viewer", "version": 1}, limited)[0] == 403
+    assert request("users/update", {**base, "role": "viewer", "version": 1})[0] == 200
+    assert request("users/update", {**base, "role": "operator", "version": 1})[0] == 400
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        responses = list(pool.map(lambda _: request("users/me/rotate", {}, issued["api_key"]), range(2)))
+    successes = [r for status, r in responses if status == 200]
+    assert len(successes) == 1
+    replacement = successes[0]
+    assert replacement["expires_at"] == issued["expires_at"]
+    assert "enterprise:write" not in replacement["scopes"]
+    assert request("users/me", key=issued["api_key"])[0] == 401
+    assert request("users/me", key=replacement["api_key"])[1]["display_name"] == "Ops"
+    persisted = MultiTenantAuthManager(cp._store)
+    assert persisted.verify_api_key(replacement["api_key"]).user_id == "alice"
+    assert request("users/update", {**base, "status": "disabled", "version": 2})[0] == 200
+    assert request("users/update", {**base, "display_name": "New", "version": 3})[1]["status"] == "disabled"
+    assert request("users/me", key=replacement["api_key"])[0] == 401
+
+
 def test_decision_telemetry_uses_authenticated_tenant(api, monkeypatch):
     from unittest.mock import Mock
     from kubecost_engine import telemetry

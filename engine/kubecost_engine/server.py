@@ -161,10 +161,20 @@ def _reject_constant(name: str):
     raise InputValidationError(f"invalid JSON constant {name}")
 
 
+def _boolean(payload, key, default=False):
+    value = payload.get(key, default)
+    if type(value) is not bool:
+        raise ValueError(f"{key} must be a boolean")
+    return value
+
+
 def evaluate(req: dict, *, tenant_id: str | None = None) -> dict:
     """Pure evaluation of one workload. Raises ValueError/KeyError on bad input."""
     if not isinstance(req, dict):
         raise ValueError("request must be a JSON object")
+    for section in ("budget", "spot", "memory", "replicas", "predictive", "oom_protection"):
+        if req.get(section) is not None and not isinstance(req[section], dict):
+            raise ValueError(f"{section} must be an object")
     cpu = int(_num(req, "cpu_millicores"))
     if cpu <= 0 or cpu > 1_000_000:
         raise ValueError("cpu_millicores must be positive and within bounds")
@@ -211,10 +221,10 @@ def evaluate(req: dict, *, tenant_id: str | None = None) -> dict:
         s = req["spot"]
         spot = is_spot_eligible(
             SpotCandidate(
-                bool(s.get("fault_tolerant")),
+                _boolean(s, "fault_tolerant"),
                 int(_num(s, "replicas", 0)),
-                bool(s.get("has_pdb")),
-                bool(s.get("stateful")),
+                _boolean(s, "has_pdb"),
+                _boolean(s, "stateful"),
             ),
             int(_num(s, "min_replicas", 2)),
         )
@@ -252,7 +262,6 @@ def evaluate(req: dict, *, tenant_id: str | None = None) -> dict:
         rep_out = {"target": target, "reason": why}
 
     after = cost_per_request_from_pod(new_cpu / 1000, mem_gib, rps, cpu_price, mem_price)
-    _count(action)
 
     # ScaleOps Parity: Predictive Autoscaling forecast
     predictive_out = None
@@ -329,6 +338,7 @@ def evaluate(req: dict, *, tenant_id: str | None = None) -> dict:
         "oom_protection": oom_out,
     }
 
+    _count(action)
     if os.environ.get("NEXUS_TELEMETRY_ENABLED", "").lower() in ("1", "true", "yes"):
         try:
             from .telemetry import get_telemetry_client
@@ -452,6 +462,7 @@ class Handler(BaseHTTPRequestHandler):
                 return AuthContext(
                     authenticated=True,
                     principal=f"user:{rec.client_id}:{rec.user_id}" if rec.user_id else f"apikey:{rec.key_id}",
+                    credential_id=rec.key_id,
                     authenticated_tenant=rec.client_id,
                     credential_type="api_key",
                     roles=("admin", "tenant") if is_adm else ("tenant",),
@@ -1173,6 +1184,14 @@ class Handler(BaseHTTPRequestHandler):
             write_scopes = {"/v1/policies": "policies:write", "/v1/agents/register": "agents:write", "/v1/agents/heartbeat": "telemetry:write", "/v1/telemetry/ingest": "telemetry:write", "/v1/commands/prewarm": "commands:write", "/v1/commands/ack": "commands:ack", "/v1/audit/decisions": "audit:write", "/v1/cluster/binpack": "compute:evaluate", "/v1/evaluate": "compute:evaluate"}
             if auth_ctx.credential_type == "api_key" and path_only in write_scopes and not auth_ctx.has_scope(write_scopes[path_only]):
                 raise AuthorizationError("missing required write scope")
+            if path_only == "/v1/users/me/rotate":
+                if (auth_ctx.credential_type != "api_key" or not auth_ctx.credential_id
+                        or not auth_ctx.principal.startswith("user:") or auth_ctx.authenticated_tenant != effective_tenant):
+                    raise AuthorizationError("a user-bound credential is required")
+                if set(payload) - {"client_id", "tenant_id"}:
+                    raise ValueError("rotation accepts only tenant parameters")
+                result = _auth_manager.rotate_api_key(effective_tenant, auth_ctx.credential_id, preserve_expiry=True)
+                return self._write_json(200, result, rl_decision=rl_dec)
             if path_only == "/v1/users/me":
                 from .users import own_profile
                 result = own_profile(get_control_plane()._store, effective_tenant, auth_ctx, payload)
@@ -1288,7 +1307,7 @@ class Handler(BaseHTTPRequestHandler):
                         p, "tokens_per_second", 540.0, min_val=0.0, max_val=1e7
                     ),
                     inference_rps=parse_body_float(p, "inference_rps", 18.0, min_val=0.0, max_val=1e7),
-                    spot_tolerant=bool(p.get("spot_tolerant", True)),
+                    spot_tolerant=_boolean(p, "spot_tolerant", True),
                     latency_p99_ms=parse_body_float(p, "latency_p99_ms", 185.0, min_val=0.0, max_val=1e6),
                     latency_slo_ms=parse_body_float(p, "latency_slo_ms", 350.0, min_val=0.1, max_val=1e6),
                 ).to_dict(),
@@ -1300,7 +1319,7 @@ class Handler(BaseHTTPRequestHandler):
                     mtd_spend_usd=parse_body_float(p, "mtd_spend_usd", 9200.0, min_val=0.0, max_val=1e9),
                     day_of_month=parse_body_int(p, "day_of_month", 20, min_val=1, max_val=31),
                     days_in_month=parse_body_int(p, "days_in_month", 30, min_val=28, max_val=31),
-                    slo_critical_breach=bool(p.get("slo_critical_breach", False)),
+                    slo_critical_breach=_boolean(p, "slo_critical_breach"),
                 ).to_dict(),
                 "/v1/gameday/simulate": lambda p, tenant_header=None: (
                     get_control_plane().verify_cluster_access(

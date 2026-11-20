@@ -40,6 +40,9 @@ def test_restore_preserves_tenant_state_and_versions(tmp_path):
         return name, f"postgresql://postgres:{password}@127.0.0.1:{port}/postgres"
 
     try:
+        script = Path(__file__).resolve().parents[1] / "hack" / "restored_profiles.py"
+        command = [sys.executable, str(script), "--database", "postgres"]
+        revocations = tmp_path / "revocations.json"
         src, dsn = start("source")
         store = PostgreSQLSaaSStore(dsn)
         try:
@@ -50,8 +53,12 @@ def test_restore_preserves_tenant_state_and_versions(tmp_path):
             store.put_object("north", "maintenance", "m1", {"principal": "user:north:operator", "created_at": 124})
             store.put_object("north", "maintenance", "m2", {"principal": "user:north:other", "created_at": 125})
             archive = tmp_path / "backup.dump"
+            store.save_api_key("backup-key", "north", "prefix", "fixture", [], 123, 200)
             with archive.open("xb") as output:
                 docker("exec", src, "pg_dump", "-U", "postgres", "-Fc", "postgres", stdout=output)
+            store.save_api_key("backup-key", "north", "prefix", "fixture", [], 123, 200, True)
+            subprocess.run([*command, "export-revocations", "--output", str(revocations)],
+                           env={**os.environ, "KCA_RESTORED_POSTGRES_DSN": dsn}, check=True, timeout=15)
         finally:
             store.close()
         docker("stop", src, capture_output=True)
@@ -61,9 +68,7 @@ def test_restore_preserves_tenant_state_and_versions(tmp_path):
                    "-d", "postgres", stdin=data)
         restored = PostgreSQLSaaSStore(dsn)
         try:
-            script = Path(__file__).resolve().parents[1] / "hack" / "restored_profiles.py"
             env = {**os.environ, "KCA_RESTORED_POSTGRES_DSN": dsn}
-            command = [sys.executable, str(script), "--database", "postgres"]
             report = tmp_path / "profile.json"
             subprocess.run([*command, "review", "--tenant", "north", "--user", "operator", "--output", str(report)],
                            env=env, check=True, timeout=15)
@@ -72,12 +77,13 @@ def test_restore_preserves_tenant_state_and_versions(tmp_path):
             assert exported["activity"] == [{"kind": "maintenance", "action": "principal", "timestamp": 124}]
             manifest = tmp_path / "decisions.json"
             decision = {"tenant": "north", "id": "operator", "created_at": 123, "action": "remove_display_name"}
-            replay = [*command, "replay", "--decisions", str(manifest)]
+            replay = [*command, "replay", "--decisions", str(manifest), "--revocations", str(revocations)]
             manifest.write_text(json.dumps([decision, {**decision, "created_at": 999}]), encoding="utf-8")
             assert subprocess.run(replay, env=env, capture_output=True, timeout=15).returncode != 0
             assert restored.get_object("north", "user", "operator")["status"] == "active"
             manifest.write_text(json.dumps([decision]), encoding="utf-8")
             subprocess.run(replay, env=env, check=True, timeout=15)
+            assert restored.load_all_api_keys()[0]["revoked"]
             assert restored.get_object("north", "user", "operator")["status"] == "disabled"
             assert restored.get_object("south", "user", "operator")["display_name"] == "south"
             restored.acquire_control_plane()

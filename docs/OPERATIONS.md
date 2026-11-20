@@ -111,6 +111,23 @@ at both ends so a disconnected owner eventually releases its advisory lock.
 With bundled Redis the chart derives its DNS name from the release. With external
 Redis, set `telemetry.redisUrl` explicitly if the engine should use it.
 
+## User credential rotation
+
+Send an authenticated `POST /v1/users/me/rotate` with an empty JSON object to replace the user key that signed the request. Store the replacement from the response in the caller's secret store. It retains the previous expiry and is limited to the user's current role and the old key's scopes. Previously issued keys keep working until rotated, revoked or expired. The database commits revocation, replacement and account binding together. If a client loses the response after commit, a user manager can issue a fresh credential through `/v1/users/credentials` and revoke the undelivered key by its ID.
+
+Account managers can submit just the changed fields to `POST /v1/users/update` with the account ID and current integer version. Read the current account before retrying a conflicting update.
+
+### Reapply revocations after recovery
+
+An old backup can contain a key that was valid when the backup was taken. Export the latest revocation inventory from the authoritative database after rotations and revocations, and keep it in protected storage independent of the backup. Each entry contains the tenant, key ID and creation time. Use a new destination file for each export.
+
+```sh
+python hack/control_plane_backup.py export-revocations --source live.db --destination revoked.json
+python hack/control_plane_backup.py restore --source old.db --destination recovered.db --revocations revoked.json
+```
+
+For PostgreSQL use `hack/restored_profiles.py --database NAME export-revocations --output revoked.json` with a read-only connection to the authoritative database in `KCA_RESTORED_POSTGRES_DSN`. Then point that variable at the isolated restored database and run `hack/restored_profiles.py --database NAME replay --revocations revoked.json` before starting the engine. Replay also accepts `--decisions` for account corrections. Revocations recorded after the latest export need a fresh inventory or manual review.
+
 ## Assisted node consolidation
 
 Register the target under its `kube-system` namespace UID as the cluster ID. Label
