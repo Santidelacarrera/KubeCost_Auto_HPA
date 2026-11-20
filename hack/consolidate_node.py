@@ -120,6 +120,7 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--recover", action="store_true", help="After stopping the original executor, release its cordon and close the interrupted claim")
     for flag in ("api", "tenant", "plan", "node", "context", "cluster-uid"):
         parser.add_argument("--" + flag, required=True)
     args = parser.parse_args()
@@ -195,6 +196,21 @@ def main():
     marker = node["metadata"].get("annotations", {}).get(MARKER)
     evacuation = plan.get("execution_strategy") == "stateless-eviction"
     approved_pods = {}
+    if args.recover:
+        if plan.get("execution_node") != args.node or not evacuation:
+            raise RuntimeError("recovery requires the claimed eviction candidate")
+        if plan["execution_status"] == "recovered" and marker != args.plan:
+            return
+        # The API checks principal, node and version before any cluster mutation.
+        plan = record(plan, "recovering")
+        node = get_node()
+        marker = node["metadata"].get("annotations", {}).get(MARKER)
+        if marker == args.plan:
+            change_node(node, False)
+        elif marker or node["spec"].get("unschedulable"):
+            raise RuntimeError("node reservation changed; recovery stopped")
+        record(plan, "recovered")
+        return
     if plan["execution_status"] == "cordoned" and marker == args.plan:
         return
     if evacuation and plan["execution_status"] == "claimed":

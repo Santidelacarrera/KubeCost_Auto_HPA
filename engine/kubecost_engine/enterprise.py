@@ -457,6 +457,12 @@ class EnterpriseService:
                 if state != "not_dispatched" or plan["expires_at"] <= time.time():
                     raise ValueError("plan cannot be claimed")
                 plan.update(execution_status="claimed", execution_node=node, executor=principal)
+            elif action in ("recovering", "recovered"):
+                allowed = ("claimed", "recovering") if action == "recovering" else ("recovering",)
+                if (state not in allowed or plan.get("execution_strategy") != "stateless-eviction"
+                        or plan.get("executor") != principal or plan.get("execution_node") != node):
+                    raise AuthorizationError("only the claiming executor can recover this eviction")
+                plan["execution_status"] = action
             elif action in ("cordoned", "failed"):
                 if state != "claimed" or plan["executor"] != principal or plan["execution_node"] != node:
                     raise AuthorizationError("only the claiming executor can report this node")

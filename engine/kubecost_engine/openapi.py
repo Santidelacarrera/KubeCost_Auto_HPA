@@ -119,7 +119,7 @@ def specification():
                 if route == "agents/register":
                     schema["properties"]["cloud_provider"] = {"type": "string"}
                 if route == "consolidation/execution":
-                    schema["properties"]["action"]["enum"] = ["claim", "cordoned", "failed"]
+                    schema["properties"]["action"]["enum"] = ["claim", "cordoned", "failed", "recovering", "recovered"]
                     operation["description"] = "Requires consolidation:execute. Records an executor claim or outcome."
                 if route == "consolidation/plans":
                     schema["properties"]["execution_strategy"] = {
@@ -191,15 +191,43 @@ def specification():
                         {"name": "client_id", "in": "query", "schema": {"type": "string"}},
                     ]
             paths.setdefault("/v1/" + route, {})[method] = operation
+    legacy_get = (
+        "policies commands/pending audit/decisions telemetry/events ui/cast-dashboard "
+        "pricing/lookup billing/invoice auth/keys gpu/optimize greenops/report finops/guardrail "
+        "gameday/simulate system/readiness cast/commitments cast/hibernation cast/network-storage "
+        "cast/security cast/onboarding cast/full-suite cluster/topology openapi.json"
+    ).split()
+    legacy_post = (
+        "evaluate cluster/binpack auth/keys auth/keys/revoke ui/recommendations/execute "
+        "agents/heartbeat telemetry/ingest commands/prewarm commands/ack audit/decisions "
+        "gpu/optimize finops/guardrail gameday/simulate cast/commitments cast/hibernation "
+        "cast/network-storage billing/stripe-webhook"
+    ).split()
+    for method, routes in (("get", legacy_get), ("post", legacy_post)):
+        for route in routes:
+            operation = {
+                "operationId": method + "_" + route.replace("/", "_").replace(".", "_"),
+                "tags": ["Legacy API"],
+                "security": [{"bearerAuth": []}],
+                "responses": {"200": {"description": "Result", "content": {
+                    "application/json": {"schema": {"type": "object"}}}}},
+            }
+            if method == "post":
+                operation["requestBody"] = {"required": True, "content": {
+                    "application/json": {"schema": {"type": "object"}}}}
+            if route == "billing/stripe-webhook":
+                operation["security"] = [{"stripeSignature": []}]
+            paths.setdefault("/v1/" + route, {})[method] = operation
     return {
         "openapi": "3.0.3",
         "info": {
             "title": "KubeCost Auto-HPA enterprise extension",
             "version": "0.2.0-dev",
-            "description": "Enterprise extension only. Approval is not Kubernetes execution. Financial imports implement a documented FOCUS subset.",
+            "description": "Enterprise and legacy routes. Financial imports implement a documented FOCUS subset.",
         },
         "paths": paths,
         "components": {
-            "securitySchemes": {"bearerAuth": {"type": "http", "scheme": "bearer"}}
+            "securitySchemes": {"bearerAuth": {"type": "http", "scheme": "bearer"},
+                                "stripeSignature": {"type": "apiKey", "in": "header", "name": "Stripe-Signature"}}
         },
     }

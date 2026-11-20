@@ -138,7 +138,11 @@ to read Deployments, ReplicaSets and PDBs and create `pods/eviction`.
 It asks the API server to dry-run each eviction, submits one at a time and waits
 for a new Ready pod on another node before proceeding. It stops on budget denial,
 owner or inventory changes, or a scheduling timeout and attempts to uncordon.
-A process interruption after claiming an eviction requires manual inspection.
+After an interrupted eviction, stop the original executor and rerun its command
+with the same credential and `--recover`. The API verifies claim ownership
+before the executor releases the plan's cordon. Recovery can be retried after
+another interruption. Pods already relocated stay at their destinations.
+If the node is cordoned by another actor, inspect its reservation before proceeding.
 An operator can review the plan annotation and undo the cordon with
 `kubectl --context CONTEXT uncordon NODE`. After inspecting the node, clear the
 plan marker with `kubectl --context CONTEXT annotate node NODE autoscaling.kubecost.io/consolidation-plan-`.

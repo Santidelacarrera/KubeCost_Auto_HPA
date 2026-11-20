@@ -108,6 +108,15 @@ def test_approved_eviction_obeys_pdb_and_waits_for_rescheduling(tmp_path, monkey
         pods = kubectl("get", "pods", "-l", "app=stateless", "-o", "json")["items"]
         assert len(pods) == 2 and all(pod["spec"]["nodeName"] == control for pod in pods)
         assert cp._store.list_objects("lab", "consolidation")[0]["execution_status"] == "cordoned"
+        # Model a crash after the node operation but before its outcome was saved.
+        row = cp._store.get_object("lab", "consolidation", plan["id"])
+        cp._store.put_object("lab", "consolidation", row["id"], {**row, "execution_status": "claimed"}, row["version"])
+        for _ in range(2):
+            subprocess.run([*command, "--recover"], check=True, timeout=45)
+        recovered = kubectl("get", "node", target, "-o", "json")
+        assert not recovered["spec"].get("unschedulable")
+        assert runner.MARKER not in recovered["metadata"].get("annotations", {})
+        assert cp._store.get_object("lab", "consolidation", plan["id"])["execution_status"] == "recovered"
     finally:
         httpd.shutdown()
         httpd.server_close()
