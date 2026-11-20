@@ -161,7 +161,7 @@ def _reject_constant(name: str):
     raise InputValidationError(f"invalid JSON constant {name}")
 
 
-def evaluate(req: dict) -> dict:
+def evaluate(req: dict, *, tenant_id: str | None = None) -> dict:
     """Pure evaluation of one workload. Raises ValueError/KeyError on bad input."""
     if not isinstance(req, dict):
         raise ValueError("request must be a JSON object")
@@ -333,7 +333,7 @@ def evaluate(req: dict) -> dict:
         try:
             from .telemetry import get_telemetry_client
 
-            get_telemetry_client().publish_scaling_decision(decision_res, request_context=req)
+            get_telemetry_client().publish_scaling_decision(decision_res, request_context=req, tenant_id=tenant_id)
         except Exception:
             pass
 
@@ -761,6 +761,17 @@ class Handler(BaseHTTPRequestHandler):
                 return self._write_rate_limited(rl_dec)
 
             try:
+                read_scopes = {
+                    "/v1/audit/decisions": "audit:read",
+                    "/v1/commands/pending": "commands:read",
+                    "/v1/policies": "policies:read",
+                    "/v1/telemetry/events": "telemetry:read",
+                    "/v1/ui/cast-dashboard": "telemetry:read",
+                    "/v1/billing/invoice": "billing:read",
+                }
+                scope = read_scopes.get(path_only)
+                if scope and auth_ctx.credential_type == "api_key" and not auth_ctx.has_scope(scope):
+                    raise AuthorizationError("missing required read scope")
                 if path_only == "/v1/billing/checkout":
                     if not auth_ctx.authenticated or not auth_ctx.has_scope("billing:write"):
                         raise AuthorizationError("missing billing:write scope")
@@ -774,6 +785,10 @@ class Handler(BaseHTTPRequestHandler):
                     if auth_ctx.credential_type == "api_key" and not auth_ctx.has_scope("enterprise:read"):
                         raise AuthorizationError("missing enterprise:read scope")
                     result = EnterpriseService(get_control_plane()).get(enterprise_reads[path_only], effective_tenant, qs)
+                    return self._write_json(200, result, rl_decision=rl_dec)
+                if path_only == "/v1/users/me":
+                    from .users import own_profile
+                    result = own_profile(get_control_plane()._store, effective_tenant, auth_ctx)
                     return self._write_json(200, result, rl_decision=rl_dec)
                 if path_only == "/v1/users":
                     if auth_ctx.credential_type == "api_key" and not auth_ctx.has_scope("users:manage"):
@@ -846,8 +861,6 @@ class Handler(BaseHTTPRequestHandler):
                     return self._write_json(200, lookup_instance_pricing(inst, reg), rl_decision=rl_dec)
 
                 if path_only == "/v1/billing/invoice":
-                    if auth_ctx.credential_type == "api_key" and not auth_ctx.has_scope("billing:read"):
-                        raise AuthorizationError("missing required RBAC scope: billing:read")
                     cluster_id = validate_identifier(
                         qs.get("cluster_id", ["eks-prod-us-east-1"])[0], "cluster_id"
                     )
@@ -1160,6 +1173,10 @@ class Handler(BaseHTTPRequestHandler):
             write_scopes = {"/v1/policies": "policies:write", "/v1/agents/register": "agents:write", "/v1/agents/heartbeat": "telemetry:write", "/v1/telemetry/ingest": "telemetry:write", "/v1/commands/prewarm": "commands:write", "/v1/commands/ack": "commands:ack", "/v1/audit/decisions": "audit:write", "/v1/cluster/binpack": "compute:evaluate", "/v1/evaluate": "compute:evaluate"}
             if auth_ctx.credential_type == "api_key" and path_only in write_scopes and not auth_ctx.has_scope(write_scopes[path_only]):
                 raise AuthorizationError("missing required write scope")
+            if path_only == "/v1/users/me":
+                from .users import own_profile
+                result = own_profile(get_control_plane()._store, effective_tenant, auth_ctx, payload)
+                return self._write_json(200, result, rl_decision=rl_dec)
             if path_only in ("/v1/users", "/v1/users/update", "/v1/users/credentials"):
                 from .users import mutate
                 result = mutate(get_control_plane(), _auth_manager, path_only.removeprefix("/v1/"), effective_tenant, payload, auth_ctx)
@@ -1358,7 +1375,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._write_json(200, res, rl_decision=rl_dec)
 
             if path_only == "/v1/evaluate":
-                return self._write_json(200, evaluate(payload), rl_decision=rl_dec)
+                return self._write_json(200, evaluate(payload, tenant_id=effective_tenant), rl_decision=rl_dec)
 
             return self._write_json(404, {"error": "not found"}, rl_decision=rl_dec)
         except AuthorizationError:

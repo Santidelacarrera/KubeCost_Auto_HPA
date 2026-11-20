@@ -13,13 +13,35 @@ ROLES["owner"] = sorted(set(scope for scopes in ROLES.values() for scope in scop
 
 
 def credential_user(store, tenant, key_id):
-    bindings = [r for r in store.list_objects(tenant, "user_credential") if r["id"] == key_id]
-    if not bindings:
+    binding = store.get_object(tenant, "user_credential", key_id)
+    if binding is None:
         return None
-    users = [r for r in store.list_objects(tenant, "user") if r["id"] == bindings[0]["user_id"]]
-    if not users or users[0]["status"] != "active":
+    user = store.get_object(tenant, "user", binding["user_id"])
+    if not user or user["status"] != "active":
         raise AuthenticationError("user is disabled or missing")
-    return users[0]
+    return user
+
+
+def own_profile(store, tenant, context, changes=None):
+    prefix = f"user:{tenant}:"
+    if (context.credential_type != "api_key" or context.authenticated_tenant != tenant
+            or not context.principal.startswith(prefix)):
+        raise AuthorizationError("a user-bound credential is required")
+    user_id = context.principal[len(prefix):]
+    user = store.get_object(tenant, "user", user_id)
+    if not user or user["status"] != "active":
+        raise AuthorizationError("active account required")
+    if changes is not None:
+        if set(changes) - {"display_name", "version", "client_id"}:
+            raise ValueError("unexpected profile field")
+        name = changes["display_name"]
+        version = changes["version"]
+        if not isinstance(name, str) or not 1 <= len(name.strip()) <= 120:
+            raise ValueError("invalid display name")
+        if type(version) is not int or version != user["version"]:
+            raise ValueError("stale profile version")
+        user = store.put_object(tenant, "user", user_id, {**user, "display_name": name.strip()}, version)
+    return {key: user[key] for key in ("id", "display_name", "role", "status", "created_at", "version")}
 
 
 def mutate(cp, auth, route, tenant, payload, context):

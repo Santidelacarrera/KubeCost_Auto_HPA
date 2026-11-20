@@ -145,6 +145,55 @@ def test_user_roles_disable_and_credential_rotation(api):
     assert request("clusters", key=rotated)[0] == 401
 
 
+def test_personal_profile_export_and_correction(api):
+    request, auth, _ = api
+    for tenant in ("a", "b"):
+        assert request("users", {"client_id": tenant, "id": "alice", "role": "viewer"})[0] == 200
+    key = request("users/credentials", {"client_id": "a", "id": "alice"})[1]["api_key"]
+    status, profile = request("users/me", key=key)
+    assert status == 200
+    assert set(profile) == {"id", "display_name", "role", "status", "created_at", "version"}
+    update = {"version": profile["version"], "display_name": "A."}
+    status, updated = request("users/me", update, key)
+    assert status == 200 and updated["display_name"] == "A."
+    assert request("users/me", update, key)[0] == 400
+    assert request("users/me", {**update, "version": updated["version"], "role": "owner"}, key)[0] == 400
+    assert request("users/me", {**update, "client_id": "b"}, key)[0] == 403
+    assert request("users/me?client_id=b", key=key)[0] == 403
+    assert request("users/me", key=auth.issue_api_key("a", scopes=["admin:*"])["api_key"])[0] == 403
+    assert request("users?client_id=b")[1]["items"][0]["display_name"] == "alice"
+
+
+def test_decision_telemetry_uses_authenticated_tenant(api, monkeypatch):
+    from unittest.mock import Mock
+    from kubecost_engine import telemetry
+
+    request, auth, _ = api
+    key = auth.issue_api_key("a", scopes=["compute:evaluate"])["api_key"]
+    publisher = Mock()
+    monkeypatch.setattr(telemetry, "get_telemetry_client", lambda: publisher)
+    monkeypatch.setenv("NEXUS_TELEMETRY_ENABLED", "true")
+    decision = {"cpu_millicores": 200, "p99_ms": 20, "slo_p99_ms": 100}
+    assert request("evaluate", decision, key)[0] == 200
+    assert publisher.publish_scaling_decision.call_args.kwargs["tenant_id"] == "a"
+    monkeypatch.setenv("NEXUS_TELEMETRY_ENABLED", "false")
+    assert request("evaluate", decision, key)[0] == 200
+    publisher.publish_scaling_decision.assert_called_once()
+
+
+def test_operational_data_requires_read_scopes(api):
+    request, auth, _ = api
+    writer = auth.issue_api_key("a", scopes=["compute:evaluate"])["api_key"]
+    for route, scope in (
+        ("audit/decisions", "audit:read"), ("commands/pending", "commands:read"),
+        ("policies", "policies:read"), ("telemetry/events", "telemetry:read"),
+        ("ui/cast-dashboard", "telemetry:read"), ("billing/invoice", "billing:read"),
+    ):
+        assert request(route, key=writer)[0] == 403
+        reader = auth.issue_api_key("a", scopes=[scope])["api_key"]
+        assert request(route, key=reader)[0] == 200
+
+
 def test_two_credentials_of_same_user_cannot_self_approve(api):
     request, _, _ = api
     assert request("users", {"client_id": "a", "id": "alice", "role": "owner"})[0] == 200

@@ -7,6 +7,7 @@ def specification():
         "billing/checkout",
         "alerts",
         "users",
+        "users/me",
         "usage",
         "subscriptions",
         "clusters",
@@ -22,7 +23,7 @@ def specification():
     writes = (
         "billing/checkout",
         "maintenance/retention", "alerts/ack",
-        "users", "users/update", "users/credentials",
+        "users", "users/me", "users/update", "users/credentials",
         "subscriptions/sandbox",
         "rightsizing",
         "predictions",
@@ -43,6 +44,7 @@ def specification():
         "maintenance/retention": ["days"],
         "alerts/ack": ["id"],
         "users": ["id", "role"],
+        "users/me": ["display_name", "version"],
         "users/update": ["id", "role", "status", "version"],
         "users/credentials": ["id"],
         "licenses/revoke": ["id", "version", "reason"],
@@ -80,6 +82,13 @@ def specification():
                     )
                 },
             }
+            if route == "users/me":
+                operation["description"] = "Read your account profile or correct your display name with a user-bound key."
+                properties = {field: {"type": "string"} for field in ("id", "display_name", "role", "status")}
+                properties.update(created_at={"type": "number"}, version={"type": "integer"})
+                operation["responses"]["200"] = {"description": "Current account profile", "content": {
+                    "application/json": {"schema": {"type": "object", "required": list(properties), "properties": properties}}
+                }}
             if method == "post":
                 operation["requestBody"] = {
                     "required": True,
@@ -112,6 +121,9 @@ def specification():
                     if prop["type"] == "array":
                         prop["items"] = {"type": "object"}
                 schema = operation["requestBody"]["content"]["application/json"]["schema"]
+                if route == "users/me":
+                    schema["additionalProperties"] = False
+                    schema["properties"].update(client_id={"type": "string"}, display_name={"type": "string", "minLength": 1, "maxLength": 120})
                 if route in ("agents/register", "policies"):
                     schema["properties"].update(
                         execution_mode={"type": "string", "enum": ["OBSERVE_ONLY", "ASSISTED", "AUTOMATED"]},

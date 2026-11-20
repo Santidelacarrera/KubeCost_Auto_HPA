@@ -226,5 +226,8 @@ jobs:
           helm template redis-check deploy/helm/kubecost-auto-hpa -f deploy/helm/kubecost-auto-hpa/values-production.yaml > /tmp/redis-check.yaml
           grep -F 'name: redis-check-kubecost-auto-hpa-redis' /tmp/redis-check.yaml
           grep -F 'value: "redis://redis-check-kubecost-auto-hpa-redis:6379/0"' /tmp/redis-check.yaml
+          if grep -Fq 'name: NEXUS_TELEMETRY_ENABLED' /tmp/redis-check.yaml; then
+            echo "Production decision publishing must be opt-in"; exit 1
+          fi
       - run: kustomize build operator/config/overlays/local >/dev/null
       - run: kustomize build operator/config/overlays/e2e-kca >/dev/null

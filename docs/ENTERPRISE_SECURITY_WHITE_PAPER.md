@@ -14,17 +14,16 @@ This white paper provides architecture details, trust boundaries, data privacy g
 ## 1. Zero-Trust Architecture & Data Boundary
 
 ### 100% In-Cluster / Air-Gapped Operation
-- **No External Telemetry:** KubeCost Auto-HPA runs entirely inside your virtual private cloud (VPC) / Kubernetes boundary. It contains **no telemetry, no tracking, and no external phoning home**.
+- **Telemetry destinations:** The Helm defaults and production profile leave Redis decision publishing disabled. Review audit, alerting and payment destinations separately when enabling integrations.
 - **Network Isolation:** Fully compatible with Kubernetes `NetworkPolicy` egress rules restricting internet access.
 - **Air-Gapped Ready:** Can be mirrored to private container registries (ECR, GCR, Harbor, Artifactory) and installed in isolated environments without public internet access.
 
-### Data Privacy & Zero PII Guarantee
+### Data processed by the operator and engine
 - **No Application Payload Inspection:** The operator and engine only read operational metrics:
   - Pod CPU and memory request/limit values.
   - Aggregated Prometheus metric counters (e.g., HTTP request rates and latency histograms).
   - KubeCost namespace/controller cost allocation figures.
-- **Zero Customer Data / PII:** The system never intercepts, logs, or processes HTTP request bodies, customer records, database credentials, or application data.
-- **Formal Privacy Compliance:** For detailed legal analysis under GDPR, CCPA/CPRA, and HIPAA, see [`DATA_PROTECTION_AND_PRIVACY_COMPLIANCE.md`](DATA_PROTECTION_AND_PRIVACY_COMPLIANCE.md) and the enterprise [`DATA_PROCESSING_ADDENDUM_TEMPLATE.md`](DATA_PROCESSING_ADDENDUM_TEMPLATE.md).
+- Tenant accounts, display names, infrastructure identifiers, billing references and audit principals can identify individuals. See the [data inventory and Chilean privacy procedures](DATA_PROTECTION_AND_PRIVACY_COMPLIANCE.md) and the [draft data processing agreement](DATA_PROCESSING_ADDENDUM_TEMPLATE.md).
 
 ---
 
