@@ -1,6 +1,10 @@
 # ADR-0004: node consolidation is a plan a person follows, not an action the product takes
 
-Date: 2026-11-16. Status: accepted.
+Date: 2026-11-16. Status: amended by the assisted consolidation workflow documented below.
+
+The current release supports an explicitly invoked executor for approved plans covering opt-in
+nodes. An assisted plan can authorize bounded stateless eviction under a matching PDB.
+Autonomous execution remains outside this decision. See [operating instructions](../OPERATIONS.md#assisted-node-consolidation).
 
 ## Context
 
@@ -15,8 +19,8 @@ twice (static pods, the CSI zone key). A simulation that was wrong twice on day 
 
 ## Decision
 
-1. The product never cordons, drains or deletes a node to consolidate. The only node action it takes is the Spot drain, which
-   reacts to a node the provider is already taking away.
+1. The operator does not automatically cordon, drain or delete nodes to consolidate. Its Spot drain reacts to a node the
+   provider is already taking away. The separate assisted executor requires an approved plan.
 2. `rightsize nodes --plan` prints an ordered, manual plan for the candidate nodes: preconditions, the two `kubectl` commands,
    what to verify before the next node, and how to undo. It refuses while pods are pending as unschedulable or nodes report
    pressure.

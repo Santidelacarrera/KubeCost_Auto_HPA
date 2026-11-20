@@ -78,3 +78,112 @@ HPA, no Spot cordon/drain (that controller is not started). `spec.dryRun` per re
 operator act, review the reported decisions first, then `helm upgrade --set operator.observeOnly=false`.
 Check it: `kubectl get kca -o jsonpath='{.items[*].status.conditions[?(@.type=="ScalingActive")].reason}'` should print `ObserveOnly`.
 Not implemented here: per-namespace allow/deny lists, maintenance windows, approvals, canary, rollback on SLO degradation (see the report).
+## Engine readiness and PostgreSQL failover
+
+`/healthz` checks that the HTTP server is alive. `/readyz` queries the state store and
+pings Redis when configured, returning 503 if either dependency fails. The mTLS chart
+uses an exec probe against a separate listener bound to pod loopback.
+
+For process failover, configure `engine.postgres.secretName` and `engine.replicas=2`.
+Use a shared, durable PostgreSQL database, a verified TLS connection for remote
+databases, and a direct or session-pooled connection. One engine holds the PostgreSQL
+session lock. Standbys wait for it, then reload committed state before serving.
+One ready pod is expected. For this configuration, check the engine Service's
+ready endpoints after applying Helm changes. Helm `--wait` expects every replica
+to become ready and is unsuitable for the standby Deployment. Session loss and
+chart upgrades can interrupt requests while the replacement starts. This
+configuration does not provide PostgreSQL failover itself or guarantee
+zero-downtime upgrades. Keep backups and test recovery.
+
+On SIGTERM the active engine stops accepting new requests, waits for requests
+already in progress and then releases its database session for the standby.
+
+Local Docker validation on 2026-11-19 also exercised SIGKILL and termination of
+the active PostgreSQL session. The standby recovered persisted registration
+state and accepted new writes in all three cases. Run
+`KCA_FAILOVER_SMOKE=1 python -m pytest validation/test_failover_runtime.py -q -s`
+to reproduce against disposable containers. This does not exercise database
+server failover or production availability guarantees. The same smoke suite also
+disconnects the active engine from its Docker network while PostgreSQL and the
+standby stay connected. In standby mode the PostgreSQL session uses TCP keepalives
+at both ends so a disconnected owner eventually releases its advisory lock.
+
+With bundled Redis the chart derives its DNS name from the release. With external
+Redis, set `telemetry.redisUrl` explicitly if the engine should use it.
+
+## User credential rotation
+
+Schedule a check with the credential supplied by your secret store as the `KCA_CREDENTIAL` environment variable.
+
+```sh
+python scripts/check_credential_expiry.py --url https://engine.example.com --warn-days 14
+```
+
+The command prints a JSON status object. Use the exit code to route alerts in CI or a scheduled job.
+
+| Exit code | Meaning |
+|---|---|
+| `0` | Expiry is beyond the warning threshold |
+| `1` | Expiry is at or within the warning threshold |
+| `2` | Expiry is unknown for a valid engine or admin environment token |
+| `3` | The check failed, including authentication failures for expired or revoked keys |
+
+Use the HTTPS engine origin. Plain HTTP is available for local testing with a loopback IP literal. The checker rejects redirects.
+
+Send an authenticated `POST /v1/users/me/rotate` with an empty JSON object to replace the user key that signed the request. Store the replacement from the response in the caller's secret store. It retains the previous expiry and is limited to the user's current role and the old key's scopes. Previously issued keys keep working until rotated, revoked or expired. The database commits revocation, replacement and account binding together. If a client loses the response after commit, a user manager can issue a fresh credential through `/v1/users/credentials` and revoke the undelivered key by its ID.
+
+To extend the lifetime, have a manager issue a fresh user-bound key through `/v1/users/credentials` or a machine key through `/v1/auth/keys`. Switch the caller to the new key before revoking the old one.
+
+Account managers can submit just the changed fields to `POST /v1/users/update` with the account ID and current integer version. Read the current account before retrying a conflicting update.
+
+### Reapply revocations after recovery
+
+An old backup can contain a key that was valid when the backup was taken. Export the latest revocation inventory from the authoritative database after rotations and revocations, and keep it in protected storage independent of the backup. Each entry contains the tenant, key ID and creation time. Use a new destination file for each export.
+
+```sh
+python hack/control_plane_backup.py export-revocations --source live.db --destination revoked.json
+python hack/control_plane_backup.py restore --source old.db --destination recovered.db --revocations revoked.json
+```
+
+For PostgreSQL use `hack/restored_profiles.py --database NAME export-revocations --output revoked.json` with a read-only connection to the authoritative database in `KCA_RESTORED_POSTGRES_DSN`. Then point that variable at the isolated restored database and run `hack/restored_profiles.py --database NAME replay --revocations revoked.json` before starting the engine. Replay also accepts `--decisions` for account corrections. Revocations recorded after the latest export need a fresh inventory or manual review.
+
+## Assisted node consolidation
+
+Register the target under its `kube-system` namespace UID as the cluster ID. Label
+eligible nodes `autoscaling.kubecost.io/consolidation-enabled=true`. At least one
+ready, schedulable node must remain outside that pool. Create an assisted plan and
+approve it using a second principal. Start a claim within the plan's five-minute window
+using an API key with `enterprise:read` and `consolidation:execute`.
+
+```sh
+python hack/consolidate_node.py --api https://engine.example.com --tenant my-org \
+  --plan PLAN_ID --node NODE --context CONTEXT --cluster-uid KUBE_SYSTEM_UID
+```
+
+Supply the key through `KCA_CONSOLIDATION_TOKEN`. The executor needs read access to
+nodes, pods and the `kube-system` namespace, and permission to patch nodes. It checks
+the cluster identity, current inventory and server-side dry run before claiming a
+plan. The default `empty-only` strategy cordons one empty candidate and records
+the result. Rerun with the same credential to reconcile an interrupted empty-node
+claim.
+
+To approve eviction, set `execution_strategy: stateless-eviction` when creating
+the assisted plan. The approval covers up to five pods of healthy Deployments
+with two or more replicas and the Deployment label
+`autoscaling.kubecost.io/eviction-enabled=true`. Each Deployment needs a
+same-named PDB whose `matchLabels` selector matches the Deployment. It must allow
+one eviction and protect at least all but one replica. The executor needs access
+to read Deployments, ReplicaSets and PDBs and create `pods/eviction`.
+It asks the API server to dry-run each eviction, submits one at a time and waits
+for a new Ready pod on another node before proceeding. It stops on budget denial,
+owner or inventory changes, or a scheduling timeout and attempts to uncordon.
+After an interrupted eviction, stop the original executor and rerun its command
+with the same credential and `--recover`. The API verifies claim ownership
+before the executor releases the plan's cordon. Recovery can be retried after
+another interruption. Pods already relocated stay at their destinations.
+If the node is cordoned by another actor, inspect its reservation before proceeding.
+An operator can review the plan annotation and undo the cordon with
+`kubectl --context CONTEXT uncordon NODE`. After inspecting the node, clear the
+plan marker with `kubectl --context CONTEXT annotate node NODE autoscaling.kubecost.io/consolidation-plan-`.
+The cluster autoscaler decides when to release the node. Uncordoning restores
+scheduling capacity. It cannot restore a pod that was already evicted.

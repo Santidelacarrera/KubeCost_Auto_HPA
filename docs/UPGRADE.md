@@ -41,14 +41,28 @@ This is the policy the project commits to. There is no contractual SLA behind it
 
 4. Upgrade the release:
 
+   For a single-replica engine upgrading from a chart that used `RollingUpdate`,
+   switch strategies explicitly before the Helm upgrade. Kubernetes rejects
+   `Recreate` if the old defaulted `rollingUpdate` fields remain.
+
+   ```bash
+   kubectl -n kubecost-auto-hpa-system patch deployment <release>-kubecost-auto-hpa-engine \
+     --type=merge -p '{"spec":{"strategy":{"type":"Recreate","rollingUpdate":null}}}'
+   ```
+
    ```bash
    helm upgrade kubecost-auto-hpa oci://ghcr.io/santidelacarrera/charts/kubecost-auto-hpa --version <target> \
-     -n kubecost-auto-hpa-system --reuse-values
+     -n kubecost-auto-hpa-system --reset-values -f reviewed-values.yaml
    ```
 
 5. Check: pods ready, no restart loop, `kubectl get kubecostautoscaler,kubecosthpa,wrec -A` shows the same objects, conditions
    healthy.
 6. Restore your previous mode.
+
+   Review the supported keys in your values file before upgrading, especially Redis
+   and PostgreSQL. Multiple engine replicas require a shared PostgreSQL database.
+   Back up the active database before upgrading and verify that you can restore it
+   independently of Helm rollback.
 
 Skipping step 3 is the one known way to break an upgrade: an operator that expects a CRD the cluster does not have restarts
 until the CRD is applied. This was reproduced and is documented in [TROUBLESHOOTING.md](TROUBLESHOOTING.md).

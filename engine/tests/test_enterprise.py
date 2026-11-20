@@ -116,6 +116,22 @@ def test_rightsizing_oom_and_reduction_boundaries():
     assert rightsizing(data, now=10000)["status"] == "insufficient_data"
 
 
+def test_rightsizing_preserves_existing_limits_when_reducing_requests():
+    data = sizing_payload(10000)
+    result = rightsizing(data, now=10000)["recommendation"]
+    assert result["cpu_request_millicores"] < data["current"]["cpu_request_millicores"]
+    for resource in ("cpu_limit_millicores", "memory_limit_mib"):
+        assert result[resource] >= data["current"][resource]
+
+
+@pytest.mark.parametrize("signal", ["true", 1, None])
+def test_rightsizing_rejects_ambiguous_oom_signals(signal):
+    data = sizing_payload(10000)
+    data["samples"][-1]["oom_killed"] = signal
+    with pytest.raises(ValueError):
+        rightsizing(data, now=10000)
+
+
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), -1, True])
 def test_rightsizing_rejects_invalid_measurements(value):
     data = sizing_payload(10000)
@@ -188,6 +204,18 @@ def test_provider_adapters_credits_and_rejected_nonfinite():
     assert normalize_records([azure], "azure")["errors"]
 
 
+@pytest.mark.parametrize("field,value", [("cluster_id", []), ("namespace", {"bad": "shape"}),
+                                        ("node", 123), ("workload", "x" * 257),
+                                        ("BillingCurrency", "ΩΩΩ"), ("BilledCost", "1e99999999")])
+def test_bad_financial_rows_cannot_poison_reports(field, value):
+    row = financial_row()
+    row[field] = value
+    result = normalize_records([row, financial_row("valid")], "focus")
+    assert len(result["errors"]) == 1
+    assert len(result["records"]) == 1
+    assert summarize(result["records"])[0]["billed_cost"] == "10.10"
+
+
 def test_persistence_restart_and_tenant_ownership(tmp_path):
     db = str(tmp_path / "state.db")
     cp = SaaSControlPlane(db)
@@ -223,6 +251,15 @@ def test_approval_separation_expiration_and_restart(tmp_path, monkeypatch):
     approved = service.post("consolidation/decision", "a", decision, "approver")
     assert approved["status"] == "approved"
     assert approved["execution_status"] == "not_dispatched"
+    execution = {"id": plan["id"], "version": approved["version"], "node": approved["nodes_can_drain"][0], "action": "claim"}
+    claimed = service.post("consolidation/execution", "a", execution, "executor")
+    with pytest.raises(ValueError):
+        service.post("consolidation/execution", "a", execution, "other")
+    completion = {**execution, "version": claimed["version"], "action": "cordoned"}
+    with pytest.raises(AuthorizationError):
+        service.post("consolidation/execution", "a", completion, "other")
+    completed = service.post("consolidation/execution", "a", completion, "executor")
+    assert completed["execution_status"] == "cordoned"
     with pytest.raises(ValueError):
         service.post("consolidation/decision", "b", decision, "approver")
     with pytest.raises(ValueError):

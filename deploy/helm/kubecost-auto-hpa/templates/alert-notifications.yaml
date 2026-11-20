@@ -1,0 +1,29 @@
+{{- if .Values.alertNotifications.enabled }}
+{{- if not .Values.prometheusRule.enabled }}
+{{- fail "alertNotifications.enabled requires prometheusRule.enabled" }}
+{{- end }}
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: AlertmanagerConfig
+metadata:
+  name: {{ include "kch.name" . }}-notifications
+  labels:
+    {{- include "kch.labels" . | nindent 4 }}
+spec:
+  route:
+    receiver: kca-webhook
+    groupBy: [alertname, namespace, kubecost_release]
+    groupWait: 10s
+    groupInterval: 1m
+    repeatInterval: 4h
+    matchers:
+    - name: kubecost_release
+      matchType: "="
+      value: {{ .Release.Name | quote }}
+  receivers:
+  - name: kca-webhook
+    webhookConfigs:
+    - sendResolved: true
+      urlSecret:
+        name: {{ required "alertNotifications.webhookSecretName is required" .Values.alertNotifications.webhookSecretName | quote }}
+        key: {{ .Values.alertNotifications.webhookSecretKey | quote }}
+{{- end }}

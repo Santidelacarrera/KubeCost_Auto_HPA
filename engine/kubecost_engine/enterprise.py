@@ -208,6 +208,9 @@ class EnterpriseService:
         }.get(route)
         if kind:
             items = self.store.list_objects(tenant, kind)
+            if route == "consolidation/plans" and "id" in query:
+                object_id = validate_identifier(query["id"][0], "plan id")
+                items = [item for item in items if item["id"] == object_id]
             if kind in ("subscription", "license"):
                 for item in items:
                     if item.get("status") != "revoked" and item.get("claims", item).get("expires_at", 0) <= time.time():
@@ -256,6 +259,7 @@ class EnterpriseService:
             feature = (
                 payload.get("mode", "observe-only")
                 if route == "consolidation/plans"
+                else "assisted" if route == "consolidation/execution"
                 else "observe"
             )
             self.enforce_license(
@@ -388,6 +392,11 @@ class EnterpriseService:
 
             cluster = self._cluster(tenant, payload)
             mode = payload.get("mode", "observe-only")
+            strategy = payload.get("execution_strategy", "empty-only")
+            if strategy not in ("empty-only", "stateless-eviction"):
+                raise ValueError("invalid consolidation execution strategy")
+            if strategy == "stateless-eviction" and mode != "assisted":
+                raise ValueError("stateless eviction requires an assisted plan")
             if mode not in ("observe-only", "assisted", "automated"):
                 raise ValueError("invalid consolidation mode")
             if (
@@ -405,12 +414,13 @@ class EnterpriseService:
                     **result,
                     "cluster_id": cluster,
                     "mode": mode,
+                    "execution_strategy": strategy,
                     "status": "observed"
                     if mode == "observe-only"
                     else "pending_approval",
                     "requested_by": principal,
                     "expires_at": time.time() + 300,
-                    "savings_kind": "projected",
+                    "savings_kind": "estimated",
                     "execution_status": "not_dispatched",
                     "history": [],
                 },
@@ -432,10 +442,35 @@ class EnterpriseService:
             plan["history"].append(
                 {"decision": decision, "principal": principal, "timestamp": time.time()}
             )
-            # Approval is not execution. A live scheduling preflight and executor ACK are mandatory.
+            # A separate executor claims the approved candidate after its live preflight.
             return self.store.put_object(
                 tenant, "consolidation", plan["id"], plan, int(payload["version"])
             )
+        if route == "consolidation/execution":
+            plan = self._find(tenant, "consolidation", payload["id"])
+            node = validate_identifier(payload["node"], "node")
+            if plan["status"] != "approved" or plan["mode"] != "assisted" or node not in plan["nodes_can_drain"]:
+                raise ValueError("execution requires an approved assisted plan and a candidate node")
+            action = payload["action"]
+            state = plan["execution_status"]
+            if action == "claim":
+                if state != "not_dispatched" or plan["expires_at"] <= time.time():
+                    raise ValueError("plan cannot be claimed")
+                plan.update(execution_status="claimed", execution_node=node, executor=principal)
+            elif action in ("recovering", "recovered"):
+                allowed = ("claimed", "recovering") if action == "recovering" else ("recovering",)
+                if (state not in allowed or plan.get("execution_strategy") != "stateless-eviction"
+                        or plan.get("executor") != principal or plan.get("execution_node") != node):
+                    raise AuthorizationError("only the claiming executor can recover this eviction")
+                plan["execution_status"] = action
+            elif action in ("cordoned", "failed"):
+                if state != "claimed" or plan["executor"] != principal or plan["execution_node"] != node:
+                    raise AuthorizationError("only the claiming executor can report this node")
+                plan["execution_status"] = action
+            else:
+                raise ValueError("invalid execution action")
+            plan["history"].append({"execution": action, "node": node, "principal": principal, "timestamp": time.time()})
+            return self.store.put_object(tenant, "consolidation", plan["id"], plan, int(payload["version"]))
         raise KeyError(route)
 
     def _find(self, tenant, kind, object_id):

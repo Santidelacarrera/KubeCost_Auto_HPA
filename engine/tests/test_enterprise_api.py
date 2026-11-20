@@ -27,17 +27,21 @@ def api(monkeypatch, tmp_path):
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     thread.start()
 
-    def request(path, payload=None, key="local-test"):
+    def request(path, payload=None, key="local-test", *, headers=None, include_headers=False):
+        request_headers = {"Content-Type": "application/json"}
+        if key is not None:
+            request_headers["Authorization"] = "Bearer " + key
+        if headers:
+            request_headers.update(headers)
         req = urllib.request.Request(
             f"http://127.0.0.1:{httpd.server_port}/v1/{path}",
             data=json.dumps(payload).encode() if payload is not None else None,
-            headers={
-                "Authorization": "Bearer " + key,
-                "Content-Type": "application/json",
-            },
+            headers=request_headers,
         )
         try:
             with urllib.request.urlopen(req) as res:
+                if include_headers:
+                    return res.status, json.load(res), res.headers
                 return res.status, json.load(res)
         except urllib.error.HTTPError as exc:
             return exc.code, json.load(exc)
@@ -143,6 +147,156 @@ def test_user_roles_disable_and_credential_rotation(api):
     assert request("predictions", {}, rotated)[0] == 403
     assert request("users/update", {**update, "version": 2, "status": "disabled"})[0] == 200
     assert request("clusters", key=rotated)[0] == 401
+
+
+def test_personal_profile_export_and_correction(api):
+    request, auth, _ = api
+    for tenant in ("a", "b"):
+        assert request("users", {"client_id": tenant, "id": "alice", "role": "viewer"})[0] == 200
+    key = request("users/credentials", {"client_id": "a", "id": "alice"})[1]["api_key"]
+    status, profile = request("users/me", key=key)
+    assert status == 200
+    assert set(profile) == {"id", "display_name", "role", "status", "created_at", "version"}
+    update = {"version": profile["version"], "display_name": "A."}
+    status, updated = request("users/me", update, key)
+    assert status == 200 and updated["display_name"] == "A."
+    assert request("users/me", update, key)[0] == 400
+    assert request("users/me", {**update, "version": updated["version"], "role": "owner"}, key)[0] == 400
+    assert request("users/me", {**update, "client_id": "b"}, key)[0] == 403
+    assert request("users/me?client_id=b", key=key)[0] == 403
+    assert request("users/me", key=auth.issue_api_key("a", scopes=["admin:*"])["api_key"])[0] == 403
+    assert request("users?client_id=b")[1]["items"][0]["display_name"] == "alice"
+
+
+def test_credential_expiry_machine_key_and_key_inventory(api):
+    request, auth, _ = api
+    route = "auth/credential-expiry"
+    now = int(time.time())
+    issued = auth.issue_api_key("a", scopes=[], expires_at=now + 3600)
+    key = issued["api_key"]
+    status, data, headers = request(route, key=None, headers={"X-API-Key": key}, include_headers=True)
+    assert status == 200
+    assert headers["Cache-Control"] == "no-store"
+    assert set(data) == {"credential_type", "expires_at", "remaining_seconds"}
+    assert data["credential_type"] == "api_key"
+    assert data["expires_at"] == issued["expires_at"]
+    assert issued["expires_at"] - int(time.time()) <= data["remaining_seconds"] <= 3600
+    operation = request("openapi.json", key=key)[1]["paths"]["/v1/" + route]["get"]
+    schema = operation["responses"]["200"]["content"]["application/json"]["schema"]
+    assert set(schema["required"]) == data.keys()
+    assert schema["additionalProperties"] is False
+    assert request(route + "?tenant_id=b", key=key)[0] == 403
+    assert request(route, key=key, headers={"X-Tenant-ID": "b"})[0] == 403
+    assert request(route + "?key_id=" + issued["key_id"], key=key)[0] == 400
+
+    assert request("auth/keys", key=key)[0] == 403
+    manager = auth.issue_api_key("a", scopes=["keys:manage"])["api_key"]
+    assert request("auth/keys", key=manager)[0] == 200
+    assert request("auth/keys?client_id=b", key=manager)[0] == 403
+    assert request("auth/keys?client_id=a")[0] == 200
+
+    legacy_key = auth.issue_api_key("a", scopes=[], created_at=now, expires_at=0)
+    legacy_expiry = request(route, key=legacy_key["api_key"])[1]["expires_at"]
+    assert legacy_expiry == now + 90 * 86400
+    rotated_legacy = auth.rotate_api_key("a", legacy_key["key_id"], preserve_expiry=True)
+    assert request(route, key=rotated_legacy["api_key"])[1]["expires_at"] == legacy_expiry
+    expired_key = auth.issue_api_key("a", scopes=[], created_at=now - 1, expires_at=now)
+    assert request(route, key=expired_key["api_key"])[0] == 401
+    auth.revoke_api_key("a", issued["key_id"])
+    assert request(route, key=key)[0] == 401
+
+
+def test_credential_expiry_tokens_and_anonymous_access(api, monkeypatch):
+    request, _, _ = api
+    route = "auth/credential-expiry"
+    monkeypatch.setenv("ENGINE_ADMIN_TOKEN", "local-admin")
+    for credential_type, key in (("engine_token", "local-test"), ("admin_token", "local-admin")):
+        assert request(route, key=key) == (
+            200, {"credential_type": credential_type, "expires_at": None, "remaining_seconds": None}
+        )
+    assert request(route, key="invalid")[0] == 401
+    monkeypatch.delenv("ENGINE_TOKEN")
+    monkeypatch.delenv("ENGINE_ADMIN_TOKEN")
+    assert request(route, key=None)[0] == 401
+    assert request("auth/keys", key=None)[0] == 401
+
+
+def test_personal_rotation_serializes_and_preserves_account_updates(api):
+    from concurrent.futures import ThreadPoolExecutor
+
+    request, auth, cp = api
+    base = {"client_id": "a", "id": "alice"}
+    assert request("users", {**base, "role": "operator", "display_name": "Ops"})[0] == 200
+    issued = request("users/credentials", base)[1]
+    assert request("auth/credential-expiry", key=issued["api_key"])[1]["expires_at"] == issued["expires_at"]
+    from kubecost_engine.users import ROLES
+    limited = auth.issue_api_key("a", scopes=["users:manage", *ROLES["viewer"]])["api_key"]
+    assert request("users/update", {**base, "role": "viewer", "version": 1}, limited)[0] == 403
+    assert request("users/update", {**base, "role": "viewer", "version": 1})[0] == 200
+    assert request("users/update", {**base, "role": "operator", "version": 1})[0] == 400
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        responses = list(pool.map(lambda _: request("users/me/rotate", {}, issued["api_key"]), range(2)))
+    successes = [r for status, r in responses if status == 200]
+    assert len(successes) == 1
+    replacement = successes[0]
+    assert replacement["expires_at"] == issued["expires_at"]
+    assert "enterprise:write" not in replacement["scopes"]
+    assert request("users/me", key=issued["api_key"])[0] == 401
+    assert request("auth/credential-expiry", key=issued["api_key"])[0] == 401
+    assert request("users/me", key=replacement["api_key"])[1]["display_name"] == "Ops"
+    assert request("auth/credential-expiry", key=replacement["api_key"])[1]["expires_at"] == issued["expires_at"]
+    persisted = MultiTenantAuthManager(cp._store)
+    assert persisted.verify_api_key(replacement["api_key"]).user_id == "alice"
+    assert request("users/update", {**base, "status": "disabled", "version": 2})[0] == 200
+    assert request("users/update", {**base, "display_name": "New", "version": 3})[1]["status"] == "disabled"
+    assert request("users/me", key=replacement["api_key"])[0] == 401
+    assert request("auth/credential-expiry", key=replacement["api_key"])[0] == 401
+
+
+def test_decision_telemetry_uses_authenticated_tenant(api, monkeypatch):
+    from unittest.mock import Mock
+    from kubecost_engine import telemetry
+
+    request, auth, _ = api
+    key = auth.issue_api_key("a", scopes=["compute:evaluate"])["api_key"]
+    publisher = Mock()
+    monkeypatch.setattr(telemetry, "get_telemetry_client", lambda: publisher)
+    monkeypatch.setenv("NEXUS_TELEMETRY_ENABLED", "true")
+    decision = {"cpu_millicores": 200, "p99_ms": 20, "slo_p99_ms": 100}
+    assert request("evaluate", decision, key)[0] == 200
+    assert publisher.publish_scaling_decision.call_args.kwargs["tenant_id"] == "a"
+    monkeypatch.setenv("NEXUS_TELEMETRY_ENABLED", "false")
+    assert request("evaluate", decision, key)[0] == 200
+    publisher.publish_scaling_decision.assert_called_once()
+
+
+def test_operational_data_requires_read_scopes(api):
+    request, auth, _ = api
+    writer = auth.issue_api_key("a", scopes=["compute:evaluate"])["api_key"]
+    for route, scope in (
+        ("audit/decisions", "audit:read"), ("commands/pending", "commands:read"),
+        ("policies", "policies:read"), ("telemetry/events", "telemetry:read"),
+        ("ui/cast-dashboard", "telemetry:read"), ("billing/invoice", "billing:read"),
+    ):
+        assert request(route, key=writer)[0] == 403
+        reader = auth.issue_api_key("a", scopes=[scope])["api_key"]
+        assert request(route, key=reader)[0] == 200
+
+
+def test_legacy_contract_matches_operational_http(api):
+    request, _, _ = api
+    paths = request("openapi.json")[1]["paths"]
+    for route in ("pricing/lookup", "gpu/optimize", "finops/guardrail", "gameday/simulate"):
+        status, result = request(route)
+        assert status == 200
+        schema = paths["/v1/" + route]["get"]["responses"]["200"]["content"]["application/json"]["schema"]
+        assert set(schema["required"]) <= result.keys()
+    command = paths["/v1/commands/prewarm"]["post"]["requestBody"]["content"]["application/json"]["schema"]
+    assert set(command["required"]) == {"cluster_id", "workload"}
+    planner = paths["/v1/cluster/binpack"]["post"]["requestBody"]["content"]["application/json"]["schema"]
+    pod = planner["properties"]["nodes"]["items"]["properties"]["pods"]["items"]
+    assert pod["properties"]["can_evict"]["type"] == "boolean"
+    assert "200" not in paths["/v1/ui/recommendations/execute"]["post"]["responses"]
 
 
 def test_two_credentials_of_same_user_cannot_self_approve(api):

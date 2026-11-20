@@ -63,3 +63,19 @@ The operator exports, computed at scrape time from the `WorkloadRecommendation` 
 CLI-only users (observe-only, the default) get the same from the audit trail: `rightsize report --audit-file a.jsonl --format prometheus` writes `kubecost_audit_*` gauges in the text
 exposition format for the node_exporter textfile collector or a Pushgateway. The chart's dashboard has a "Recommendation outcomes" row.
 
+## Route engine availability alerts
+
+Enable `prometheusRule.enabled` and ensure Prometheus selects the chart's rules and
+scrapes kube-state-metrics. `KubeCostEngineUnavailable` fires when the Deployment
+has zero ready engine replicas for two minutes.
+
+With Prometheus Operator, enable `alertNotifications.enabled` and set
+`alertNotifications.webhookSecretName` to an existing Secret in the chart namespace.
+Its `url` key (overridable with `webhookSecretKey`) holds the webhook URL.
+Configure Alertmanager to select the generated `AlertmanagerConfig` by its
+`app.kubernetes.io/instance` label and to watch the chart namespace.
+The route matches this Helm release and sends both firing and resolved events.
+Enable `alertNotifications.testAlert` temporarily to verify delivery to the
+intended destination, then turn it off.
+This route covers engine availability and the synthetic test. The console's
+organization alerts and acknowledgements are a separate workflow.

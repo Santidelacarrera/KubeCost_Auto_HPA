@@ -26,6 +26,16 @@ def test_telemetry_client_no_redis_fail_open():
     assert result is None
 
 
+def test_redis_failure_logs_exclude_connection_and_payload_text(caplog):
+    client = NexusTelemetryClient(redis_url="redis://localhost:6379/0")
+    client._client = MagicMock()
+    client._client.xadd.side_effect = RuntimeError("private-redis-diagnostic")
+    assert client.publish_event(EVENT_TYPE_FINOPS, "info", {"name": "private-workload"}) is None
+    assert "RuntimeError" in caplog.text
+    assert "private-redis-diagnostic" not in caplog.text
+    assert "private-workload" not in caplog.text
+
+
 def test_telemetry_client_publishes_valid_contract():
     """Client publishes event with required fields and valid json payload."""
     mock_redis = MagicMock()

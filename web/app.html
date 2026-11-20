@@ -42,9 +42,11 @@
   </section>
   <section class="panel"><h2>Registrar observaciones y configuración</h2><p>Envía datos reales mediante la API. Cada operación valida permisos y organización. Aprobar un plan no ejecuta un drenado.</p>
     <form id="operation-form">
-      <label>Operación <select id="operation"><option value="agents/register">Registrar clúster</option><option value="rightsizing">Analizar CPU y memoria</option><option value="predictions">Generar predicción</option><option value="consolidation/plans">Crear plan de consolidación</option><option value="finops/import">Importar costos GCP / Azure / FOCUS</option><option value="finops/reconcile">Conciliar factura</option><option value="predictions/backtest">Evaluar predicciones hist?ricas</option><option value="users">Crear usuario</option><option value="users/update">Cambiar rol o estado de usuario</option><option value="users/credentials">Emitir credencial de usuario</option><option value="licenses/revoke">Revocar licencia</option><option value="licenses/activate">Activar licencia</option></select></label>
-      <label>Solicitud JSON <textarea id="payload" rows="8" required spellcheck="false" placeholder='{"cluster_id":"mi-cluster","cloud_provider":"gcp","execution_mode":"OBSERVE_ONLY"}'></textarea></label>
+      <label>Operación <select id="operation"><option value="agents/register">Registrar clúster</option><option value="rightsizing">Analizar CPU y memoria</option><option value="predictions">Generar predicción</option><option value="consolidation/plans">Crear plan de consolidación</option><option value="finops/import">Importar costos GCP / Azure / FOCUS</option><option value="finops/reconcile">Conciliar factura</option><option value="predictions/backtest">Evaluar predicciones históricas</option><option value="licenses/revoke">Revocar licencia</option><option value="licenses/activate">Activar licencia</option></select></label>
+      <div id="operation-fields"></div>
+      <details id="operation-json"><summary>Solicitud JSON avanzada</summary><label>Solicitud JSON <textarea id="payload" rows="8" spellcheck="false" placeholder='{"cluster_id":"mi-cluster","cloud_provider":"gcp","execution_mode":"OBSERVE_ONLY"}'></textarea></label></details>
       <button>Validar y enviar</button><p id="operation-status" role="status"></p>
+      <p><a id="checkout-link" rel="noreferrer" hidden>Abrir Checkout en Stripe</a></p>
       <details><summary>Contrato de solicitudes</summary><p>Consulta <code>/v1/openapi.json</code> con la misma credencial. Los análisis requieren muestras con timestamp, identificador de clúster y workload; no se fabrican series ni importes.</p></details>
     </form>
   </section>

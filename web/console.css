@@ -3,3 +3,11 @@
 .data-chart{margin:20px 0;padding:16px;border:1px solid var(--line);border-radius:8px}.data-chart figcaption{color:var(--accent);margin-bottom:12px}.data-chart label{display:grid;grid-template-columns:minmax(100px,1fr) 2fr 80px;align-items:center;gap:12px;margin:10px 0;overflow-wrap:anywhere}.data-chart meter{width:100%;height:20px}.data-chart span{text-align:right}@media(max-width:550px){.data-chart label{grid-template-columns:1fr}.data-chart span{text-align:left}}
 
 #admin-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin-bottom:20px}#admin-fields input[type=checkbox]{width:24px;height:24px}#admin-result{white-space:pre-wrap;overflow-wrap:anywhere}
+#operation-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+  gap: 16px;
+  margin-bottom: 16px;
+}
+#operation-json { margin-bottom: 16px; }
+#operation-status { white-space: pre-wrap; overflow-wrap: anywhere; }

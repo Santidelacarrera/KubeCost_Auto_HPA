@@ -1,6 +1,7 @@
 """Run against an isolated real database via KCA_TEST_POSTGRES_DSN."""
 import concurrent.futures
 import os
+import sqlite3
 import uuid
 
 import pytest
@@ -34,6 +35,18 @@ def test_atomic_cas_and_tenant_isolation(stores):
         assert sum(pool.map(approve, stores)) == 1
     assert stores[1].list_objects(tenant, "plan")[0]["version"] == 2
     assert stores[1].list_objects(tenant + "other", "plan") == []
+
+
+def test_key_and_user_binding_rollback_together(stores):
+    first, reader = stores[:2]
+    tenant = uuid.uuid4().hex
+    first.save_api_key("old", tenant, "prefix", tenant + "old", [], 1, 200)
+    first.put_object(tenant, "user_credential", "replacement", {"id": "replacement"})
+    with pytest.raises(sqlite3.IntegrityError):
+        first.save_api_key("replacement", tenant, "prefix", tenant + "new", [], 2, 200,
+                           create_only=True, binding={"user_id": "operator"}, rotated_from="old")
+    rows = [row for row in reader.load_all_api_keys() if row["client_id"] == tenant]
+    assert [(row["key_id"], row["revoked"]) for row in rows] == [("old", False)]
 
 
 def test_rate_counter_across_connections(stores):
@@ -112,6 +125,46 @@ def test_repeated_immediate_control_plane_handoff(stores):
             successor.acquire_control_plane()
         finally:
             successor.close()
+
+
+def test_waiting_replica_promotes_and_recovers_committed_state(stores, monkeypatch):
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+    import psycopg
+    from psycopg import sql
+    from psycopg.conninfo import make_conninfo
+    from kubecost_engine.saas import SaaSControlPlane
+
+    tenant = "ha-" + uuid.uuid4().hex
+    dsn = os.environ["KCA_TEST_POSTGRES_DSN"]
+    with psycopg.connect(dsn, autocommit=True) as connection:
+        connection.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(tenant)))
+    monkeypatch.setenv("POSTGRES_DSN", make_conninfo(dsn, options=f"-csearch_path={tenant}"))
+    holder = SaaSControlPlane()
+    holder.register_agent({"client_id": tenant, "cluster_id": tenant})
+    monkeypatch.setenv("POSTGRES_STANDBY", "true")
+    waiting = threading.Event()
+    from kubecost_engine import postgres
+    sleep = postgres.time.sleep
+
+    def mark_waiting(seconds):
+        waiting.set()
+        sleep(seconds)
+
+    monkeypatch.setattr(postgres.time, "sleep", mark_waiting)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        successor = pool.submit(SaaSControlPlane)
+        try:
+            assert waiting.wait(10)
+            assert not successor.done()
+        finally:
+            holder._store.close()
+        promoted = successor.result(timeout=12)
+    try:
+        assert tenant in promoted._agents[tenant]
+        assert promoted._store.check_connection()
+    finally:
+        promoted._store.close()
 
 
 def test_sqlite_migration_restart_and_no_overwrite(stores, tmp_path, monkeypatch):

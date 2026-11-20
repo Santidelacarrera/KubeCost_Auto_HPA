@@ -94,6 +94,14 @@ class SQLiteSaaSStore:
         self._conn.row_factory = sqlite3.Row
         self._init_schema()
 
+    def check_connection(self) -> bool:
+        if not self._lock.acquire(timeout=0.5):
+            return False
+        try:
+            return self._conn.execute("SELECT 1").fetchone() is not None
+        finally:
+            self._lock.release()
+
     def _init_schema(self) -> None:
         with self._lock:
             cur = self._conn.cursor()
@@ -251,18 +259,33 @@ class SQLiteSaaSStore:
         created_at: int,
         expires_at: int,
         revoked: bool = False,
+        *,
+        create_only: bool = False,
+        binding: Optional[Dict[str, Any]] = None,
+        rotated_from: Optional[str] = None,
     ) -> None:
-        with self._lock:
-            self._conn.execute(
-                """
+        with self._lock, self._conn:
+            if rotated_from is not None:
+                changed = self._conn.execute(
+                    "UPDATE tenant_api_keys SET revoked=1 WHERE client_id=? AND key_id=? AND revoked=0",
+                    (client_id, rotated_from),
+                ).rowcount
+                if changed != 1:
+                    raise ValueError("credential no longer active")
+            insert = """
                 INSERT INTO tenant_api_keys
                 (key_id, client_id, key_prefix, key_sha256, scopes_json, created_at, expires_at, revoked)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """
+            if not create_only:
+                insert += """
                 ON CONFLICT(client_id, key_id) DO UPDATE SET
                     key_prefix=excluded.key_prefix, key_sha256=excluded.key_sha256,
                     scopes_json=excluded.scopes_json, created_at=excluded.created_at,
                     expires_at=excluded.expires_at, revoked=excluded.revoked
-                """,
+                """
+            self._conn.execute(
+                insert,
                 (
                     key_id,
                     client_id,
@@ -274,7 +297,11 @@ class SQLiteSaaSStore:
                     1 if revoked else 0,
                 ),
             )
-            self._conn.commit()
+            if binding is not None:
+                self._conn.execute(
+                    "INSERT INTO enterprise_objects (tenant,kind,id,version,payload) VALUES (?,?,?,1,?)",
+                    (client_id, "user_credential", key_id, json.dumps({**binding, "id": key_id})),
+                )
 
     def load_all_api_keys(self) -> List[Dict[str, Any]]:
         with self._lock:
@@ -356,6 +383,11 @@ class SQLiteSaaSStore:
             rows = self._conn.execute("SELECT DISTINCT " + ",".join(expressions) + " FROM telemetry_events WHERE client_id=?", (tenant,)).fetchall()
         return [{field: row[field] for field in fields} for row in rows]
 
+    def telemetry_tenants(self):
+        with self._lock:
+            rows = self._conn.execute("SELECT DISTINCT client_id FROM telemetry_events ORDER BY client_id").fetchall()
+        return [row["client_id"] for row in rows]
+
     def prune_telemetry(self, tenant, cutoff, dry_run=True):
         with self._lock, self._conn:
             count = self._conn.execute("SELECT COUNT(*) AS n FROM telemetry_events WHERE client_id=? AND timestamp<?", (tenant, cutoff)).fetchone()["n"]
@@ -405,3 +437,10 @@ class SQLiteSaaSStore:
                 if cur.rowcount != 1:
                     raise ValueError("object version conflict; reload before retry")
         return {**payload, "version": expected_version + 1}
+    def get_object(self, tenant: str, kind: str, object_id: str):
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT version,payload FROM enterprise_objects WHERE tenant=? AND kind=? AND id=?",
+                (tenant, kind, object_id),
+            ).fetchone()
+        return {**json.loads(row["payload"]), "version": row["version"]} if row else None

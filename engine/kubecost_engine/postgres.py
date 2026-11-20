@@ -41,16 +41,26 @@ class _Connection:
 
 
 class PostgreSQLSaaSStore(SQLiteSaaSStore):
-    def acquire_control_plane(self):
+    def acquire_control_plane(self, *, wait=False):
         """Fail closed until runtime caches support multiple simultaneous writers."""
         with self._lock:
             if getattr(self, "_control_plane_acquired", False):
                 return
-            row = self._conn.execute("SELECT pg_try_advisory_lock(1262698833) AS acquired").fetchone()
-            if not row["acquired"]:
-                self._conn.close()
-                raise RuntimeError("another control plane is active; multi-replica runtime is not supported")
-            self._control_plane_acquired = True
+            if wait:
+                # PostgreSQL must also detect a vanished lock owner if the
+                # client's final TCP packets cannot reach the server.
+                self._conn.execute("SET tcp_keepalives_idle = 10")
+                self._conn.execute("SET tcp_keepalives_interval = 5")
+                self._conn.execute("SET tcp_keepalives_count = 3")
+            while True:
+                row = self._conn.execute("SELECT pg_try_advisory_lock(1262698833) AS acquired").fetchone()
+                if row["acquired"]:
+                    self._control_plane_acquired = True
+                    return
+                if not wait:
+                    self._conn.close()
+                    raise RuntimeError("another control plane is active")
+                time.sleep(2)
 
     def close(self):
         with self._lock:
@@ -70,8 +80,11 @@ class PostgreSQLSaaSStore(SQLiteSaaSStore):
         self.backend = "postgresql"
         self.db_path = None
         self._lock = threading.Lock()
-        connection = psycopg.connect(dsn, autocommit=True, row_factory=dict_row,
-                                     connect_timeout=10)
+        connection = psycopg.connect(
+            dsn, autocommit=True, row_factory=dict_row, connect_timeout=10,
+            keepalives_idle=10, keepalives_interval=5, keepalives_count=3,
+            tcp_user_timeout=15000,
+        )
         self._conn = _Connection(connection, psycopg.IntegrityError)
         try:
             self._init_schema()

@@ -1,0 +1,194 @@
+{
+  "date_local": "2026-11-19",
+  "base_commit": "86b6e916165af9431363e8579e78cd14143f1124",
+  "working_tree_changes": true,
+  "verification": {
+    "status": "passed",
+    "checks": [
+      {
+        "name": "python",
+        "exit_code": 0,
+        "duration_seconds": 41.89,
+        "test_counts": {
+          "tests": 158,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        }
+      },
+      {
+        "name": "lint",
+        "exit_code": 0,
+        "duration_seconds": 0.3,
+        "test_counts": {}
+      },
+      {
+        "name": "go",
+        "exit_code": 0,
+        "duration_seconds": 124.73,
+        "test_counts": {}
+      },
+      {
+        "name": "go-vet",
+        "exit_code": 0,
+        "duration_seconds": 41.84,
+        "test_counts": {}
+      },
+      {
+        "name": "audit-collector",
+        "exit_code": 0,
+        "duration_seconds": 0.73,
+        "test_counts": {}
+      },
+      {
+        "name": "audit-collector-vet",
+        "exit_code": 0,
+        "duration_seconds": 0.64,
+        "test_counts": {}
+      },
+      {
+        "name": "benchmarks",
+        "exit_code": 0,
+        "duration_seconds": 2.59,
+        "test_counts": {
+          "tests": 8,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        }
+      },
+      {
+        "name": "helm",
+        "exit_code": 0,
+        "duration_seconds": 0.36,
+        "test_counts": {}
+      },
+      {
+        "name": "helm-production",
+        "exit_code": 0,
+        "duration_seconds": 0.19,
+        "test_counts": {}
+      },
+      {
+        "name": "javascript",
+        "exit_code": 0,
+        "duration_seconds": 0.34,
+        "test_counts": {}
+      },
+      {
+        "name": "browser",
+        "exit_code": 0,
+        "duration_seconds": 24.14,
+        "test_counts": {
+          "tests": 1,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        }
+      },
+      {
+        "name": "redis",
+        "exit_code": 0,
+        "duration_seconds": 2.8,
+        "test_counts": {
+          "tests": 1,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        }
+      }
+    ]
+  },
+  "coverage_percent": 83.13789868667918,
+  "kind_acceptance": {
+    "resize_without_recreation": true,
+    "container_restarts": 0,
+    "helm_install_upgrade_rollback": true,
+    "provider": "kind-local",
+    "version_upgrade_v010_to_working_tree": true,
+    "engine_pvc_retained_after_rollback": true,
+    "cloud_validation": false
+  },
+  "image_artifacts": {
+    "status": "passed",
+    "scanner": "aquasec/trivy@sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb",
+    "images": [
+      {
+        "name": "operator",
+        "reference": "kubecost-auto-hpa-operator:dev",
+        "id": "sha256:24b7e0c946a9e1438e15728875b917aa38268d335a0afa4b49b828a2fd7f4ea1"
+      },
+      {
+        "name": "engine",
+        "reference": "kubecost-auto-hpa-engine:dev",
+        "id": "sha256:bf9a327c4d68b37d82329c15e2e85d5eaa617fbd71a988489d3fbc9b820180ae"
+      }
+    ],
+    "checks": [
+      {
+        "name": "operator-sbom",
+        "exit_code": 0,
+        "sha256": "33e137f508b801a04008678e138c63dd6092877610aea6361019c36219f71d53"
+      },
+      {
+        "name": "operator-vulnerabilities",
+        "exit_code": 0,
+        "sha256": "3943344dcf8529f16e9ed9370675aeec08e9c1b7085995180e1809d014df0d21"
+      },
+      {
+        "name": "engine-sbom",
+        "exit_code": 0,
+        "sha256": "af6651360a7f6ecb32cb9cf3c129dbe668b5bb0cd5912b118d144d8183251f76"
+      },
+      {
+        "name": "engine-vulnerabilities",
+        "exit_code": 0,
+        "sha256": "e6eeb1d328e9ea96b8c5e67f29f473dec894548b4f6e0b00d7bffec3cb636cf0"
+      }
+    ],
+    "operator": {
+      "components": 73,
+      "fixable_high_critical_findings": 0
+    },
+    "engine": {
+      "components": 94,
+      "fixable_high_critical_findings": 0
+    }
+  },
+  "published": false,
+  "additional_tests": {
+    "operational_initial": {
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "failover_expanded_confirmed": {
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "verification_regressions": {
+      "tests": 12,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "security": {
+    "gitleaks_commits_scanned": 131,
+    "reviewed_false_positives": 2,
+    "remaining_history_findings": 0,
+    "operator_reachable_vulnerabilities": 0,
+    "collector_reachable_vulnerabilities_after_go_update": 0
+  },
+  "external_limits": {
+    "gke": "read_only_preflight_completed",
+    "aks": "endpoint_dns_unresolved",
+    "github_changes": "not_run_remotely",
+    "github_base_failed_run": "44408759475",
+    "branch_protection": "authentication_required",
+    "stripe_sandbox": "not_configured"
+  }
+}

@@ -170,6 +170,8 @@ def process_stripe_webhook_event(
             prev["idempotent_replay"] = True
             return prev
 
+        from .stripe_checkout import reconcile_checkout_event
+        tenant_id = reconcile_checkout_event(store, event, data_obj) or tenant_id
         if store is not None and hasattr(store, "record_stripe_event_if_new"):
             is_new = store.record_stripe_event_if_new(event_id, tenant_id, event_type, processed_at)
             if not is_new:

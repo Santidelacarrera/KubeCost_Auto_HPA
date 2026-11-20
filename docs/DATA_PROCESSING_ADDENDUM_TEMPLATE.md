@@ -16,15 +16,15 @@ Este **Acuerdo de Tratamiento de Datos** (*Data Processing Addendum* o "DPA") co
 
 1.1. Este DPA regula los términos bajo los cuales el Proveedor pudiera tener acceso incidental a sistemas o telemetría del Cliente durante la prestación de servicios de soporte técnico enterprise, consultoría de arquitectura o mantenimiento del software **KubeCost Auto-HPA**.
 
-1.2. El presente anexo se formula en estricto cumplimiento del **Artículo 28 del Reglamento General de Protección de Datos (RGPD — Reglamento UE 2016/679)**, la **Ley Orgánica 3/2018 (LOPD-GDD)** en España, la **Ley 19.628** en Chile, y los estándares de privacidad de la **CCPA/CPRA** en California.
+1.2. Las partes documentarán las normas aplicables al servicio contratado. En Chile, revisar la Ley 19.628 y su texto modificado por la Ley 21.719 con vigencia desde el 1 de diciembre de 2026.
 
 ---
 
-## 2. Declaración de Ausencia de Datos de Carácter Personal (Zero-PII Covenant)
+## 2. Categorías de datos y operaciones contratadas
 
-2.1. **Naturaleza del Software:** Ambas partes reconocen y aceptan expresamente que el software KubeCost Auto-HPA ha sido diseñado bajo los principios de **Privacidad desde el Diseño y por Defecto (*Privacy by Design & by Default*)**, operando de forma 100% local (*on-premises* / dentro de la VPC del Cliente).
+2.1. Antes de contratar, identificar los servicios habilitados, los titulares, las finalidades y la duración de cada tratamiento, así como las instrucciones del cliente al proveedor.
 
-2.2. **No Tratamiento de PII:** El software **NO** captura, recopila, transmite, almacena ni transfiere hacia el exterior datos identificativos de personas físicas, direcciones IP de clientes finales, credenciales de acceso, números de tarjeta de crédito (PCI-DSS) ni datos de salud (ePHI bajo HIPAA).
+2.2. Adjuntar el inventario específico del despliegue, incluidos usuarios, auditoría, soporte y los destinos habilitados de telemetría y facturación. [Inventario técnico y procedimiento para Chile](DATA_PROTECTION_AND_PRIVACY_COMPLIANCE.md)
 
 2.3. **Acceso Incidental en Soporte:** En el supuesto excepcional de que el personal de soporte técnico del Proveedor tenga acceso temporal a volcados de logs de depuración (*debug logs*) o capturas de pantalla proporcionadas voluntariamente por el Cliente para la resolución de un ticket de soporte P1/P2, dicho acceso se regirá de forma vinculante por las disposiciones del presente DPA.
 
@@ -38,7 +38,7 @@ De conformidad con el Artículo 28(3) del RGPD, el Proveedor se compromete a:
 2. **Deber de Confidencialidad:** Garantizar que todo el personal autorizado para gestionar solicitudes de soporte haya firmado acuerdos de estricta confidencialidad profesional o esté sujeto a una obligación legal estatutaria de confidencialidad.
 3. **Medidas Técnicas y Organizativas (TOMs):** Implementar y mantener las medidas de seguridad técnicas descritas en el **Anexo B** para garantizar un nivel de seguridad adecuado al riesgo.
 4. **Subencargados del Tratamiento (*Sub-processors*):**
-   - El Proveedor **NO** utiliza subencargados externos de computación en la nube para procesar datos del Cliente.
+   - Adjuntar la lista de subencargados efectivos con actividad, país, datos tratados y plazo de conservación.
    - Si en el futuro fuera necesario recurrir a un subencargado para servicios de soporte (por ejemplo, un sistema de tickets), se notificará previamente por escrito al Cliente con al menos treinta (30) días de antelación, otorgando al Cliente el derecho a formular objeciones.
 5. **Asistencia al Responsable:** Colaborar con el Cliente para responder a posibles ejercicios de derechos de los interesados (Arts. 15-22 RGPD) en caso de que fuera técnicamente aplicable.
 6. **Supresión o Devolución de Datos:** A la finalización de los servicios de soporte, eliminar o devolver todos los archivos temporales y registros compartidos por el Cliente, a menos que la legislación aplicable exija su conservación.
@@ -47,18 +47,18 @@ De conformidad con el Artículo 28(3) del RGPD, el Proveedor se compromete a:
 
 ## 4. Medidas de Seguridad Técnicas y Organizativas (TOMs)
 
-El Proveedor garantiza que el software y sus procesos de soporte mantienen los siguientes controles de seguridad conforme al **Artículo 32 del RGPD**:
+Las partes verificarán los siguientes controles y anexarán evidencia correspondiente a la versión y configuración contratadas.
 
 - **Cifrado en Tránsito:** Implementación de cifrado TLS v1.2 / TLS v1.3 y soporte de autenticación mTLS con certificados X.509 de cliente entre el operador y el motor.
 - **Principio de Mínimo Privilegio (RBAC):** Roles de Kubernetes estrictamente acotados a subrecursos necesarios (`deployments/scale`, `pods/resize`), sin permisos de lectura sobre `Secrets` o `ConfigMaps` sensibles.
 - **Aislamiento de Carga de Trabajo:** Contenedores configurados con usuario no privilegiado (`UID 65532`), sistema de archivos raíz de solo lectura y políticas de red (`NetworkPolicy`) que bloquean el tráfico exterior.
-- **Verificación de Integridad de la Cadena de Suministro:** Imágenes de contenedores firmadas criptográficamente con Sigstore Cosign y analizadas periódicamente para mantener **0 vulnerabilidades de severidad Alta o Crítica**.
+- **Cadena de suministro.** Verificar firmas, procedencia y resultados de escaneo de los artefactos concretos que se instalarán. Registrar los hallazgos y sus medidas de tratamiento.
 
 ---
 
 ## 5. Gestión y Notificación de Incidentes de Seguridad
 
-5.1. Si el Proveedor detecta o tiene sospecha fundada de una vulnerabilidad de seguridad crítica o una brecha que comprometa la integridad del software instalado en el Cliente, lo notificará al Cliente por correo electrónico de seguridad dentro de un plazo **máximo de cuarenta y ocho (48) horas** tras tener conocimiento de la misma.
+5.1. Definir el canal de incidentes y la guardia del responsable. El encargado escalará una vulneración de datos al responsable sin esperar el cierre de la investigación, con actualizaciones a medida que disponga de evidencia. Evaluar las comunicaciones exigidas por la legislación aplicable.
 
 5.2. La notificación incluirá:
 - Descripción técnica de la vulnerabilidad o incidente.
@@ -69,9 +69,9 @@ El Proveedor garantiza que el software y sus procesos de soporte mantienen los s
 
 ## 6. Transferencias Internacionales de Datos
 
-6.1. **Cero Transferencia Transfronteriza:** El software se ejecuta en el centro de datos o región de nube seleccionada y controlada por el Cliente. Ningún dato técnico del clúster es transferido automáticamente a través de fronteras nacionales o fuera del Espacio Económico Europeo (EEE).
+6.1. Registrar la región de alojamiento y los países de destino y acceso remoto para soporte, respaldos, pagos y otros servicios habilitados.
 
-6.2. En la medida en que las actividades de soporte técnico internacional pudieran considerarse una transferencia transfronteriza, ambas partes acuerdan someterse a las **Cláusulas Contractuales Tipo (SCC)** aprobadas por la Comisión Europea (Decisión de Ejecución (UE) 2021/914).
+6.2. Documentar la base aplicable a cada transferencia internacional y las garantías acordadas antes de habilitar el flujo.
 
 ---
 

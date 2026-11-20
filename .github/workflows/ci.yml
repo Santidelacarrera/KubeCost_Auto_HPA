@@ -1,5 +1,6 @@
 name: ci
 on:
+  workflow_call:
   push:
   pull_request:
 # CI only reads the repository; no job needs to write.
@@ -24,7 +25,7 @@ jobs:
             coverage.xml
       - name: Benchmark and script checks
         run: |
-          python -m pytest benchmarks -q
+          python -m pytest benchmarks validation/test_verification_runner.py -q
           python -m py_compile scripts/*.py benchmarks/bench.py
   postgres:
     runs-on: ubuntu-latest
@@ -70,6 +71,7 @@ jobs:
     needs: [engine, operator]
     steps:
       - uses: actions/checkout@v7
+        with: {fetch-depth: 0}
       - uses: actions/setup-python@v7
         with: {python-version: "3.12"}
       - uses: helm/kind-action@v1
@@ -83,6 +85,24 @@ jobs:
           path: |
             .local-validation/enterprise-lab/*.json
             .local-validation/enterprise-lab/*.log
+  operational-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with: {python-version: "3.12"}
+      - uses: helm/kind-action@v1
+        with: {install_only: true, version: v0.27.0}
+      - uses: azure/setup-helm@v5
+      - run: pip install -e 'engine[dev,runtime]' PyYAML
+      - run: python -m pytest validation/test_consolidation_kind.py validation/test_alert_notifications.py validation/test_failover_runtime.py -q --junitxml=operational-results.xml
+        env:
+          KCA_KIND_CONSOLIDATION: "1"
+          KCA_ALERTMANAGER_SMOKE: "1"
+          KCA_FAILOVER_SMOKE: "1"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with: {name: operational-evidence, path: operational-results.xml}
   operator:
     runs-on: ubuntu-latest
     steps:
@@ -116,6 +136,7 @@ jobs:
           test -z "$(gofmt -l .)"
           go vet ./...
           go build ./...
+          go test -race -count=1 ./...
           go install golang.org/x/vuln/cmd/govulncheck@latest
           "$(go env GOPATH)"/bin/govulncheck ./...
   envtest:
@@ -186,6 +207,11 @@ jobs:
           if helm template r deploy/helm/kubecost-auto-hpa --set kubecost.ulr=x >/dev/null 2>&1; then
             echo "schema accepted an unknown value"; exit 1
           fi
+      - name: Client TLS cannot silently fall back to plaintext
+        run: |
+          if helm template r deploy/helm/kubecost-auto-hpa --set tls.engine.clientSecretName=client-only >/dev/null 2>&1; then
+            echo "client TLS without server TLS was accepted"; exit 1
+          fi
       - name: Safe defaults (observe-only on, applier off) in the chart and in the Kustomize base
         run: |
           helm template r deploy/helm/kubecost-auto-hpa > /tmp/chart.yaml
@@ -195,5 +221,13 @@ jobs:
           grep -q -- "--observe-only" /tmp/base.yaml || { echo "the Kustomize base no longer starts in observe-only"; exit 1; }
       - name: Chart lints with the production values
         run: helm lint deploy/helm/kubecost-auto-hpa -f deploy/helm/kubecost-auto-hpa/values-production.yaml
+      - name: Production engine uses the bundled Redis Service name
+        run: |
+          helm template redis-check deploy/helm/kubecost-auto-hpa -f deploy/helm/kubecost-auto-hpa/values-production.yaml > /tmp/redis-check.yaml
+          grep -F 'name: redis-check-kubecost-auto-hpa-redis' /tmp/redis-check.yaml
+          grep -F 'value: "redis://redis-check-kubecost-auto-hpa-redis:6379/0"' /tmp/redis-check.yaml
+          if grep -Fq 'name: NEXUS_TELEMETRY_ENABLED' /tmp/redis-check.yaml; then
+            echo "Production decision publishing must be opt-in"; exit 1
+          fi
       - run: kustomize build operator/config/overlays/local >/dev/null
       - run: kustomize build operator/config/overlays/e2e-kca >/dev/null

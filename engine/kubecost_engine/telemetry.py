@@ -63,7 +63,7 @@ class NexusTelemetryClient:
                 socket_connect_timeout=2.0,
             )
         except Exception as e:
-            logger.warning("Failed to initialize Redis telemetry client: %s", e)
+            logger.warning("Failed to initialize Redis telemetry client (%s)", type(e).__name__)
             self._client = None
 
     def publish_event(
@@ -102,7 +102,7 @@ class NexusTelemetryClient:
         try:
             return self._client.xadd(self.stream, fields, maxlen=2_000_000, approximate=True)
         except Exception as err:
-            logger.warning("Telemetry publish dropped (fail-open): %s", err)
+            logger.warning("Telemetry publish dropped (%s)", type(err).__name__)
             return None
 
     def publish_scaling_decision(

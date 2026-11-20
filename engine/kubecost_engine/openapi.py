@@ -4,8 +4,11 @@
 def specification():
     paths = {}
     reads = (
+        "auth/credential-expiry",
+        "billing/checkout",
         "alerts",
         "users",
+        "users/me",
         "usage",
         "subscriptions",
         "clusters",
@@ -19,8 +22,9 @@ def specification():
         "licenses",
     )
     writes = (
+        "billing/checkout",
         "maintenance/retention", "alerts/ack",
-        "users", "users/update", "users/credentials",
+        "users", "users/me", "users/me/rotate", "users/update", "users/credentials",
         "subscriptions/sandbox",
         "rightsizing",
         "predictions",
@@ -32,12 +36,18 @@ def specification():
         "licenses/activate",
         "consolidation/plans",
         "consolidation/decision",
+        "consolidation/execution",
+        "agents/register",
+        "policies",
     )
     required = {
+        "billing/checkout": ["plan", "request_id"],
         "maintenance/retention": ["days"],
         "alerts/ack": ["id"],
         "users": ["id", "role"],
-        "users/update": ["id", "role", "status", "version"],
+        "users/me": ["display_name", "version"],
+        "users/me/rotate": [],
+        "users/update": ["id", "version"],
         "users/credentials": ["id"],
         "licenses/revoke": ["id", "version", "reason"],
         "predictions/backtest": ["cluster_id", "workload", "samples"],
@@ -50,6 +60,9 @@ def specification():
         "licenses/activate": ["license"],
         "consolidation/plans": ["cluster_id", "nodes"],
         "consolidation/decision": ["id", "version", "decision"],
+        "consolidation/execution": ["id", "version", "node", "action"],
+        "agents/register": ["cluster_id"],
+        "policies": ["cluster_id"],
     }
     for method, routes in (("get", reads), ("post", writes)):
         for route in routes:
@@ -64,12 +77,20 @@ def specification():
                         (400, "Invalid input or state conflict"),
                         (401, "Authentication required"),
                         (403, "Organization or scope denied"),
+                        (408, "Request body idle timeout"),
                         (413, "Payload exceeds 1 MiB"),
                         (429, "Rate limited"),
                         (503, "Required backend unavailable"),
                     )
                 },
             }
+            if route == "users/me":
+                operation["description"] = "Read your account profile or correct your display name with a user-bound key."
+                properties = {field: {"type": "string"} for field in ("id", "display_name", "role", "status")}
+                properties.update(created_at={"type": "number"}, version={"type": "integer"})
+                operation["responses"]["200"] = {"description": "Current account profile", "content": {
+                    "application/json": {"schema": {"type": "object", "required": list(properties), "properties": properties}}
+                }}
             if method == "post":
                 operation["requestBody"] = {
                     "required": True,
@@ -101,6 +122,73 @@ def specification():
                 ]["properties"].values():
                     if prop["type"] == "array":
                         prop["items"] = {"type": "object"}
+                schema = operation["requestBody"]["content"]["application/json"]["schema"]
+                if route == "users/update":
+                    schema["properties"].update(role={"type": "string", "enum": ["viewer", "operator", "approver", "owner"]},
+                                                status={"type": "string", "enum": ["active", "disabled"]},
+                                                display_name={"type": "string", "minLength": 1, "maxLength": 120})
+                if route == "users/me/rotate":
+                    del schema["required"]
+                    schema.update(additionalProperties=False, properties={"client_id": {"type": "string"}, "tenant_id": {"type": "string"}})
+                    operation["description"] = "Rotate the authenticated user's current key, retaining the expiry. The replacement secret is returned once."
+                    properties = {k: {"type": "string"} for k in ("api_key", "key_id", "client_id", "key_prefix", "rotated_from_key_id")}
+                    properties.update({k: {"type": "integer"} for k in ("created_at", "expires_at", "expires_in_days")})
+                    properties["scopes"] = {"type": "array", "items": {"type": "string"}}
+                    operation["responses"]["200"] = {"description": "Replacement key", "content": {"application/json": {
+                        "schema": {"type": "object", "properties": properties, "required": list(properties)}}}}
+                if route == "users/me":
+                    schema["additionalProperties"] = False
+                    schema["properties"].update(client_id={"type": "string"}, display_name={"type": "string", "minLength": 1, "maxLength": 120})
+                if route in ("agents/register", "policies"):
+                    schema["properties"].update(
+                        execution_mode={"type": "string", "enum": ["OBSERVE_ONLY", "ASSISTED", "AUTOMATED"]},
+                    )
+                if route == "agents/register":
+                    schema["properties"]["cloud_provider"] = {"type": "string"}
+                if route == "consolidation/execution":
+                    schema["properties"]["action"]["enum"] = ["claim", "cordoned", "failed", "recovering", "recovered"]
+                    operation["description"] = "Requires consolidation:execute. Records an executor claim or outcome."
+                if route == "consolidation/plans":
+                    schema["properties"]["execution_strategy"] = {
+                        "type": "string", "enum": ["empty-only", "stateless-eviction"], "default": "empty-only"
+                    }
+                if route == "rightsizing":
+                    keys = ("cpu_request_millicores", "cpu_limit_millicores", "memory_request_mib", "memory_limit_mib")
+                    schema["properties"]["current"].update(
+                        required=list(keys),
+                        properties={key: {"type": "number", "minimum": 1} for key in keys},
+                    )
+                    operation["description"] = "Recommendations never lower existing CPU/memory limits. No Kubernetes mutation occurs."
+                    schema["properties"]["samples"]["items"] = {
+                        "type": "object", "required": ["timestamp", "cpu_millicores", "memory_mib"],
+                        "properties": {
+                            **{key: {"type": "number", "minimum": 0} for key in ("timestamp", "cpu_millicores", "memory_mib")},
+                            "oom_killed": {"type": "boolean", "description": "When supplied, ambiguous strings/numbers/null are rejected"},
+                        },
+                    }
+                    schema["properties"]["policy"] = {
+                        "type": "object", "properties": {
+                            "window_seconds": {"type": "number", "minimum": 60, "maximum": 2592000, "default": 86400},
+                            "min_samples": {"type": "number", "minimum": 3, "maximum": 10000, "default": 20},
+                            "headroom": {"type": "number", "minimum": 1.1, "maximum": 3, "default": 1.3},
+                        },
+                    }
+                if route == "finops/import":
+                    schema["properties"]["provider"]["enum"] = ["focus", "gcp", "azure"]
+                    schema["properties"]["records"].update(minItems=1, maxItems=5000)
+                    schema["properties"]["records"]["items"]["properties"] = {
+                        key: {"type": "string", "nullable": True, "minLength": 1, "maxLength": 256}
+                        for key in ("cluster_id", "namespace", "workload", "node")
+                    }
+                if route == "maintenance/retention":
+                    schema["properties"].update(days={"type": "integer", "minimum": 1, "maximum": 3650}, dry_run={"type": "boolean", "default": True})
+                if route in ("rightsizing", "predictions", "predictions/backtest"):
+                    schema["required"].remove("samples")
+                    schema["properties"].update(source={"type": "string", "enum": ["telemetry", "submitted"]}, namespace={"type": "string"}, pod_name={"type": "string"}, container_name={"type": "string"})
+                    schema["oneOf"] = [
+                        {"required": ["samples"], "properties": {"source": {"enum": ["submitted"]}}},
+                        {"required": ["source", "namespace", "pod_name", "container_name"], "properties": {"source": {"enum": ["telemetry"]}}},
+                    ]
             else:
                 operation["parameters"] = [
                     {
@@ -120,16 +208,99 @@ def specification():
                     },
                     {"name": "client_id", "in": "query", "schema": {"type": "string"}},
                 ]
+                if route == "consolidation/plans":
+                    operation["parameters"].append(
+                        {"name": "id", "in": "query", "schema": {"type": "string"}}
+                    )
+                if route == "billing/checkout":
+                    operation["parameters"] = [
+                        {"name": "request_id", "in": "query", "required": True, "schema": {"type": "string"}},
+                        {"name": "client_id", "in": "query", "schema": {"type": "string"}},
+                    ]
+                if route == "auth/credential-expiry":
+                    operation["description"] = "Read the expiry of the authenticated credential. No additional scope is required."
+                    operation["security"] = [{"bearerAuth": []}, {"apiKeyAuth": []}]
+                    operation["parameters"] = [
+                        {"name": name, "in": location, "schema": {"type": "string"}}
+                        for name, location in (("client_id", "query"), ("tenant_id", "query"), ("X-Tenant-ID", "header"))
+                    ]
+                    properties = {
+                        "credential_type": {"type": "string", "enum": ["api_key", "engine_token", "admin_token"]},
+                        "expires_at": {
+                            "type": "integer",
+                            "format": "int64",
+                            "nullable": True,
+                            "description": "Expiry as Unix UTC seconds, or null for an environment token.",
+                        },
+                        "remaining_seconds": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "nullable": True,
+                            "description": "Seconds until expiry on the server clock, or null for an environment token.",
+                        },
+                    }
+                    del operation["responses"]["408"], operation["responses"]["413"]
+                    operation["responses"]["200"] = {
+                        "description": "Expiry of the authenticated credential",
+                        "headers": {"Cache-Control": {"schema": {"type": "string", "enum": ["no-store"]}}},
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": list(properties),
+                                    "properties": properties,
+                                    "additionalProperties": False,
+                                }
+                            }
+                        },
+                    }
+            paths.setdefault("/v1/" + route, {})[method] = operation
+    legacy_get = (
+        "policies commands/pending audit/decisions telemetry/events ui/cast-dashboard "
+        "pricing/lookup billing/invoice auth/keys gpu/optimize greenops/report finops/guardrail "
+        "gameday/simulate system/readiness cast/commitments cast/hibernation cast/network-storage "
+        "cast/security cast/onboarding cast/full-suite cluster/topology openapi.json"
+    ).split()
+    legacy_post = (
+        "evaluate cluster/binpack auth/keys auth/keys/revoke ui/recommendations/execute "
+        "agents/heartbeat telemetry/ingest commands/prewarm commands/ack audit/decisions "
+        "gpu/optimize finops/guardrail gameday/simulate cast/commitments cast/hibernation "
+        "cast/network-storage billing/stripe-webhook"
+    ).split()
+    from .legacy_contract import describe
+
+    for method, routes in (("get", legacy_get), ("post", legacy_post)):
+        for route in routes:
+            operation = {
+                "operationId": method + "_" + route.replace("/", "_").replace(".", "_"),
+                "tags": ["Legacy API"],
+                "security": [{"bearerAuth": []}],
+                "responses": {"200": {"description": "Result", "content": {
+                    "application/json": {"schema": {"type": "object"}}}}},
+            }
+            if method == "post":
+                operation["requestBody"] = {"required": True, "content": {
+                    "application/json": {"schema": {"type": "object"}}}}
+            if route == "billing/stripe-webhook":
+                operation["security"] = [{"stripeSignature": []}]
+            describe(method, route, operation)
+            if method == "get" and route == "auth/keys":
+                operation["description"] = "List tenant API keys. Requires an authorized engine or admin token, or a tenant API key with keys:manage."
+                operation["security"] = [{"bearerAuth": []}, {"apiKeyAuth": []}]
+                operation["responses"]["401"] = {"description": "Authentication required"}
+                operation["responses"]["403"] = {"description": "Tenant or scope denied"}
             paths.setdefault("/v1/" + route, {})[method] = operation
     return {
         "openapi": "3.0.3",
         "info": {
             "title": "KubeCost Auto-HPA enterprise extension",
             "version": "0.2.0-dev",
-            "description": "Enterprise extension only. Approval is not Kubernetes execution. Financial imports implement a documented FOCUS subset.",
+            "description": "Enterprise and legacy routes. Financial imports implement a documented FOCUS subset.",
         },
         "paths": paths,
         "components": {
-            "securitySchemes": {"bearerAuth": {"type": "http", "scheme": "bearer"}}
+            "securitySchemes": {"bearerAuth": {"type": "http", "scheme": "bearer"},
+                                "apiKeyAuth": {"type": "apiKey", "in": "header", "name": "X-API-Key"},
+                                "stripeSignature": {"type": "apiKey", "in": "header", "name": "Stripe-Signature"}}
         },
     }

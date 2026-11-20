@@ -1,7 +1,6 @@
 # Releasing
 
-What the pipeline does and what a person still has to do. Nothing here has been run for a tagged
-release yet: images are already published from `main`, the Helm chart is published only on tags.
+The release workflow calls CI on the triggering commit before publishing images. For a version tag it verifies image signatures before publishing the chart. The current branch includes changes after the local `v0.2.0` tag.
 
 ## What `release.yml` publishes
 
@@ -10,7 +9,14 @@ release yet: images are already published from `main`, the Helm chart is publish
 | push to `main` | multi-arch (amd64/arm64) images `ghcr.io/<owner>/kubecost-auto-hpa-{operator,engine}` tagged `sha-<short>` and `latest` |
 | push of a `v*` tag | the same images tagged with the version, plus the Helm chart as an OCI artifact at `oci://ghcr.io/<owner>/charts/kubecost-auto-hpa` |
 
-## Before the first tag: rehearsals (nothing is published)
+## Release rehearsals
+
+For local image SBOMs, immutable image IDs, artifact hashes and the fixable
+HIGH/CRITICAL vulnerability gate, build both local `:dev` images and run
+`python hack/verify_release_artifacts.py --output .local-validation/release-artifacts-NEW`.
+The scanner image is pinned by digest. This command publishes nothing and does
+not create release signatures or provenance. See the
+[2026-11-19 evidence](reports/2026-11-19_CIERRE_LOCAL.md) for the current run.
 
 | Step | Command | Needs | Status |
 |---|---|---|---|
@@ -19,9 +25,9 @@ release yet: images are already published from `main`, the Helm chart is publish
 | SBOM and image vulnerability scan | run the `supply-chain` workflow by hand (Actions tab) | GitHub | **run and verified** |
 | Workflow syntax | `actionlint` | actionlint | clean |
 
-Run the two unrun rehearsals and fix what they find **before** creating the tag.
+The enterprise CI lab also installs the `v0.1.0` chart and runs upgrade and rollback against the working commit.
 
-## Cutting `v0.1.0` (requires your explicit go-ahead; it publishes)
+## Publishing a new version
 
 1. `main` is green on `ci` and the latest `release` run on `main` succeeded; the rehearsals above passed.
 2. Move the `Unreleased` entries of `CHANGELOG.md` under the new version and date; keep `Chart.yaml`
@@ -29,12 +35,12 @@ Run the two unrun rehearsals and fix what they find **before** creating the tag.
 3. Tag and push (this is the step that publishes and signs):
 
    ```sh
-   git tag -a v0.1.0 -m "v0.1.0"
-   git push origin v0.1.0
+   git tag -a "$VERSION" -m "$VERSION"
+   git push origin "$VERSION"
    ```
 
-4. Watch the `release` run: both `images` jobs, then `sign` and `chart`. Version, commit, SBOM, provenance and signatures
-   are described in `docs/SUPPLY_CHAIN.md`; none of that path has run yet, so expect to iterate.
+4. Follow the `release` run through `validated`, both `images` jobs, `sign` and `chart`. Version, commit, SBOM,
+   provenance and signatures are described in `docs/SUPPLY_CHAIN.md`.
 5. **Make the packages public** (first publication only): GHCR packages are created private. In the GitHub
    profile/organisation → Packages, open each of `kubecost-auto-hpa-operator`, `kubecost-auto-hpa-engine` and
    `charts/kubecost-auto-hpa` → Package settings → Change visibility → Public. Until then clusters

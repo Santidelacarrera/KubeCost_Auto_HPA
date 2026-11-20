@@ -23,7 +23,7 @@ spec:
 ---
 {{- end }}
 {{- if .Values.networkPolicy.enabled }}
-# Engine and Redis only accept traffic from the operator.
+# Redis accepts connections from the operator and the engine.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -53,6 +53,10 @@ spec:
     - podSelector:
         matchLabels: {{- include "kch.selector" (dict "ctx" . "component" "operator") | nindent 10 }}
     ports: [{port: 6379}]
+  - from:
+    - podSelector:
+        matchLabels: {{- include "kch.selector" (dict "ctx" . "component" "engine") | nindent 10 }}
+    ports: [{port: 6379}]
 ---
 {{- end }}
 {{- if and .Values.networkPolicy.operatorEgress.enabled .Values.networkPolicy.operatorEgress.rules }}
@@ -78,6 +82,19 @@ spec:
   groups:
   - name: kubecost-auto-hpa
     rules:
+    - alert: KubeCostEngineUnavailable
+      expr: kube_deployment_status_replicas_available{namespace={{ .Release.Namespace | quote }},deployment={{ printf "%s-engine" (include "kch.name" .) | quote }}} == 0
+      for: 2m
+      labels: {severity: critical, kubecost_release: {{ .Release.Name | quote }}}
+      annotations:
+        summary: "The KubeCost engine has no ready replicas. Check database and Redis readiness."
+    {{- if and .Values.alertNotifications.enabled .Values.alertNotifications.testAlert }}
+    - alert: KubeCostNotificationTest
+      expr: vector(1)
+      labels: {severity: info, namespace: {{ .Release.Namespace | quote }}, kubecost_release: {{ .Release.Name | quote }}}
+      annotations:
+        summary: "KubeCost alert notification test"
+    {{- end }}
     - alert: KubeCostHPABudgetFrozen
       expr: kubecost_hpa_budget_frozen == 1
       for: 10m

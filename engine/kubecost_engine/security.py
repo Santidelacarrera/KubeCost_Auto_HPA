@@ -88,6 +88,7 @@ class AuthContext:
     scopes: tuple[str, ...] = field(default_factory=tuple)
     expires_at: Optional[int] = None
     revoked: bool = False
+    credential_id: Optional[str] = None
 
     @property
     def is_admin(self) -> bool:
@@ -308,8 +309,9 @@ def extract_requested_tenant(
     if qs:
         for k in ("client_id", "tenant_id"):
             vals = qs.get(k)
-            if vals and vals[0].strip():
-                candidates.append(validate_identifier(vals[0].strip(), k))
+            for value in vals or []:
+                if value.strip():
+                    candidates.append(validate_identifier(value.strip(), k))
     if isinstance(payload, dict):
         for k in ("client_id", "tenant_id"):
             v = payload.get(k)
@@ -381,6 +383,13 @@ class DistributedRateLimiter:
     def reset_local(self) -> None:
         with self._lock:
             self._local_counters.clear()
+
+    def check_redis(self) -> bool:
+        client = self._get_redis_client()
+        if client is not None:
+            return bool(client.ping())
+        url = self._explicit_redis_url
+        return not (os.environ.get("REDIS_URL", "").strip() if url is None else url)
 
     def _get_redis_client(self) -> Any:
         url = self._explicit_redis_url if self._explicit_redis_url is not None else os.environ.get("REDIS_URL", "").strip()

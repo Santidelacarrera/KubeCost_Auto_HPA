@@ -125,3 +125,27 @@ In order. Each is also in [ROADMAP.md](ROADMAP.md).
 What can be said: it starts in observe-only and explains every recommendation; changes need a policy and, by default, a human
 approval; rollback is automatic and was exercised on real GKE and AKS clusters; every saving is labelled with its level of
 evidence; and the list of what is not validated is public.
+## Stripe-hosted checkout
+
+Checkout is opt-in and uses persisted orders. Configure
+`engine.stripeCheckout.secretName` with a Kubernetes Secret containing
+`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_CHECKOUT_PRICES`,
+`STRIPE_CHECKOUT_SUCCESS_URL` and `STRIPE_CHECKOUT_CANCEL_URL`. The catalog is a
+JSON object such as `{"pilot":"price_..."}` that maps internal plan names to
+recurring Stripe Price IDs. Both return URLs must use HTTPS.
+
+The chart defaults to `engine.stripeCheckout.mode=test`. Use a test key and
+Price IDs from that account. Register the signed event destination
+`/v1/billing/stripe-webhook` for the four `checkout.session.*` events listed in
+`stripe_checkout.py`. Test a complete purchase before enabling live mode.
+
+An authenticated credential with `billing:write` creates a session at
+`POST /v1/billing/checkout` with `client_id`, `plan` and `request_id`.
+Keep the same request ID on retries. Use `GET /v1/billing/checkout` with the
+same organization and request ID to read payment status. Amounts and checkout
+destinations come from Stripe and the server catalog. The return page has no
+authority to mark a payment paid.
+
+Stripe manages recurring invoices and subscription cancellation. The engine
+records the initial verified payment. License provisioning and reconciliation
+of subsequent subscription invoices are separate processes.

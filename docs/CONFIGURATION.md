@@ -68,6 +68,26 @@ A per-namespace policy overrides the global one: key `policy.<namespace>.yaml` i
 
 ## Chart values
 
+### Engine HTTP limits
+
+`engine.http.maxWorkers` (`MAX_WORKERS`, default 256, range 1..1024) caps
+accepted work, including TLS handshakes. Excess connections are refused; plain
+HTTP receives 503 when possible. There is no unbounded application queue.
+Choose this limit together with pod memory and expected request sizes.
+
+`engine.http.socketTimeoutSeconds` (`HTTP_SOCKET_TIMEOUT_SECONDS`, default 15,
+range 0.1..300) limits idle socket reads and writes, including handshakes.
+It is not a total request-duration or CPU-work deadline. A stalled body receives
+408 when the connection still permits a response. Incomplete headers time out
+and close. Use an ingress with total header/request deadlines for public access.
+
+POST requests require one decimal `Content-Length`; transfer encoding and
+repeated identity/length headers are rejected. JSON objects cannot contain
+duplicate keys. TLS certificate and key must be configured together, and a
+client CA requires server TLS; partial configuration fails before binding.
+The static console only serves recognized asset extensions within its resolved
+web directory and never serves hidden path components.
+
 `deploy/helm/kubecost-auto-hpa/values.yaml` documents every value; `values.schema.json` rejects unknown keys.
 
 | Value | Default | Notes |

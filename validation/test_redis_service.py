@@ -14,7 +14,7 @@ def test_real_redis_atomic_limit_across_instances(monkeypatch):
         DistributedRateLimiter(redis_url=url),
         DistributedRateLimiter(redis_url=url),
     )
-    assert first._get_redis_client() is not None
+    assert first.check_redis()
     assert first.check_request(
         "/v1/evaluate", "POST", "127.0.0.1", tenant, "test"
     ).allowed

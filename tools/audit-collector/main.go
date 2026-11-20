@@ -16,6 +16,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
+	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -77,7 +78,9 @@ type server struct {
 	token  string
 	mode   minio.RetentionMode
 	retain time.Duration
-	mu     sync.Mutex // one write at a time: the keys keep the arrival order
+	once   sync.Once
+	slots  chan struct{}
+	writer chan struct{} // one write at a time: the keys keep the arrival order
 	seq    int
 }
 
@@ -90,6 +93,18 @@ func (sv *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
+	sv.once.Do(func() {
+		sv.slots = make(chan struct{}, 32)
+		sv.writer = make(chan struct{}, 1)
+	})
+	select {
+	case sv.slots <- struct{}{}:
+		defer func() { <-sv.slots }()
+	default:
+		w.Header().Set("Retry-After", "1")
+		http.Error(w, "collector busy", http.StatusServiceUnavailable)
+		return
+	}
 	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20+1))
 	if err != nil || len(body) > 1<<20 {
 		http.Error(w, "body too large or unreadable", http.StatusRequestEntityTooLarge)
@@ -100,13 +115,18 @@ func (sv *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "one JSON object per request", http.StatusBadRequest)
 		return
 	}
-	sv.mu.Lock()
-	defer sv.mu.Unlock()
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+	select {
+	case sv.writer <- struct{}{}:
+		defer func() { <-sv.writer }()
+	case <-ctx.Done():
+		http.Error(w, "not stored", http.StatusServiceUnavailable)
+		return
+	}
 	sv.seq++
 	sum := sha256.Sum256(body)
 	key := fmt.Sprintf("events/%s-%08d-%s.json", time.Now().UTC().Format("20060102T150405.000000000Z"), sv.seq, hex.EncodeToString(sum[:8]))
-	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
-	defer cancel()
 	_, err = sv.st.c.PutObject(ctx, sv.st.bucket, key, bytes.NewReader(body), int64(len(body)), minio.PutObjectOptions{
 		ContentType: "application/json", Mode: sv.mode, RetainUntilDate: time.Now().Add(sv.retain).UTC(), SendContentMd5: true})
 	if err != nil {
@@ -156,6 +176,9 @@ func main() {
 	ctx := context.Background()
 	switch os.Args[1] {
 	case "serve":
+		if *retain <= 0 {
+			log.Fatal("--retain must be positive")
+		}
 		m := minio.RetentionMode(strings.ToUpper(*mode))
 		if !m.IsValid() {
 			log.Fatalf("--mode must be COMPLIANCE or GOVERNANCE, not %q", *mode)
@@ -177,7 +200,11 @@ func main() {
 			log.Fatal("--token-file is required unless the collector listens on localhost only")
 		}
 		sv := &server{st: st, token: tok, mode: m, retain: *retain}
-		hs := &http.Server{Addr: *listen, Handler: sv, ReadHeaderTimeout: 10 * time.Second}
+		hs := &http.Server{
+			Addr: *listen, Handler: sv, ReadHeaderTimeout: 10 * time.Second,
+			ReadTimeout: 15 * time.Second, WriteTimeout: 35 * time.Second, IdleTimeout: 60 * time.Second,
+			MaxHeaderBytes: 16 << 10, TLSConfig: &tls.Config{MinVersion: tls.VersionTLS12},
+		}
 		log.Printf("serving on %s, bucket %s, %s retention %s", *listen, *bucket, m, *retain)
 		if *cert != "" {
 			log.Fatal(hs.ListenAndServeTLS(*cert, *key))
