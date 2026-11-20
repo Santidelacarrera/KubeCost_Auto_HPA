@@ -113,7 +113,26 @@ Redis, set `telemetry.redisUrl` explicitly if the engine should use it.
 
 ## User credential rotation
 
+Schedule a check with the credential supplied by your secret store as the `KCA_CREDENTIAL` environment variable.
+
+```sh
+python scripts/check_credential_expiry.py --url https://engine.example.com --warn-days 14
+```
+
+The command prints a JSON status object. Use the exit code to route alerts in CI or a scheduled job.
+
+| Exit code | Meaning |
+|---|---|
+| `0` | Expiry is beyond the warning threshold |
+| `1` | Expiry is at or within the warning threshold |
+| `2` | Expiry is unknown for a valid engine or admin environment token |
+| `3` | The check failed, including authentication failures for expired or revoked keys |
+
+Use the HTTPS engine origin. Plain HTTP is available for local testing with a loopback IP literal. The checker rejects redirects.
+
 Send an authenticated `POST /v1/users/me/rotate` with an empty JSON object to replace the user key that signed the request. Store the replacement from the response in the caller's secret store. It retains the previous expiry and is limited to the user's current role and the old key's scopes. Previously issued keys keep working until rotated, revoked or expired. The database commits revocation, replacement and account binding together. If a client loses the response after commit, a user manager can issue a fresh credential through `/v1/users/credentials` and revoke the undelivered key by its ID.
+
+To extend the lifetime, have a manager issue a fresh user-bound key through `/v1/users/credentials` or a machine key through `/v1/auth/keys`. Switch the caller to the new key before revoking the old one.
 
 Account managers can submit just the changed fields to `POST /v1/users/update` with the account ID and current integer version. Read the current account before retrying a conflicting update.
 

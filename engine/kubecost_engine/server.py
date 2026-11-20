@@ -22,6 +22,7 @@ import os
 import signal
 import ssl
 import threading
+import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Optional
@@ -467,7 +468,7 @@ class Handler(BaseHTTPRequestHandler):
                     credential_type="api_key",
                     roles=("admin", "tenant") if is_adm else ("tenant",),
                     scopes=tuple(rec.scopes),
-                    expires_at=rec.expires_at,
+                    expires_at=rec.effective_expires_at,
                     revoked=rec.revoked,
                 )
 
@@ -736,6 +737,9 @@ class Handler(BaseHTTPRequestHandler):
             except AuthorizationError:
                 return self._write_json(403, {"error": "forbidden: access denied"})
 
+            if path_only in {"/v1/auth/credential-expiry", "/v1/auth/keys"} and not auth_ctx.authenticated:
+                return self._write_json(401, {"error": "unauthorized"})
+
             try:
                 self._validate_global_numeric_query_params(qs)
                 req_tenant = extract_requested_tenant(qs=qs)
@@ -890,7 +894,23 @@ class Handler(BaseHTTPRequestHandler):
                     )
                     return self._write_json(200, inv, rl_decision=rl_dec)
 
+                if path_only == "/v1/auth/credential-expiry":
+                    if qs.keys() - {"client_id", "tenant_id"}:
+                        return self._write_json(400, {"error": "invalid request parameters"}, rl_decision=rl_dec)
+                    expires_at = auth_ctx.expires_at
+                    return self._write_json(
+                        200,
+                        {
+                            "credential_type": auth_ctx.credential_type,
+                            "expires_at": expires_at,
+                            "remaining_seconds": max(0, expires_at - int(time.time())) if expires_at is not None else None,
+                        },
+                        rl_decision=rl_dec,
+                    )
+
                 if path_only == "/v1/auth/keys":
+                    if auth_ctx.credential_type == "api_key" and not auth_ctx.has_scope("keys:manage"):
+                        raise AuthorizationError("missing keys:manage scope")
                     keys = _auth_manager.list_client_keys(effective_tenant)
                     return self._write_json(200, {"keys": keys}, rl_decision=rl_dec)
 

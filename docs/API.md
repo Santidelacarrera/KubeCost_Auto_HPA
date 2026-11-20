@@ -57,8 +57,21 @@ recommending request reductions and rejects non-boolean OOM signals.
 | `GET`/`POST /v1/finops/guardrail` | Budget burn-rate check on the figures you send |
 | `GET /v1/audit/decisions`, `GET /v1/telemetry/events` | Decisions and events the engine recorded for the authenticated tenant |
 | `GET`/`POST /v1/policies`, `GET /v1/commands/pending`, `POST /v1/telemetry/ingest`, `POST /v1/agents/heartbeat` | Control-plane state for a multi-tenant deployment. Experimental; not used by the chart |
-| `POST /v1/auth/keys`, `POST /v1/auth/keys/revoke`, `GET /v1/auth/keys` | Tenant API keys (admin token) |
+| `POST /v1/auth/keys`, `POST /v1/auth/keys/revoke`, `GET /v1/auth/keys` | Manage tenant API keys. Listing requires an authorized engine or admin token, or a tenant API key with `keys:manage` |
+| `GET /v1/auth/credential-expiry` | Expiry of the credential used for the request |
 | `GET /metrics` | Prometheus metrics of the engine |
+
+### Credential expiry
+
+Call `GET /v1/auth/credential-expiry` with the credential in `Authorization: Bearer …` or `X-API-Key`. User-bound and machine API keys can check their expiry with any scope. The response uses `Cache-Control: no-store` and contains only these fields.
+
+| Field | Meaning |
+|---|---|
+| `credential_type` | `api_key`, `engine_token`, or `admin_token` |
+| `expires_at` | Unix timestamp in UTC seconds, or `null` for engine and admin tokens configured in the environment |
+| `remaining_seconds` | Seconds to expiry on the server clock, bounded at zero, or `null` for environment tokens |
+
+Missing, invalid, expired, and revoked credentials return `401`. A conflicting tenant returns `403`. Optional `client_id`, `tenant_id`, and `X-Tenant-ID` values are checked by the normal tenant gate.
 
 ### Routes that answer from sample data
 

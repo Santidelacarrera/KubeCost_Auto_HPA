@@ -4,6 +4,7 @@
 def specification():
     paths = {}
     reads = (
+        "auth/credential-expiry",
         "billing/checkout",
         "alerts",
         "users",
@@ -216,6 +217,24 @@ def specification():
                         {"name": "request_id", "in": "query", "required": True, "schema": {"type": "string"}},
                         {"name": "client_id", "in": "query", "schema": {"type": "string"}},
                     ]
+                if route == "auth/credential-expiry":
+                    operation["description"] = "Read the expiry of the authenticated credential. No additional scope is required."
+                    operation["security"] = [{"bearerAuth": []}, {"apiKeyAuth": []}]
+                    operation["parameters"] = [
+                        {"name": name, "in": location, "schema": {"type": "string"}}
+                        for name, location in (("client_id", "query"), ("tenant_id", "query"), ("X-Tenant-ID", "header"))
+                    ]
+                    properties = {
+                        "credential_type": {"type": "string", "enum": ["api_key", "engine_token", "admin_token"]},
+                        "expires_at": {"type": "integer", "format": "int64", "nullable": True, "description": "Expiry as Unix UTC seconds, or null for an environment token."},
+                        "remaining_seconds": {"type": "integer", "minimum": 0, "nullable": True, "description": "Seconds until expiry on the server clock, or null for an environment token."},
+                    }
+                    del operation["responses"]["408"], operation["responses"]["413"]
+                    operation["responses"]["200"] = {"description": "Expiry of the authenticated credential", "headers": {
+                        "Cache-Control": {"schema": {"type": "string", "enum": ["no-store"]}},
+                    }, "content": {"application/json": {"schema": {
+                        "type": "object", "required": list(properties), "properties": properties, "additionalProperties": False,
+                    }}}}
             paths.setdefault("/v1/" + route, {})[method] = operation
     legacy_get = (
         "policies commands/pending audit/decisions telemetry/events ui/cast-dashboard "
@@ -246,6 +265,11 @@ def specification():
             if route == "billing/stripe-webhook":
                 operation["security"] = [{"stripeSignature": []}]
             describe(method, route, operation)
+            if method == "get" and route == "auth/keys":
+                operation["description"] = "List tenant API keys. Requires an authorized engine or admin token, or a tenant API key with keys:manage."
+                operation["security"] = [{"bearerAuth": []}, {"apiKeyAuth": []}]
+                operation["responses"]["401"] = {"description": "Authentication required"}
+                operation["responses"]["403"] = {"description": "Tenant or scope denied"}
             paths.setdefault("/v1/" + route, {})[method] = operation
     return {
         "openapi": "3.0.3",
@@ -257,6 +281,7 @@ def specification():
         "paths": paths,
         "components": {
             "securitySchemes": {"bearerAuth": {"type": "http", "scheme": "bearer"},
+                                "apiKeyAuth": {"type": "apiKey", "in": "header", "name": "X-API-Key"},
                                 "stripeSignature": {"type": "apiKey", "in": "header", "name": "Stripe-Signature"}}
         },
     }

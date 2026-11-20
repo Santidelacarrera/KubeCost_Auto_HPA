@@ -29,10 +29,15 @@ class TenantAPIKeyRecord:
     revoked: bool = False
     user_id: str = ""
 
+    @property
+    def effective_expires_at(self) -> int:
+        if self.expires_at > 0:
+            return self.expires_at
+        return self.created_at + DEFAULT_KEY_EXPIRATION_DAYS * 86400
+
     def is_expired(self, now_unix: Optional[int] = None) -> bool:
         now = int(now_unix if now_unix is not None else time.time())
-        eff_exp = self.expires_at if self.expires_at > 0 else (self.created_at + DEFAULT_KEY_EXPIRATION_DAYS * 86400)
-        return now >= eff_exp
+        return now >= self.effective_expires_at
 
 
 class MultiTenantAuthManager:
@@ -307,7 +312,7 @@ class MultiTenantAuthManager:
                     scopes = [scope for scope in scopes if scope in ROLES[user["role"]]]
             new_issued = self.issue_api_key(
                 clean_client, scopes=scopes, expires_in_days=expires_in_days,
-                expires_at=rec.expires_at if preserve_expiry else None,
+                expires_at=rec.effective_expires_at if preserve_expiry else None,
                 binding=binding, _rotated_from=clean_key_id,
             )
             revoked = replace(rec, revoked=True)

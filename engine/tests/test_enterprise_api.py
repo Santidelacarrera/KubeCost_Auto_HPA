@@ -27,17 +27,21 @@ def api(monkeypatch, tmp_path):
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     thread.start()
 
-    def request(path, payload=None, key="local-test"):
+    def request(path, payload=None, key="local-test", *, headers=None, include_headers=False):
+        request_headers = {"Content-Type": "application/json"}
+        if key is not None:
+            request_headers["Authorization"] = "Bearer " + key
+        if headers:
+            request_headers.update(headers)
         req = urllib.request.Request(
             f"http://127.0.0.1:{httpd.server_port}/v1/{path}",
             data=json.dumps(payload).encode() if payload is not None else None,
-            headers={
-                "Authorization": "Bearer " + key,
-                "Content-Type": "application/json",
-            },
+            headers=request_headers,
         )
         try:
             with urllib.request.urlopen(req) as res:
+                if include_headers:
+                    return res.status, json.load(res), res.headers
                 return res.status, json.load(res)
         except urllib.error.HTTPError as exc:
             return exc.code, json.load(exc)
@@ -164,6 +168,55 @@ def test_personal_profile_export_and_correction(api):
     assert request("users?client_id=b")[1]["items"][0]["display_name"] == "alice"
 
 
+def test_credential_expiry_machine_key_and_key_inventory(api):
+    request, auth, _ = api
+    route = "auth/credential-expiry"
+    now = int(time.time())
+    issued = auth.issue_api_key("a", scopes=[], expires_at=now + 3600)
+    key = issued["api_key"]
+    status, data, headers = request(route, key=None, headers={"X-API-Key": key}, include_headers=True)
+    assert status == 200
+    assert headers["Cache-Control"] == "no-store"
+    assert set(data) == {"credential_type", "expires_at", "remaining_seconds"}
+    assert data["credential_type"] == "api_key"
+    assert data["expires_at"] == issued["expires_at"]
+    assert issued["expires_at"] - int(time.time()) <= data["remaining_seconds"] <= 3600
+    assert request(route + "?tenant_id=b", key=key)[0] == 403
+    assert request(route, key=key, headers={"X-Tenant-ID": "b"})[0] == 403
+    assert request(route + "?key_id=" + issued["key_id"], key=key)[0] == 400
+
+    assert request("auth/keys", key=key)[0] == 403
+    manager = auth.issue_api_key("a", scopes=["keys:manage"])["api_key"]
+    assert request("auth/keys", key=manager)[0] == 200
+    assert request("auth/keys?client_id=b", key=manager)[0] == 403
+    assert request("auth/keys?client_id=a")[0] == 200
+
+    legacy_key = auth.issue_api_key("a", scopes=[], created_at=now, expires_at=0)
+    legacy_expiry = request(route, key=legacy_key["api_key"])[1]["expires_at"]
+    assert legacy_expiry == now + 90 * 86400
+    rotated_legacy = auth.rotate_api_key("a", legacy_key["key_id"], preserve_expiry=True)
+    assert request(route, key=rotated_legacy["api_key"])[1]["expires_at"] == legacy_expiry
+    expired_key = auth.issue_api_key("a", scopes=[], created_at=now - 1, expires_at=now)
+    assert request(route, key=expired_key["api_key"])[0] == 401
+    auth.revoke_api_key("a", issued["key_id"])
+    assert request(route, key=key)[0] == 401
+
+
+def test_credential_expiry_tokens_and_anonymous_access(api, monkeypatch):
+    request, _, _ = api
+    route = "auth/credential-expiry"
+    monkeypatch.setenv("ENGINE_ADMIN_TOKEN", "local-admin")
+    for credential_type, key in (("engine_token", "local-test"), ("admin_token", "local-admin")):
+        assert request(route, key=key) == (
+            200, {"credential_type": credential_type, "expires_at": None, "remaining_seconds": None}
+        )
+    assert request(route, key="invalid")[0] == 401
+    monkeypatch.delenv("ENGINE_TOKEN")
+    monkeypatch.delenv("ENGINE_ADMIN_TOKEN")
+    assert request(route, key=None)[0] == 401
+    assert request("auth/keys", key=None)[0] == 401
+
+
 def test_personal_rotation_serializes_and_preserves_account_updates(api):
     from concurrent.futures import ThreadPoolExecutor
 
@@ -171,6 +224,7 @@ def test_personal_rotation_serializes_and_preserves_account_updates(api):
     base = {"client_id": "a", "id": "alice"}
     assert request("users", {**base, "role": "operator", "display_name": "Ops"})[0] == 200
     issued = request("users/credentials", base)[1]
+    assert request("auth/credential-expiry", key=issued["api_key"])[1]["expires_at"] == issued["expires_at"]
     from kubecost_engine.users import ROLES
     limited = auth.issue_api_key("a", scopes=["users:manage", *ROLES["viewer"]])["api_key"]
     assert request("users/update", {**base, "role": "viewer", "version": 1}, limited)[0] == 403
@@ -184,12 +238,15 @@ def test_personal_rotation_serializes_and_preserves_account_updates(api):
     assert replacement["expires_at"] == issued["expires_at"]
     assert "enterprise:write" not in replacement["scopes"]
     assert request("users/me", key=issued["api_key"])[0] == 401
+    assert request("auth/credential-expiry", key=issued["api_key"])[0] == 401
     assert request("users/me", key=replacement["api_key"])[1]["display_name"] == "Ops"
+    assert request("auth/credential-expiry", key=replacement["api_key"])[1]["expires_at"] == issued["expires_at"]
     persisted = MultiTenantAuthManager(cp._store)
     assert persisted.verify_api_key(replacement["api_key"]).user_id == "alice"
     assert request("users/update", {**base, "status": "disabled", "version": 2})[0] == 200
     assert request("users/update", {**base, "display_name": "New", "version": 3})[1]["status"] == "disabled"
     assert request("users/me", key=replacement["api_key"])[0] == 401
+    assert request("auth/credential-expiry", key=replacement["api_key"])[0] == 401
 
 
 def test_decision_telemetry_uses_authenticated_tenant(api, monkeypatch):
