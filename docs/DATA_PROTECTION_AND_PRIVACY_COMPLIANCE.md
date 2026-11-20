@@ -41,7 +41,18 @@ El archivo contiene una lista JSON. Cada entrada identifica la organización, el
 [{"tenant":"demo","id":"operador","created_at":123,"action":"correct","display_name":"Turno A"}]
 ```
 
-La acción `disable` bloquea el acceso de la cuenta. La acción `remove_display_name` también sustituye su nombre visible. El ID y los registros de auditoría conservan referencias que necesitan revisión separada. Una cuenta ausente o con otra fecha de creación detiene la publicación de la copia para que el operador revise el caso. El destino debe residir en un sistema de archivos que admita enlaces duros. Para PostgreSQL y los receptores externos se requiere un procedimiento propio.
+La acción `disable` bloquea el acceso de la cuenta. La acción `remove_display_name` también sustituye su nombre visible. El ID y los registros de auditoría conservan referencias que necesitan revisión separada. Una cuenta ausente o con otra fecha de creación detiene la publicación de la copia para que el operador revise el caso. El destino debe residir en un sistema de archivos que admita enlaces duros.
+
+### Revisar y recuperar datos de cuenta en PostgreSQL
+
+Configurar `KCA_RESTORED_POSTGRES_DSN` para el servidor restaurado y aislado. Usar el nombre real de la base en los dos comandos. Guardar el informe en una carpeta privada y revisar el contenido antes de entregarlo por el canal acordado.
+
+```sh
+python hack/restored_profiles.py --database recuperada review --tenant demo --user operador --output informe.json
+python hack/restored_profiles.py --database recuperada replay --decisions decisiones.json
+```
+
+El informe reúne el perfil, cambios de rol o estado y actividad atribuible al identificador exacto del usuario en credenciales, licencias, alertas, retención y consolidación. Omite los secretos y textos libres de las operaciones. El responsable debe consultar por separado los expedientes de soporte, receptores externos y proveedores de pago. El segundo comando comprueba el bloqueo de escritor del motor y aplica el lote de decisiones en una transacción. Una decisión inválida revierte el lote.
 
 La tarea de retención se configura con `engine.retention.enabled` y `engine.retention.days`. Revisar el efecto primero con `POST /v1/maintenance/retention` y `{"days":30,"dry_run":true}`. Los treinta días son un ejemplo de configuración. La tarea abarca telemetría y mantiene marcas de deduplicación. Cuentas, auditoría, pagos, streams y respaldos requieren políticas propias. La publicación de decisiones en Redis se habilita con `telemetry.enabled`. Comprobar quién puede leer el stream compartido antes de activarla.
 

@@ -1,7 +1,10 @@
 """Restore a PostgreSQL custom archive into a separate, empty server."""
 
 import os
+import json
+from pathlib import Path
 import subprocess
+import sys
 import time
 import uuid
 
@@ -42,6 +45,10 @@ def test_restore_preserves_tenant_state_and_versions(tmp_path):
         try:
             for tenant in ("north", "south"):
                 store.put_object(tenant, "plan", "shared", {"id": "shared", "owner": tenant})
+                store.put_object(tenant, "user", "operator", {"id": "operator", "display_name": tenant,
+                                 "created_at": 123, "status": "active", "role": "viewer", "history": []})
+            store.put_object("north", "maintenance", "m1", {"principal": "user:north:operator", "created_at": 124})
+            store.put_object("north", "maintenance", "m2", {"principal": "user:north:other", "created_at": 125})
             archive = tmp_path / "backup.dump"
             with archive.open("xb") as output:
                 docker("exec", src, "pg_dump", "-U", "postgres", "-Fc", "postgres", stdout=output)
@@ -54,7 +61,27 @@ def test_restore_preserves_tenant_state_and_versions(tmp_path):
                    "-d", "postgres", stdin=data)
         restored = PostgreSQLSaaSStore(dsn)
         try:
+            script = Path(__file__).resolve().parents[1] / "hack" / "restored_profiles.py"
+            env = {**os.environ, "KCA_RESTORED_POSTGRES_DSN": dsn}
+            command = [sys.executable, str(script), "--database", "postgres"]
+            report = tmp_path / "profile.json"
+            subprocess.run([*command, "review", "--tenant", "north", "--user", "operator", "--output", str(report)],
+                           env=env, check=True, timeout=15)
+            exported = json.loads(report.read_text(encoding="utf-8"))
+            assert exported["profile"]["display_name"] == "north"
+            assert exported["activity"] == [{"kind": "maintenance", "action": "principal", "timestamp": 124}]
+            manifest = tmp_path / "decisions.json"
+            decision = {"tenant": "north", "id": "operator", "created_at": 123, "action": "remove_display_name"}
+            replay = [*command, "replay", "--decisions", str(manifest)]
+            manifest.write_text(json.dumps([decision, {**decision, "created_at": 999}]), encoding="utf-8")
+            assert subprocess.run(replay, env=env, capture_output=True, timeout=15).returncode != 0
+            assert restored.get_object("north", "user", "operator")["status"] == "active"
+            manifest.write_text(json.dumps([decision]), encoding="utf-8")
+            subprocess.run(replay, env=env, check=True, timeout=15)
+            assert restored.get_object("north", "user", "operator")["status"] == "disabled"
+            assert restored.get_object("south", "user", "operator")["display_name"] == "south"
             restored.acquire_control_plane()
+            assert subprocess.run(replay, env=env, capture_output=True, timeout=15).returncode != 0
             for tenant in ("north", "south"):
                 assert restored.get_object(tenant, "plan", "shared") == {
                     "id": "shared", "owner": tenant, "version": 1,

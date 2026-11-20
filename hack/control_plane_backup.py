@@ -11,10 +11,12 @@ import sqlite3
 import tempfile
 
 
-def apply_profile_decisions(conn, decisions):
+def apply_profile_decisions(conn, decisions, *, postgres=False):
     """Replay an operator-reviewed list against a private recovery copy."""
     if not isinstance(decisions, list):
         raise ValueError("expected an array of profile decisions")
+    bind = "%s" if postgres else "?"
+    where = f"tenant={bind} AND kind='user' AND id={bind}"
     for decision in decisions:
         action = decision["action"]
         fields = {"tenant", "id", "created_at", "action"}
@@ -23,7 +25,7 @@ def apply_profile_decisions(conn, decisions):
         if set(decision) != fields or action not in ("correct", "disable", "remove_display_name"):
             raise ValueError("invalid profile decision")
         identity = (decision["tenant"], decision["id"])
-        row = conn.execute("SELECT payload FROM enterprise_objects WHERE tenant=? AND kind='user' AND id=?", identity).fetchone()
+        row = conn.execute("SELECT payload FROM enterprise_objects WHERE " + where, identity).fetchone()
         if not row:
             raise ValueError("account missing from backup")
         user = json.loads(row[0])
@@ -40,7 +42,7 @@ def apply_profile_decisions(conn, decisions):
             changes = {"display_name": "[removed]", "status": "disabled"}
         if any(user.get(key) != value for key, value in changes.items()):
             user.update(changes)
-            conn.execute("UPDATE enterprise_objects SET version=version+1,payload=? WHERE tenant=? AND kind='user' AND id=?",
+            conn.execute(f"UPDATE enterprise_objects SET version=version+1,payload={bind} WHERE " + where,
                          (json.dumps(user), *identity))
 
 
