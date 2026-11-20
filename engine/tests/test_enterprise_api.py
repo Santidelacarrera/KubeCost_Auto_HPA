@@ -194,6 +194,22 @@ def test_operational_data_requires_read_scopes(api):
         assert request(route, key=reader)[0] == 200
 
 
+def test_legacy_contract_matches_operational_http(api):
+    request, _, _ = api
+    paths = request("openapi.json")[1]["paths"]
+    for route in ("pricing/lookup", "gpu/optimize", "finops/guardrail", "gameday/simulate"):
+        status, result = request(route)
+        assert status == 200
+        schema = paths["/v1/" + route]["get"]["responses"]["200"]["content"]["application/json"]["schema"]
+        assert set(schema["required"]) <= result.keys()
+    command = paths["/v1/commands/prewarm"]["post"]["requestBody"]["content"]["application/json"]["schema"]
+    assert set(command["required"]) == {"cluster_id", "workload"}
+    planner = paths["/v1/cluster/binpack"]["post"]["requestBody"]["content"]["application/json"]["schema"]
+    pod = planner["properties"]["nodes"]["items"]["properties"]["pods"]["items"]
+    assert pod["properties"]["can_evict"]["type"] == "boolean"
+    assert "200" not in paths["/v1/ui/recommendations/execute"]["post"]["responses"]
+
+
 def test_two_credentials_of_same_user_cannot_self_approve(api):
     request, _, _ = api
     assert request("users", {"client_id": "a", "id": "alice", "role": "owner"})[0] == 200

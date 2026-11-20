@@ -27,6 +27,22 @@ El perfil cubre la cuenta operativa. Para una solicitud que abarque auditoría, 
 
 ## Retención, incidentes y proveedores
 
+### Restaurar perfiles de SQLite
+
+Para evitar que un respaldo reactive una cuenta bloqueada o reponga un nombre retirado, mantener fuera de la base un registro de decisiones aprobadas con acceso restringido. Al restaurar, aplicar las decisiones vigentes en orden cronológico a una copia nueva antes de abrir el servicio.
+
+```sh
+python hack/control_plane_backup.py restore --source respaldo.db --destination recuperada.db --profile-decisions decisiones.json
+```
+
+El archivo contiene una lista JSON. Cada entrada identifica la organización, el ID de cuenta y el valor exacto de `created_at` obtenido del perfil. Por ejemplo:
+
+```json
+[{"tenant":"demo","id":"operador","created_at":123,"action":"correct","display_name":"Turno A"}]
+```
+
+La acción `disable` bloquea el acceso de la cuenta. La acción `remove_display_name` también sustituye su nombre visible. El ID y los registros de auditoría conservan referencias que necesitan revisión separada. Una cuenta ausente o con otra fecha de creación detiene la publicación de la copia para que el operador revise el caso. El destino debe residir en un sistema de archivos que admita enlaces duros. Para PostgreSQL y los receptores externos se requiere un procedimiento propio.
+
 La tarea de retención se configura con `engine.retention.enabled` y `engine.retention.days`. Revisar el efecto primero con `POST /v1/maintenance/retention` y `{"days":30,"dry_run":true}`. Los treinta días son un ejemplo de configuración. La tarea abarca telemetría y mantiene marcas de deduplicación. Cuentas, auditoría, pagos, streams y respaldos requieren políticas propias. La publicación de decisiones en Redis se habilita con `telemetry.enabled`. Comprobar quién puede leer el stream compartido antes de activarla.
 
 Ante una vulneración, contenerla, preservar evidencia con acceso restringido e identificar sistemas, categorías de datos y personas afectadas. El encargado debe escalar al responsable. Evaluar y registrar la procedencia de avisar a la Agencia y a los titulares conforme al artículo 14 sexies. Conservar cronología, decisiones y mensajes emitidos. [Ley 21.719, obligaciones de seguridad y reporte](https://www.bcn.cl/leychile/navegar?i=1209272)

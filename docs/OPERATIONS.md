@@ -103,7 +103,10 @@ the active PostgreSQL session. The standby recovered persisted registration
 state and accepted new writes in all three cases. Run
 `KCA_FAILOVER_SMOKE=1 python -m pytest validation/test_failover_runtime.py -q -s`
 to reproduce against disposable containers. This does not exercise database
-server failover, network partitions, or production availability guarantees.
+server failover or production availability guarantees. The same smoke suite also
+disconnects the active engine from its Docker network while PostgreSQL and the
+standby stay connected. In standby mode the PostgreSQL session uses TCP keepalives
+at both ends so a disconnected owner eventually releases its advisory lock.
 
 With bundled Redis the chart derives its DNS name from the release. With external
 Redis, set `telemetry.redisUrl` explicitly if the engine should use it.

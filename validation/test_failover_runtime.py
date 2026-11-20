@@ -12,7 +12,7 @@ import pytest
 
 
 @pytest.mark.skipif(os.getenv("KCA_FAILOVER_SMOKE") != "1", reason="requires Docker")
-@pytest.mark.parametrize("failure", ["sigterm", "sigkill", "database-session-loss"])
+@pytest.mark.parametrize("failure", ["sigterm", "sigkill", "database-session-loss", "network-disconnect"])
 def test_engine_signals_release_postgres_and_preserve_state(failure):
     name = "kca-failover-" + uuid.uuid4().hex[:8]
     pg, active, standby = [f"{name}-{role}" for role in ("pg", "active", "standby")]
@@ -36,8 +36,8 @@ def test_engine_signals_release_postgres_and_preserve_state(failure):
         with urllib.request.urlopen(req, timeout=2) as response:
             return json.load(response)
 
-    def ready(base):
-        deadline = time.monotonic() + 30
+    def ready(base, timeout=30):
+        deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             try:
                 if request(base, "/readyz")["status"] == "ok":
@@ -72,6 +72,9 @@ def test_engine_signals_release_postgres_and_preserve_state(failure):
         elif failure == "sigkill":
             docker("kill", active)
             expected_exit = "137"
+        elif failure == "network-disconnect":
+            docker("network", "disconnect", name, active)
+            expected_exit = "1"
         else:
             # Only the lock-owning connection in this disposable database is
             # terminated. The waiting replica must reload committed state.
@@ -80,7 +83,7 @@ def test_engine_signals_release_postgres_and_preserve_state(failure):
                                 "WHERE locktype='advisory' AND objid=1262698833 AND granted")
             assert terminated == "t"
             expected_exit = "1"
-        ready(second)
+        ready(second, timeout=60 if failure == "network-disconnect" else 30)
         print(f"Engine available on standby after {failure}: {time.monotonic() - started:.2f}s")
         assert docker("wait", active) == expected_exit
         clusters = request(second, "/v1/clusters?client_id=lab")["items"]

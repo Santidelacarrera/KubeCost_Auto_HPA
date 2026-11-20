@@ -46,6 +46,12 @@ class PostgreSQLSaaSStore(SQLiteSaaSStore):
         with self._lock:
             if getattr(self, "_control_plane_acquired", False):
                 return
+            if wait:
+                # PostgreSQL must also detect a vanished lock owner if the
+                # client's final TCP packets cannot reach the server.
+                self._conn.execute("SET tcp_keepalives_idle = 10")
+                self._conn.execute("SET tcp_keepalives_interval = 5")
+                self._conn.execute("SET tcp_keepalives_count = 3")
             while True:
                 row = self._conn.execute("SELECT pg_try_advisory_lock(1262698833) AS acquired").fetchone()
                 if row["acquired"]:

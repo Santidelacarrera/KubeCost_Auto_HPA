@@ -215,6 +215,8 @@ def specification():
         "gpu/optimize finops/guardrail gameday/simulate cast/commitments cast/hibernation "
         "cast/network-storage billing/stripe-webhook"
     ).split()
+    from .legacy_contract import describe
+
     for method, routes in (("get", legacy_get), ("post", legacy_post)):
         for route in routes:
             operation = {
@@ -229,6 +231,7 @@ def specification():
                     "application/json": {"schema": {"type": "object"}}}}
             if route == "billing/stripe-webhook":
                 operation["security"] = [{"stripeSignature": []}]
+            describe(method, route, operation)
             paths.setdefault("/v1/" + route, {})[method] = operation
     return {
         "openapi": "3.0.3",
