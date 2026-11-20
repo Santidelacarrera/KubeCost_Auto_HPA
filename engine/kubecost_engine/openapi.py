@@ -226,15 +226,34 @@ def specification():
                     ]
                     properties = {
                         "credential_type": {"type": "string", "enum": ["api_key", "engine_token", "admin_token"]},
-                        "expires_at": {"type": "integer", "format": "int64", "nullable": True, "description": "Expiry as Unix UTC seconds, or null for an environment token."},
-                        "remaining_seconds": {"type": "integer", "minimum": 0, "nullable": True, "description": "Seconds until expiry on the server clock, or null for an environment token."},
+                        "expires_at": {
+                            "type": "integer",
+                            "format": "int64",
+                            "nullable": True,
+                            "description": "Expiry as Unix UTC seconds, or null for an environment token.",
+                        },
+                        "remaining_seconds": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "nullable": True,
+                            "description": "Seconds until expiry on the server clock, or null for an environment token.",
+                        },
                     }
                     del operation["responses"]["408"], operation["responses"]["413"]
-                    operation["responses"]["200"] = {"description": "Expiry of the authenticated credential", "headers": {
-                        "Cache-Control": {"schema": {"type": "string", "enum": ["no-store"]}},
-                    }, "content": {"application/json": {"schema": {
-                        "type": "object", "required": list(properties), "properties": properties, "additionalProperties": False,
-                    }}}}
+                    operation["responses"]["200"] = {
+                        "description": "Expiry of the authenticated credential",
+                        "headers": {"Cache-Control": {"schema": {"type": "string", "enum": ["no-store"]}}},
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": list(properties),
+                                    "properties": properties,
+                                    "additionalProperties": False,
+                                }
+                            }
+                        },
+                    }
             paths.setdefault("/v1/" + route, {})[method] = operation
     legacy_get = (
         "policies commands/pending audit/decisions telemetry/events ui/cast-dashboard "

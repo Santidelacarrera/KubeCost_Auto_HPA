@@ -181,6 +181,10 @@ def test_credential_expiry_machine_key_and_key_inventory(api):
     assert data["credential_type"] == "api_key"
     assert data["expires_at"] == issued["expires_at"]
     assert issued["expires_at"] - int(time.time()) <= data["remaining_seconds"] <= 3600
+    operation = request("openapi.json", key=key)[1]["paths"]["/v1/" + route]["get"]
+    schema = operation["responses"]["200"]["content"]["application/json"]["schema"]
+    assert set(schema["required"]) == data.keys()
+    assert schema["additionalProperties"] is False
     assert request(route + "?tenant_id=b", key=key)[0] == 403
     assert request(route, key=key, headers={"X-Tenant-ID": "b"})[0] == 403
     assert request(route + "?key_id=" + issued["key_id"], key=key)[0] == 400
